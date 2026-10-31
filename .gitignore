@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Kotlin/Compose
+.cxx/
+
+# 本地敏感配置(样例见 PENENGINE-APPLY.md,不提交真实凭据)
+*.keystore
+!debug.keystore
+
+# 调试残留(模拟器验证截图/布局 dump)
+shot_*.png
+shot_*.jpg
+milk_ui.xml
+ui_dump.xml

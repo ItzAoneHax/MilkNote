@@ -1,0 +1,41 @@
+// 牛奶笔记 MilkNote · 笔迹数据格式(DESIGN-V0 §6.1)
+// 一页 = p0001.pb;页面文件为 StrokeRecord 流(长度分界追加写):
+//   每条 = varint 长度 + Stroke 消息体;擦除/删除 = 同格式 tombstone。
+syntax = "proto3";
+package milknote.ink;
+
+option java_package = "com.milknote.ink.proto";
+option java_multiple_files = true;
+
+// 单采样点:位置 / 压感(归一 0..1) / 倾角 / 时间戳(单调,ms)
+message Point {
+  float x = 1;
+  float y = 2;
+  float p = 3;
+  float tx = 4; // tiltX 0..90,0 = 垂直
+  float ty = 5; // tiltY
+  uint64 t = 6;
+}
+
+message Stroke {
+  string id = 1;
+  string tool = 2;      // pen | ball | highlighter | eraser
+  string color = 3;     // hex,如 #23221E
+  float base_width = 4; // mm,压感映射前的基准宽
+  repeated Point pts = 5;
+}
+
+// 追加流里的一条记录:普通笔迹 or 删除墓碑(指向被删 stroke id)
+message StrokeRecord {
+  oneof kind {
+    Stroke stroke = 1;
+    string tombstone = 2; // 被删除的 stroke id
+  }
+}
+
+// 整页快照(全量导出/恢复用;常规保存走 StrokeRecord 追加流)
+message PageSnapshot {
+  string page_id = 1;
+  string paper = 2; // dot | line | grid | blank
+  repeated Stroke strokes = 3;
+}

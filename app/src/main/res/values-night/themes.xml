@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 暗色:窗口背景(启动/露底)与状态栏图标 -->
+    <style name="Theme.MilkNote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/paper_dark</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

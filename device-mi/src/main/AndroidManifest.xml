@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 笔电量 GATT(DESIGN-V0 §3.3);运行时向用户申请 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+</manifest>
