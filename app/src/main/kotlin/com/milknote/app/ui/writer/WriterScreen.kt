@@ -87,6 +87,17 @@ fun WriterScreen(
     LaunchedEffect(Unit) {
         vm.toasts.collect { toast = it.text }
     }
+
+    // 笔键接管兜底:应用内更新(PackageInstaller)会清掉 adb 授予的
+    // WRITE_SECURE_SETTINGS —— 检测并补写/提示,避免静默降级
+    val writerCtx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        if (com.milknote.app.pen.PenKeyTakeover.canWrite(writerCtx)) {
+            com.milknote.app.pen.PenKeyTakeover.set(writerCtx, true)
+        } else {
+            vm.toast("笔键长按接管未激活(更新后需重新 adb 授权),长按将弹系统提示")
+        }
+    }
     LaunchedEffect(toast) {
         if (toast != null) { kotlinx.coroutines.delay(2000); toast = null }
     }
