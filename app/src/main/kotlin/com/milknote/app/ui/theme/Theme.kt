@@ -51,10 +51,18 @@ val PillShape = RoundedCornerShape(999.dp)
 
 @Composable
 fun MilkTheme(darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val colors = if (darkTheme) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = colors,
         typography = MilkTypography,
         shapes = MilkShapes,
-        content = content,
-    )
+    ) {
+        // 关键:未显式指定颜色的 Text/Icon 默认走 LocalContentColor,
+        // 其全局默认是纯黑(只有 Material3 Surface 会设)——不设则深色模式下黑字配黑底。
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides colors.onBackground,
+        ) {
+            content()
+        }
+    }
 }

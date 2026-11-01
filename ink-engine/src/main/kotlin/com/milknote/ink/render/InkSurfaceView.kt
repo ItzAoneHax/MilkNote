@@ -126,6 +126,17 @@ class InkSurfaceView @JvmOverloads constructor(
     private var stylusSeen = false
     private var fingerDrawing = false
 
+    /**
+     * 蓝牙笔已连接(GATT 电量有来源)——即便笔尚未碰过屏,也视为「有笔」:
+     * 手指只导航不书写(已连笔场景下防手掌/手指误写)。
+     */
+    var penConnected: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            if (value) stylusSeen = true
+        }
+
     // 本笔是否倒置橡皮
     private var invertedEraser = false
 
@@ -394,6 +405,10 @@ class InkSurfaceView @JvmOverloads constructor(
         val c = controller
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
+                // 笔靠近数字化器即视为「有笔」(悬停也是 STYLUS 事件流)
+                if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+                    event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+                ) stylusSeen = true
                 hoverX = event.x; hoverY = event.y
                 invalidate()
                 return true
@@ -682,7 +697,10 @@ class InkSurfaceView @JvmOverloads constructor(
         super.onDraw(canvas)
         val c = controller
         // 注意:Compose interop 传入的 canvas 不保证裁剪到自身 bounds,
-        // 禁用 drawColor(整画布),必须按自身尺寸显式画矩形
+        // 禁用 drawColor(整画布),必须按自身尺寸显式画矩形;且整体再裁剪一次
+        // 到自身 bounds,杜绝任何绘制越界(顶栏/状态条)。
+        canvas.save()
+        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
         backdropPaint.reset()
         backdropPaint.color = backdropColor
         backdropPaint.style = Paint.Style.FILL
@@ -730,6 +748,7 @@ class InkSurfaceView @JvmOverloads constructor(
             canvas.drawCircle(hoverX, hoverY, maxOf(r, 3f), cursorPaint)
         }
         canvas.restore()
+        canvas.restore() // 整体 bounds 裁剪(见 onDraw 开头)
     }
 
     /** 缓存键:页面版本 + 选中集版本 + 压感曲线档(笔宽是样式,换档全页重绘) */

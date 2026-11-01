@@ -226,7 +226,13 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Switch(
                         checked = appSettings.frontBufferInk,
                         onCheckedChange = { scope.launch { settings.setFrontBufferInk(it) } },
-                        colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                            // 未开启态:thumb/边框用可见色(默认色在奶白卡上近乎隐形)
+                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+                        ),
                     )
                 }
             }

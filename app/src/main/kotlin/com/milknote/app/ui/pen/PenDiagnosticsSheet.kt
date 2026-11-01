@@ -209,7 +209,7 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
 @Composable
 private fun PressureBars(min: Float, p50: Float, max: Float) {
     val accent = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+    val track = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)   // 可见灰(outline 在奶白底上≈隐形)
     listOf("min" to min, "p50" to p50, "max" to max).forEach { (label, v) ->
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(30.dp))
@@ -227,5 +227,6 @@ private fun PressureBars(min: Float, p50: Float, max: Float) {
 
 @Composable
 private fun Mono(text: String) {
-    Text(text, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // 诊断数据是 P1 留档依据,用 onSurface(全对比)而非 onSurfaceVariant
+    Text(text, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurface)
 }

@@ -80,6 +80,8 @@ fun WriterScreen(
     val state by vm.state.collectAsState()
     val thumbs by vm.thumbs.collectAsState()
     val battery by ServiceLocator.penBattery.level.collectAsState()
+    val batterySource by ServiceLocator.penBattery.sourceName.collectAsState()
+    val penConnected = batterySource != null || battery >= 0   // GATT 已连笔 → 手指不写
     var toast by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -125,7 +127,7 @@ fun WriterScreen(
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
             ) {
-                PaperCanvas(vm, state, dark)
+                PaperCanvas(vm, state, dark, penConnected)
                 // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈)
                 if (state.selectionCount > 0) {
                     Row(
@@ -197,6 +199,7 @@ private fun WriterTopBar(
     Row(
         Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带(§5.1):与纸面明确分界
             .height(56.dp)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -209,19 +212,24 @@ private fun WriterTopBar(
             Spacer(Modifier.width(6.dp))
             Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
-            Text(state.notebook?.name ?: "", fontSize = 13.sp, style = MaterialTheme.typography.labelLarge)
+            Text(
+                state.notebook?.name ?: "", fontSize = 13.sp,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.weight(1f))
 
-        // 撤销 / 重做
+        // 撤销 / 重做(禁用态也要可辨,不用 outline——浅色下几乎隐形)
+        val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
         IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.Undo, null, tint = if (state.canUndo) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline, modifier = Modifier.size(19.dp)) },
+            icon = { Icon(Icons.AutoMirrored.Outlined.Undo, null, tint = if (state.canUndo) MaterialTheme.colorScheme.onBackground else disabledTint, modifier = Modifier.size(19.dp)) },
             enabled = state.canUndo, onClick = vm::undo,
         )
         Spacer(Modifier.width(14.dp))
         IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.Redo, null, tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline, modifier = Modifier.size(19.dp)) },
+            icon = { Icon(Icons.AutoMirrored.Outlined.Redo, null, tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground else disabledTint, modifier = Modifier.size(19.dp)) },
             enabled = state.canRedo, onClick = vm::redo,
         )
 
@@ -444,7 +452,7 @@ private fun PageSidebar(
 
 /** 纸面画布:InkSurfaceView(device-mi 拦截器 + 按住修饰接线在此) */
 @Composable
-private fun PaperCanvas(vm: WriterViewModel, state: WriterUiState, dark: Boolean) {
+private fun PaperCanvas(vm: WriterViewModel, state: WriterUiState, dark: Boolean, penConnected: Boolean) {
     AndroidView(
         factory = { ctx ->
             InkSurfaceView(ctx).apply {
@@ -466,6 +474,7 @@ private fun PaperCanvas(vm: WriterViewModel, state: WriterUiState, dark: Boolean
             view.paperStyle = state.notebook?.paper ?: "dot"
             view.frontBufferEnabled = state.frontBufferEnabled
             view.darkTheme = dark
+            view.penConnected = penConnected
             // 纸张尺寸+方向(旧笔记本缺字段 → A4 竖,几何与历史一致)
             val nb = state.notebook
             val (pw, ph) = nb?.pageMm(view.mmToPx) ?: (210f * view.mmToPx to 297f * view.mmToPx)
@@ -481,7 +490,7 @@ private fun StatusBar(state: WriterUiState) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带:与画布明确分界
             .padding(horizontal = 20.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
