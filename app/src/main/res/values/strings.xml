@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">牛奶笔记</string>
+    <string name="pen_filter_desc">接管手写笔侧键:在牛奶笔记书写页内,长按侧键不再触发系统截图/小米创作,交由应用自定义。仅在书写页生效。</string>
 </resources>

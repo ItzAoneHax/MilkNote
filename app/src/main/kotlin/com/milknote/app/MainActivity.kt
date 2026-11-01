@@ -25,9 +25,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ServiceLocator.activity = this
         enableEdgeToEdge()
         setContent {
             MilkRoot()   // 主题(明/暗/跟随系统)由 MilkRoot 按设置应用
         }
+    }
+
+    override fun onDestroy() {
+        // 兜底:进程销毁时复位笔键接管标志(防崩溃残留)
+        com.milknote.app.pen.PenKeyTakeover.set(applicationContext, false)
+        super.onDestroy()
     }
 }

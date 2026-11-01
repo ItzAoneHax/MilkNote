@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 笔键长按接管(写 Secure 表 gb_boosting;signature 权限,一次性
+         adb shell pm grant com.milknote.app android.permission.WRITE_SECURE_SETTINGS) -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
+
     <application
         android:name=".MilkApplication"
         android:allowBackup="true"

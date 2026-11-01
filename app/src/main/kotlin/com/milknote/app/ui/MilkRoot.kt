@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,14 @@ private fun PenAction.toInkAction(): InkAction = when (this) {
     PenAction.NONE -> InkAction.TOGGLE_ERASER // 不应出现
 }
 
+/** 从(可能被 ContextThemeWrapper 包装的)Context 找到宿主 Activity */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? =
+    when (this) {
+        is android.app.Activity -> this
+        is android.content.ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
 @Composable
 fun MilkRoot() {
     var screen by remember { mutableStateOf<MilkScreen>(MilkScreen.Bookshelf) }
@@ -84,6 +93,27 @@ fun MilkRoot() {
     // 笔键消费只在书写页启用(消费会拦截 PAGE_UP/DOWN,防止书架/设置页吞外接键盘翻页)
     LaunchedEffect(screen) {
         ServiceLocator.penPort.keyRoutingEnabled = screen is MilkScreen.Writer
+    }
+
+    // 笔键长按接管(2026-11-01 真机实锤):
+    // 首选 PenKeyTakeover(gb_boosting 标志,MIUI 官方通道,一次性 adb 授权
+    // WRITE_SECURE_SETTINGS 后应用可自写)——上下键长按系统行为完全静默;
+    // 未授权时回退 FLAG_SECURE(拦得住但系统弹「无法截屏」提示)。
+    DisposableEffect(screen) {
+        val window = ServiceLocator.activity?.window
+        val inWriter = screen is MilkScreen.Writer
+        if (inWriter && com.milknote.app.pen.PenKeyTakeover.canWrite(context)) {
+            com.milknote.app.pen.PenKeyTakeover.set(context, true)
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            com.milknote.app.pen.PenKeyTakeover.set(context, false)
+            if (inWriter) {
+                window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+        onDispose { com.milknote.app.pen.PenKeyTakeover.set(context, false) }
     }
 
     // 笔键动作只在书写页生效(DESIGN-V0 §3.2:任何界面状态生效——M1 先接书写页)。

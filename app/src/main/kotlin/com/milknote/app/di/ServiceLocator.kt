@@ -17,6 +17,9 @@ object ServiceLocator {
     lateinit var appContext: Context
         private set
 
+    /** 宿主 Activity(窗口 flag 操作用;MainActivity.onCreate 注册) */
+    @Volatile var activity: android.app.Activity? = null
+
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val repository: NotebookRepository by lazy {

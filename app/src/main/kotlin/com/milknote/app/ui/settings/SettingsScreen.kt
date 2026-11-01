@@ -122,6 +122,30 @@ fun SettingsScreen(onBack: () -> Unit) {
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 )
+                Spacer(Modifier.height(8.dp))
+
+                // 长按接管状态(实锤通道:gb_boosting,一次性 adb 授权)
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val takeoverGranted = remember { com.milknote.app.pen.PenKeyTakeover.canWrite(ctx) }
+                Text(
+                    if (takeoverGranted) {
+                        "✓ 长按接管已启用:书写页内长按侧键不触发系统行为(无提示),完全交由上方映射。"
+                    } else {
+                        "长按接管未激活(长按侧键仍触发系统截图/小米创作)。激活(一次性,连接电脑执行):\n" +
+                            "adb shell pm grant com.milknote.app android.permission.WRITE_SECURE_SETTINGS"
+                    },
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = if (takeoverGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (takeoverGranted) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
                 Spacer(Modifier.height(12.dp))
 
                 val supported = supportedTriggers(caps?.stylusButtonCount)
