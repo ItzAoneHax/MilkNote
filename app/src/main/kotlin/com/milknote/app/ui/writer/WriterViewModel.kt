@@ -221,7 +221,7 @@ class WriterViewModel : ViewModel() {
         thumbs.value = thumbs.value + (pageId to bmp)
     }
 
-    private fun toast(text: String) {
+    fun toast(text: String) {
         toasts.tryEmit(Toast(text))
     }
 
