@@ -30,11 +30,16 @@ enum class PenAction(val label: String) {
     NONE("无"),
 }
 
-/** 默认映射(PEN-ADAPTATION §4.4 与 DESIGN-V0 §3.2 对齐) */
+/**
+ * 默认映射(PEN-ADAPTATION §4.4 与 DESIGN-V0 §3.2 对齐)。
+ * P1 实测修订(2026-11-01):系统长按不可被应用消费阻止(上键长按=系统框选截图、
+ * 下键长按=小米创作,均系统级),PRIMARY_LONG 默认改 NONE 避免双触发;
+ * M2 框选截图的触发设计另议(系统截图接力 / MediaProjection / 换触发)。
+ */
 val DEFAULT_MAPPING: Map<PenTrigger, PenAction> = mapOf(
     PenTrigger.PRIMARY_TAP to PenAction.LASO,
     PenTrigger.PRIMARY_DOUBLE to PenAction.TOGGLE_ERASER,
-    PenTrigger.PRIMARY_LONG to PenAction.SNIP,
+    PenTrigger.PRIMARY_LONG to PenAction.NONE,
     PenTrigger.PRIMARY_HOLD_WRITE to PenAction.LASO,
     PenTrigger.SECONDARY_TAP to PenAction.UNDO,
     PenTrigger.SECONDARY_HOLD_WRITE to PenAction.TEMP_ERASER,
