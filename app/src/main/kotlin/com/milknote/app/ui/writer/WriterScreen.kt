@@ -247,15 +247,17 @@ private fun WriterTopBar(
         Spacer(Modifier.width(18.dp))
         DividerDot()
 
-        // 工具组:钢笔/圆珠/荧光/橡皮/套索
+        // 工具组:钢笔/圆珠/荧光/橡皮/套索 —— 工具与模式(套索/选中)互斥高亮,
+        // 同一时刻只亮一个,避免"钢笔+套索"等多状态并存
         Spacer(Modifier.width(18.dp))
-        ToolIcon(Icons.Outlined.Draw, "钢笔", state.tool.tool == InkTool.PEN) { vm.setTool(InkTool.PEN) }
+        val modeActive = state.lassoArmed || state.selectionCount > 0
+        ToolIcon(Icons.Outlined.Draw, "钢笔", !modeActive && state.tool.tool == InkTool.PEN) { vm.setTool(InkTool.PEN) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Brush, "圆珠", state.tool.tool == InkTool.BALL) { vm.setTool(InkTool.BALL) }
+        ToolIcon(Icons.Outlined.Brush, "圆珠", !modeActive && state.tool.tool == InkTool.BALL) { vm.setTool(InkTool.BALL) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Highlight, "荧光", state.tool.tool == InkTool.HIGHLIGHTER) { vm.setTool(InkTool.HIGHLIGHTER) }
+        ToolIcon(Icons.Outlined.Highlight, "荧光", !modeActive && state.tool.tool == InkTool.HIGHLIGHTER) { vm.setTool(InkTool.HIGHLIGHTER) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.CleaningServices, "橡皮", state.tool.tool == InkTool.ERASER) { vm.setTool(InkTool.ERASER) }
+        ToolIcon(Icons.Outlined.CleaningServices, "橡皮", !modeActive && state.tool.tool == InkTool.ERASER) { vm.setTool(InkTool.ERASER) }
         Spacer(Modifier.width(10.dp))
         ToolIcon(Icons.Outlined.Gesture, "套索", state.lassoArmed) { vm.toggleLasso() }
 
