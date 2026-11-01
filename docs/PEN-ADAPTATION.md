@@ -215,8 +215,13 @@ when {
 > **✅ P1 真机实测回填(2026-11-01,Pad 8 Pro + HyperOS V816 / API 37,诊断面板流水)**:
 > 1. **侧键投递形式确证:上侧键 = `KEYCODE_PAGE_UP`(92),下侧键 = `KEYCODE_PAGE_DOWN`(93)`**,走 `Activity.dispatchKeyEvent`(KeyEvent 通路);**不是** `KEYCODE_STYLUS_BUTTON_*`,不是 buttonState(书写中 `btn=0x0` 恒零),也没有 generic motion `ACTION_BUTTON_PRESS`。标准通路假设全部不成立,小米走自定义键码。
 > 2. **焦点键(笔顶)完全不到达应用**(流水无任何对应事件)——被系统独占,`Trigger.FOCUS_KEY` 维持占位不接。
-> 3. **系统长按不可阻止(2026-11-01 复测确证)**:应用对 PAGE_UP/DOWN 的 down/repeat/up **全部 `return true` 消费后,长按系统行为依然触发**——上键长按=系统框选截图、下键长按=唤起小米创作(注意:**与 §1.1 官方 FAQ 的主/副假设相反**)。结论:小米把侧键长按手势做在系统层(SystemUI/InputDispatcher),KeyEvent 只是顺带给前台应用,应用消费与否不影响系统动作。千本笔记的「按键自定义」实际只覆盖单击/双击类,同此约束。
->    应对:`PRIMARY_LONG` 默认改 `NONE`(避免双触发);「按住+书写」修饰模式窗口(400ms)小于系统长按阈值(约 500ms),快速按住书写不受影响。
+> 3. **系统长按不可阻止(2026-11-01 复测确证,深挖到底)**:应用对 PAGE_UP/DOWN 的 down/repeat/up **全部 `return true` 消费后,长按系统行为依然触发**——上键长按=系统框选截图、下键长按=唤起小米创作(注意:**与 §1.1 官方 FAQ 的主/副假设相反**)。深挖证据链:
+>    - `dumpsys input`:system_server 直开全屏 `stylus-handwriting-event-receiver` 窗口(**SPY | INTERCEPTS_STYLUS | TRUSTED_OVERLAY**),先于应用观察笔事件;`MiuiInputManager` 的 `mIsFilterInterceptMode=1` 拦截机制对第三方无注册 API;
+>    - `MiuiInputKeyEventLog` 日志:`shortcut:long_press_page_up_key trigger function:stylus_partial_screenshot result:true`——框架在**派发给应用之前**已触发功能;
+>    - settings provider 无该映射(`long_press_page_up_key` 写入 `none` + 重启均无效,已回滚);InputGestureManager 0 条笔键条目;`/system/etc`、`/product/etc` 无配置文件;系统属性无开关;设置页无 UI 开关(「功能说明」仅说明);
+>    - 下键长按(小米创作)在 KeyEvent 日志中**无 shortcut 行**——疑似不走 key 拦截链(蓝牙/HID 层直达),停用 `com.miui.creation`(`pm disable-user`)可使其无处可去(待用户决定)。
+>    **结论:无 root 下,上键长按(系统框选截图)不可关闭、不可被应用消费阻止;千本笔记的「按键自定义」实际只覆盖单击/双击类,同此约束(Key Mapper issue #1214 佐证)。**
+>    应对:`PRIMARY_LONG` 默认改 `NONE`(避免双触发);「按住+书写」修饰模式窗口(400ms)小于系统长按阈值(约 500ms),快速按住书写不受影响;M2 框选截图触发设计需绕开「长按上键」(系统占用)。
 > 4. 电量 GATT 实测通过:`battery=100% source=Xiaomi Focus Pen`(命名规则 `pen|focus` 命中)。
 > 5. 探测陷阱:小米数字化器 `AXIS_PRESSURE` 的 `resolution=0` 但 `getPressure()` 正常工作(实测 p50=0.079/max=0.154)——能力判定须用「值域存在」而非 resolution。`pressure`/`tilt` 原误报 false 已修。
 > 6. 机型 25091RP04C,屏幕 3200×2136@**440dpi**(AVD 用 345dpi,UI 全 dp 自适应无碍)。
