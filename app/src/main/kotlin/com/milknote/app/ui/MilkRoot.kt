@@ -81,6 +81,11 @@ fun MilkRoot() {
         }
     }
 
+    // 笔键消费只在书写页启用(消费会拦截 PAGE_UP/DOWN,防止书架/设置页吞外接键盘翻页)
+    LaunchedEffect(screen) {
+        ServiceLocator.penPort.keyRoutingEnabled = screen is MilkScreen.Writer
+    }
+
     // 笔键动作只在书写页生效(DESIGN-V0 §3.2:任何界面状态生效——M1 先接书写页)。
     // 「按住+书写」修饰模式不走路由(落笔瞬间由 InkSurfaceView 经 holdActionProvider
     // 同步处理,绕开协程投递的时序竞态),这里跳过避免二次触发。

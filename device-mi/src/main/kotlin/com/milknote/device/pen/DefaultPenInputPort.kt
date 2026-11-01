@@ -19,6 +19,12 @@ interface PenInputPort {
     val histogram: PressureHistogram
 
     /**
+     * 笔键消费开关(书写页激活):消费后阻止系统默认行为(长按截图/画板)。
+     * 关闭时只记流水不吞,避免书架/设置页拦截外接键盘翻页键。
+     */
+    var keyRoutingEnabled: Boolean
+
+    /**
      * 「按住+书写」修饰模式的当前触发器(PEN-ADAPTATION §4.3):
      * 主/副键按住期间落笔,InkSurfaceView 落笔瞬间同步查询(决定套索/临时橡皮)。
      */
@@ -56,6 +62,8 @@ class DefaultPenInputPort(
     override val eventLog = PenEventLog()
     override val actions = MutableSharedFlow<PenActionEvent>(extraBufferCapacity = 16)
     override val histogram = PressureHistogram()
+
+    @Volatile override var keyRoutingEnabled: Boolean = false
 
     private val gesture = PenGestureDetector(onTrigger = { trigger -> dispatch(trigger) })
 
@@ -167,7 +175,28 @@ class DefaultPenInputPort(
     }
 
     override fun onDispatchKeyEvent(event: KeyEvent): Boolean {
-        // ---- 通路②:悬停态实体键(API 34+ KEYCODE_STYLUS_BUTTON_*) ----
+        // ---- 通路②a:小米焦点笔(一代)真机实测 —— 侧键以 PAGE_UP(92)/PAGE_DOWN(93) 投递
+        //      (Pad 8 Pro + HyperOS,2026-11-01 P1 诊断流水;非标准 KEYCODE_STYLUS_BUTTON_*)。
+        //      消费(return true)阻止系统默认行为(长按截图/画板)——仅在书写页启用。 ----
+        val miBtn = when (event.keyCode) {
+            KeyEvent.KEYCODE_PAGE_UP -> PenGestureDetector.Btn.PRIMARY      // 上侧键(主键位)
+            KeyEvent.KEYCODE_PAGE_DOWN -> PenGestureDetector.Btn.SECONDARY  // 下侧键(副键位)
+            else -> null
+        }
+        if (miBtn != null) {
+            val pressed = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+            if (keyRoutingEnabled) {
+                eventLog.log("KEY  ${KeyEvent.keyCodeToString(event.keyCode)} ${if (pressed) "down" else "up"} → ${miBtn.name}")
+                if (!dedupe(miBtn.name, pressed)) {
+                    gesture.onKey(miBtn, pressed)
+                }
+                return true // 消费:系统不再执行默认行为
+            }
+            eventLog.log("KEY  ${KeyEvent.keyCodeToString(event.keyCode)} ${if (pressed) "down" else "up"}(未路由:非书写页)")
+            return false
+        }
+
+        // ---- 通路②b:标准 KEYCODE_STYLUS_BUTTON_*(API 34+;本机未出现,保留) ----
         if (Build.VERSION.SDK_INT >= 34) {
             val btn = when (event.keyCode) {
                 KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY -> PenGestureDetector.Btn.PRIMARY
@@ -183,7 +212,7 @@ class DefaultPenInputPort(
                 }
                 return true
             }
-            // 非标准键(厂商自定义,一代笔×Pad 8 Pro 非官方组合尤其可能):进流水、不吞
+            // 非标准键(厂商自定义):进流水、不吞
             eventLog.log("KEY  ${KeyEvent.keyCodeToString(event.keyCode)}(${event.keyCode}) action=${if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"}")
         }
         // ---- 通路③:小米 SDK 转发(焦点笔 Pro,前瞻) ----

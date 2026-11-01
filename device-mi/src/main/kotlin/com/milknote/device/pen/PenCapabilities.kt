@@ -27,8 +27,10 @@ object PenProbe {
         return PenCapabilities(
             deviceId = dev.id,
             deviceName = dev.name,
-            pressure = pRange != null && pRange.resolution > 0,
-            tilt = tRange != null && tRange.range > 0f,
+            // 真机实测(2026-11-01 Pad 8 Pro):小米数字化器 pressure range 的 resolution=0
+            // 但 getPressure() 值正常工作——判定以「值域存在」为准,不看 resolution。
+            pressure = pRange != null && pRange.max > 0f,
+            tilt = tRange != null && tRange.max > 0f,
             hover = dev.supportsSource(InputDevice.SOURCE_CLASS_POINTER),
             stylusButtonCount = countButtonBits(event),
             touchFilm = MiTouchFilmBridge.isAvailable,

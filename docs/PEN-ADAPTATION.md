@@ -2,9 +2,9 @@
 
 > **定位**:`device-mi` 模块的输入适配规格 —— 笔按键功能(实体键 + Pro 触控手势)与书写压力检测。对应 DESIGN-V0 §3「小米焦点触控笔深度适配」,M1 交付项「笔键/双击、压感/倾斜」的实现依据。
 >
-> - 版本:A2(2026-10-31,P0 验证通过:一代笔 × Pad 8 Pro 实测可用,主力机基线确立)
+> - 版本:A3(2026-11-01,P1 部分回填:侧键投递形式真机确证,见 §4.1 实测块)
 > - **实际设备**:主力机 小米平板 8 Pro + **焦点触控笔(一代,三实体键)**;备用机 小米平板 7 Pro;无焦点触控笔 Pro
-> - 状态:P0 已通过(用户实测);P1–P4 待应用内验证(见 §7)→ 定稿
+> - 状态:P0 已通过;P1 侧键通路已确证(PAGE_UP/PAGE_DOWN),焦点键确认不到应用;P2-P3 待复测
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 模块划分 / §3 深度适配 / §8 风险
 
 > ⚠️ **命名与兼容性说明(重要)**
@@ -211,6 +211,15 @@ when {
 ```
 
 **悬停时**(蓝牙 HID 通路,以 `KeyEvent` 投递;`KEYCODE_STYLUS_BUTTON_*` 为 **API 34 (Android 14)** 新增——Pad 8 Pro(Android 16)与 Pad 7 Pro(Android 15)均满足,但代码须守卫以兼容 minSdk 31):
+
+> **✅ P1 真机实测回填(2026-11-01,Pad 8 Pro + HyperOS V816 / API 37,诊断面板流水)**:
+> 1. **侧键投递形式确证:上侧键 = `KEYCODE_PAGE_UP`(92),下侧键 = `KEYCODE_PAGE_DOWN`(93)`**,走 `Activity.dispatchKeyEvent`(KeyEvent 通路);**不是** `KEYCODE_STYLUS_BUTTON_*`,不是 buttonState(书写中 `btn=0x0` 恒零),也没有 generic motion `ACTION_BUTTON_PRESS`。标准通路假设全部不成立,小米走自定义键码。
+> 2. **焦点键(笔顶)完全不到达应用**(流水无任何对应事件)——被系统独占,`Trigger.FOCUS_KEY` 维持占位不接。
+> 3. **系统行为**:长按侧键时系统截图/画板仍触发——因旧版未消费 KeyEvent。应用 `return true` 消费后系统默认行为是否被阻止,**待复测**(千本笔记的自定义按键机制佐证可行)。
+> 4. 电量 GATT 实测通过:`battery=100% source=Xiaomi Focus Pen`(命名规则 `pen|focus` 命中)。
+> 5. 探测陷阱:小米数字化器 `AXIS_PRESSURE` 的 `resolution=0` 但 `getPressure()` 正常工作(实测 p50=0.079/max=0.154)——能力判定须用「值域存在」而非 resolution。`pressure`/`tilt` 原误报 false 已修。
+> 6. 机型 25091RP04C,屏幕 3200×2136@**440dpi**(AVD 用 345dpi,UI 全 dp 自适应无碍)。
+> 上/下键 ↔ 主/副 的对应(上=PRIMARY)为当前假设,若复测发现语义颠倒,改 `DefaultPenInputPort` 中两行映射即可。
 
 ```kotlin
 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
