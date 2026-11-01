@@ -177,6 +177,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
 
+            // ---- Agent(AGENT-BACKEND §12:Provider/模型/测试连接) ----
+            SettingsCard(title = "Agent", meta = "AGENT · VISION ONLY") {
+                AgentSettingsSection()
+            }
+
             // ---- 外观 ----
             SettingsCard(title = "外观", meta = "APPEARANCE") {
                 Row(

@@ -42,7 +42,19 @@ class PenActionRouter(
         scope.launch {
             store.data.collect { prefs ->
                 prefs[MAPPING_KEY]?.let { raw ->
-                    PenMappingCodec.parse(raw)?.let { _mapping.value = it }
+                    PenMappingCodec.parse(raw)?.let { loaded ->
+                        // 迁移:M1 期因系统长按占用把 PRIMARY_LONG 存为 NONE;
+                        // gb_boosting 接管后(PEN-ADAPTATION §4.1-3)恢复 SNIP 默认
+                        val migrated = if (loaded[PenTrigger.PRIMARY_LONG] == PenAction.NONE &&
+                            DEFAULT_MAPPING[PenTrigger.PRIMARY_LONG] == PenAction.SNIP
+                        ) {
+                            loaded + (PenTrigger.PRIMARY_LONG to PenAction.SNIP)
+                        } else loaded
+                        _mapping.value = migrated
+                        if (migrated != loaded) {
+                            store.edit { it[MAPPING_KEY] = PenMappingCodec.serialize(migrated) }
+                        }
+                    }
                 }
             }
         }

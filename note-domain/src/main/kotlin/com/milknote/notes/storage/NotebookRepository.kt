@@ -1,6 +1,7 @@
 package com.milknote.notes.storage
 
 import com.milknote.ink.input.InkCommit
+import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.Stroke
 import com.milknote.ink.serialize.ProtoInk
 import com.milknote.notes.model.NotebookMeta
@@ -132,12 +133,18 @@ class NotebookRepository(
     // ---- 增量写入(InkController.onCommit → append) ----
 
     fun appendCommit(notebookId: String, pageId: String, commit: InkCommit) {
+        when (commit) {
+            // 批注卡不走 pb 追加流:由调用方走 saveAnnotations 整表重写(JSON sidecar)
+            is InkCommit.CardAdded, is InkCommit.CardRemoved -> return
+            is InkCommit.Added, is InkCommit.Tombstoned -> {}
+        }
         writeQueue.trySend {
             val f = pageFile(notebookId, pageId)
             FileOutputStream(f, true).use { out ->
                 when (commit) {
                     is InkCommit.Added -> ProtoInk.writeRecord(out, ProtoInk.recordOf(commit.stroke))
                     is InkCommit.Tombstoned -> ProtoInk.writeRecord(out, ProtoInk.tombstoneOf(commit.strokeId))
+                    is InkCommit.CardAdded, is InkCommit.CardRemoved -> {}
                 }
             }
             f.setLastModified(System.currentTimeMillis())
@@ -149,4 +156,29 @@ class NotebookRepository(
         if (!f.exists()) return null
         json.decodeFromString<NotebookMeta>(f.readText())
     }.getOrNull()
+
+    // ---- 批注卡(Agent 结果贴回;JSON sidecar,整表重写;AGENT-BACKEND §7.2 同目录备份) ----
+
+    /** 笔记本目录(<id>.milk;Agent 会话/附件随整本备份) */
+    fun notebookDir(notebookId: String): File = dirOf(notebookId)
+
+    fun loadAnnotations(notebookId: String, pageId: String): List<AnnotationCard> = runCatching {
+        val f = File(dirOf(notebookId), "$pageId.ann.json")
+        if (!f.exists()) return emptyList()
+        json.decodeFromString<List<AnnotationCard>>(f.readText())
+    }.getOrDefault(emptyList())
+
+    /** 整表重写(原子替换);走单线程写队列与笔迹追加保序 */
+    fun saveAnnotations(notebookId: String, pageId: String, cards: List<AnnotationCard>) {
+        writeQueue.trySend {
+            val dir = dirOf(notebookId)
+            val f = File(dir, "$pageId.ann.json")
+            val tmp = File(dir, "$pageId.ann.json.tmp")
+            tmp.writeText(json.encodeToString(cards))
+            if (!tmp.renameTo(f)) {
+                f.delete()
+                if (!tmp.renameTo(f)) error("annotation save failed: $pageId")
+            }
+        }
+    }
 }

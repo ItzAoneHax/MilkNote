@@ -11,8 +11,19 @@ import com.milknote.app.ui.MilkRoot
 
 class MainActivity : ComponentActivity() {
 
-    /** 通路②挂点:悬停态笔实体键走 Activity.dispatchKeyEvent(PEN-ADAPTATION §2) */
+    /** 通路②挂点:悬停态笔实体键走 Activity.dispatchKeyEvent(PEN-ADAPTATION §2);
+     *  另接外接键盘快捷键:⌘K 命令面板 / ⌥A Agent(DESIGN-V0 §4.1) */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            val isCmd = event.isCtrlPressed || event.isMetaPressed
+            val openPalette = isCmd && event.keyCode == KeyEvent.KEYCODE_K
+            val openAgent = event.isAltPressed && event.keyCode == KeyEvent.KEYCODE_A
+            when {
+                openPalette -> ServiceLocator.uiEvents.tryEmit(ServiceLocator.UiEvent.OpenPalette)
+                openAgent -> ServiceLocator.uiEvents.tryEmit(ServiceLocator.UiEvent.OpenAgent)
+            }
+            if (openPalette || openAgent) return true
+        }
         if (ServiceLocator.penPort.onDispatchKeyEvent(event)) return true
         return super.dispatchKeyEvent(event)
     }

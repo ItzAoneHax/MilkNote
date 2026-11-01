@@ -30,6 +30,7 @@ dependencyResolutionManagement {
 rootProject.name = "MilkNote"
 
 include(":app")
+include(":agent")
 include(":ink-engine")
 include(":note-domain")
 include(":device-mi")

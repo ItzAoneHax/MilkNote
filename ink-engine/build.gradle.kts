@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.protobuf)
 }
 
@@ -38,6 +39,7 @@ dependencies {
     api(libs.androidx.graphics.core)
     implementation(libs.androidx.input.motionprediction)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)   // AnnotationCard JSON 落盘(note-domain 侧car文件)
 
     api(libs.protobuf.javalite)
     api(libs.protobuf.kotlin.lite)

@@ -20,3 +20,4 @@ shot_*.png
 shot_*.jpg
 milk_ui.xml
 ui_dump.xml
+.local-test/

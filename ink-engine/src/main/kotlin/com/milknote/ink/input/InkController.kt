@@ -1,5 +1,6 @@
 package com.milknote.ink.input
 
+import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.InkOp
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
@@ -9,10 +10,12 @@ import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
 import java.util.UUID
 
-/** 落盘回调:笔迹新增 / 笔迹删除(tombstone),由 note-domain 转成 StrokeRecord 追加 */
+/** 落盘回调:笔迹新增 / 笔迹删除(tombstone)/ 批注卡增删,由 note-domain 转成 StrokeRecord 追加 */
 sealed interface InkCommit {
     data class Added(val stroke: Stroke) : InkCommit
     data class Tombstoned(val strokeId: String) : InkCommit
+    data class CardAdded(val card: AnnotationCard) : InkCommit
+    data class CardRemoved(val cardId: String) : InkCommit
 }
 
 /** 选中集快照(UI 显示用;box 为所选笔迹并集包围盒,页坐标) */
@@ -331,28 +334,97 @@ class InkController {
         notifyInvalidate()
     }
 
+    // ---- 批注卡(Agent 结果贴回;§9):渲染在墨迹之上,同一撤销栈 ----
+
+    private var cardDragId: String? = null
+    private var cardDragDx = 0f
+    private var cardDragDy = 0f
+    private var cardDragStarted = false
+
+    fun annotationCards(): List<AnnotationCard> = page.cards.toList()
+
+    fun cardDragOffset(): Pair<String, Pair<Float, Float>>? =
+        cardDragId?.let { it to (cardDragDx to cardDragDy) }
+
+    fun beginCardDrag(cardId: String) {
+        cardDragId = cardId
+        cardDragDx = 0f; cardDragDy = 0f
+        cardDragStarted = page.cards.any { it.id == cardId }
+    }
+
+    fun moveCardDrag(dx: Float, dy: Float) {
+        if (!cardDragStarted) return
+        cardDragDx = dx; cardDragDy = dy
+        notifyInvalidate()
+    }
+
+    /** 拖动结束:位移 >1px 落 Batch(RemoveCard + AddCard 平移),可撤销;返回是否落盘 */
+    fun endCardDrag(): Boolean {
+        if (!cardDragStarted) return false
+        cardDragStarted = false
+        val id = cardDragId
+        val dx = cardDragDx; val dy = cardDragDy
+        cardDragId = null; cardDragDx = 0f; cardDragDy = 0f
+        val card = page.cards.firstOrNull { it.id == id }
+        if (card == null || (dx * dx + dy * dy) < 1f) { notifyInvalidate(); return false }
+        val moved = card.copy(x = card.x + dx, y = card.y + dy)
+        val batch = InkOp.Batch(listOf(InkOp.RemoveCard(card), InkOp.AddCard(moved)))
+        page.apply(batch)
+        emitForward(batch)
+        notifyInvalidate()
+        return true
+    }
+
+    fun cancelCardDrag() {
+        cardDragStarted = false
+        cardDragId = null
+        cardDragDx = 0f; cardDragDy = 0f
+        notifyInvalidate()
+    }
+
+    fun addAnnotationCard(card: AnnotationCard) {
+        val op = InkOp.AddCard(card)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+    }
+
+    fun deleteAnnotationCard(cardId: String): Boolean {
+        val card = page.cards.firstOrNull { it.id == cardId } ?: return false
+        val op = InkOp.RemoveCard(card)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+        return true
+    }
+
     private fun emitInverse(op: InkOp) = when (op) {
         is InkOp.Add -> onCommit?.invoke(InkCommit.Tombstoned(op.stroke.id))
         is InkOp.Remove -> onCommit?.invoke(InkCommit.Added(op.stroke))
+        is InkOp.AddCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
+        is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
         is InkOp.Batch -> op.ops.forEach(::emitInverse)
     }
 
     private fun emitForward(op: InkOp) = when (op) {
         is InkOp.Add -> onCommit?.invoke(InkCommit.Added(op.stroke))
         is InkOp.Remove -> onCommit?.invoke(InkCommit.Tombstoned(op.stroke.id))
+        is InkOp.AddCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
+        is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
         is InkOp.Batch -> op.ops.forEach(::emitForward)
     }
 
     fun clear() {
         page.strokes.clear()
+        page.cards.clear()
         clearSelection()
         notifyInvalidate()
     }
 
-    /** 整页加载(切页) */
-    fun loadStrokes(strokes: List<Stroke>) {
+    /** 整页加载(切页;批注卡一并) */
+    fun loadStrokes(strokes: List<Stroke>, cards: List<AnnotationCard> = emptyList()) {
         clearSelection()
-        page.reset(strokes)
+        page.reset(strokes, cards)
         notifyInvalidate()
     }
 }

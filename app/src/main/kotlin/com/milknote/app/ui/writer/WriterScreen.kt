@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.agent.SnipOverlay
 import com.milknote.app.ui.common.CommandKeyCapsule
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.PenBatteryCapsule
@@ -76,6 +77,8 @@ fun WriterScreen(
     dark: Boolean,
     onBack: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenPalette: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val thumbs by vm.thumbs.collectAsState()
@@ -102,6 +105,18 @@ fun WriterScreen(
         if (toast != null) { kotlinx.coroutines.delay(2000); toast = null }
     }
 
+    // Agent toast 并入书写页轻提示(chips 截断/插入批注等)
+    LaunchedEffect(Unit) {
+        var last: String? = null
+        ServiceLocator.agentController.state.collect { st ->
+            val t = st.toast
+            if (t != null && t != last) { last = t; toast = t; ServiceLocator.agentController.consumeToast() }
+        }
+    }
+
+    // 画布引用(④ 框选遮罩需要视口↔页坐标变换)
+    val surfaceRef = remember { mutableStateOf<InkSurfaceView?>(null) }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -116,7 +131,8 @@ fun WriterScreen(
             onOpenDiagnostics = onOpenDiagnostics,
             onExportPng = { vm.exportPng { toast = it } },
             onExportPdf = { vm.exportPdf { toast = it } },
-            onAgent = { toast = "Agent 框选:M2 交付" },
+            onAgent = { openAgentDrawer(vm) },
+            onOpenPalette = onOpenPalette,
         )
 
         Row(
@@ -138,7 +154,21 @@ fun WriterScreen(
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
             ) {
-                PaperCanvas(vm, state, dark, penConnected)
+                PaperCanvas(vm, state, dark, penConnected, surfaceRef)
+                // ④ 框选遮罩(冻结画布+压暗;AGENT-BACKEND §4.2)
+                if (state.snip.phase != com.milknote.app.ui.writer.SnipPhase.IDLE) {
+                    SnipOverlay(
+                        state = state.snip,
+                        surface = { surfaceRef.value },
+                        onDrag = vm::snipDrag,
+                        onRelease = vm::snipRelease,
+                        onRectChanged = vm::snipRectChanged,
+                        onFullPage = vm::snipFullPage,
+                        onCancel = vm::exitSnip,
+                        onIntent = vm::snipPickIntent,
+                        onSend = vm::snipSend,
+                    )
+                }
                 // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈)
                 if (state.selectionCount > 0) {
                     Row(
@@ -206,7 +236,10 @@ private fun WriterTopBar(
     onExportPng: () -> Unit,
     onExportPdf: () -> Unit,
     onAgent: () -> Unit,
+    onOpenPalette: () -> Unit = {},
 ) {
+    // ④ 框选时工具组整体禁用(半透明、不可点;DESIGN-V0 §5.3)
+    val snipActive = state.snip.phase != SnipPhase.IDLE
     Row(
         Modifier
             .fillMaxWidth()
@@ -251,15 +284,15 @@ private fun WriterTopBar(
         // 同一时刻只亮一个,避免"钢笔+套索"等多状态并存
         Spacer(Modifier.width(18.dp))
         val modeActive = state.lassoArmed || state.selectionCount > 0
-        ToolIcon(Icons.Outlined.Draw, "钢笔", !modeActive && state.tool.tool == InkTool.PEN) { vm.setTool(InkTool.PEN) }
+        ToolIcon(Icons.Outlined.Draw, "钢笔", !modeActive && state.tool.tool == InkTool.PEN, enabled = !snipActive) { vm.setTool(InkTool.PEN) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Brush, "圆珠", !modeActive && state.tool.tool == InkTool.BALL) { vm.setTool(InkTool.BALL) }
+        ToolIcon(Icons.Outlined.Brush, "圆珠", !modeActive && state.tool.tool == InkTool.BALL, enabled = !snipActive) { vm.setTool(InkTool.BALL) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Highlight, "荧光", !modeActive && state.tool.tool == InkTool.HIGHLIGHTER) { vm.setTool(InkTool.HIGHLIGHTER) }
+        ToolIcon(Icons.Outlined.Highlight, "荧光", !modeActive && state.tool.tool == InkTool.HIGHLIGHTER, enabled = !snipActive) { vm.setTool(InkTool.HIGHLIGHTER) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.CleaningServices, "橡皮", !modeActive && state.tool.tool == InkTool.ERASER) { vm.setTool(InkTool.ERASER) }
+        ToolIcon(Icons.Outlined.CleaningServices, "橡皮", !modeActive && state.tool.tool == InkTool.ERASER, enabled = !snipActive) { vm.setTool(InkTool.ERASER) }
         Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Gesture, "套索", state.lassoArmed) { vm.toggleLasso() }
+        ToolIcon(Icons.Outlined.Gesture, "套索", state.lassoArmed, enabled = !snipActive) { vm.toggleLasso() }
 
         Spacer(Modifier.width(18.dp))
         DividerDot()
@@ -317,7 +350,7 @@ private fun WriterTopBar(
             PenBatteryCapsule(level = battery)
         }
         Spacer(Modifier.width(14.dp))
-        CommandKeyCapsule(onClick = onAgent)
+        CommandKeyCapsule(onClick = onOpenPalette)
         Spacer(Modifier.width(14.dp))
 
         // Agent(M2 接框选;蓝色纪律:仅 Agent 与激活态用强调色)
@@ -357,24 +390,32 @@ private fun IconToggleButton(icon: @Composable () -> Unit, enabled: Boolean, onC
 }
 
 @Composable
-private fun ToolIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+private fun ToolIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     Box(
         Modifier
             .size(32.dp)
             .clip(CircleShape)
-            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+            .background(if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
             .border(
-                width = if (active) 1.dp else 0.dp,
+                width = if (active && enabled) 1.dp else 0.dp,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
                 shape = CircleShape,
             )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon, label,
             modifier = Modifier.size(18.dp),
-            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            else if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -465,10 +506,17 @@ private fun PageSidebar(
 
 /** 纸面画布:InkSurfaceView(device-mi 拦截器 + 按住修饰接线在此) */
 @Composable
-private fun PaperCanvas(vm: WriterViewModel, state: WriterUiState, dark: Boolean, penConnected: Boolean) {
+private fun PaperCanvas(
+    vm: WriterViewModel,
+    state: WriterUiState,
+    dark: Boolean,
+    penConnected: Boolean,
+    surfaceRef: androidx.compose.runtime.MutableState<InkSurfaceView?>,
+) {
     AndroidView(
         factory = { ctx ->
             InkSurfaceView(ctx).apply {
+                surfaceRef.value = this
                 inputInterceptor = ServiceLocator.penPort::onDispatchTouchEvent
                 // 按住+书写修饰(PEN-ADAPTATION §4.3):落笔瞬间同步查询
                 // 「主/副键按住」触发器 → 映射动作 → 套索圈选/临时橡皮
@@ -510,9 +558,10 @@ private fun StatusBar(state: WriterUiState) {
         Text("笔 就绪", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(14.dp))
         val hint = when {
+            state.snip.phase != SnipPhase.IDLE -> "书写已暂停 · 截图模式"
             state.selectionCount > 0 -> "套索:拖动移动 · ✕ 退出"
             state.lassoArmed -> "套索:圈选笔迹(圈住即选中)"
-            else -> "双击笔键=笔⇄橡皮 · 长按=框选(M2) · 手指=导航"
+            else -> "双击笔键=笔⇄橡皮 · 长按=框选 · 手指=导航"
         }
         Text(hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
         Spacer(Modifier.weight(1f))
@@ -522,4 +571,11 @@ private fun StatusBar(state: WriterUiState) {
         }
         MonoText("${state.currentPageId} / ${state.pages.size} 页", color = MaterialTheme.colorScheme.onSurface)
     }
+}
+
+/** 顶栏 Agent / ⌥A:直接开 ⑤ 抽屉(当前页上下文,无选区;AGENT-BACKEND §8.3) */
+private fun openAgentDrawer(vm: WriterViewModel) {
+    val st = vm.state.value
+    val nb = st.notebook ?: return
+    ServiceLocator.agentController.openDrawer(com.milknote.agent.PageRef(nb.id, st.currentPageId))
 }

@@ -11,6 +11,7 @@ import android.graphics.Picture
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -145,6 +146,14 @@ class InkSurfaceView @JvmOverloads constructor(
     private var dragActive = false
     private var dragAnchorX = 0f
     private var dragAnchorY = 0f
+
+    // 批注卡交互:拖动 + 点按展开/收起(展开态是显示层状态,不落库)
+    private var cardDragActive = false
+    private var cardAnchorX = 0f
+    private var cardAnchorY = 0f
+    private var cardDownId: String? = null      // 按下时的卡(UP 未移动 → 切换展开)
+    private var cardDownAt = 0L
+    private val expandedCards = HashSet<String>()
 
     // 轨迹预测(androidx.input MotionEventPredictor;不可用时静默降级)
     private val predictor: Any? = try {
@@ -392,6 +401,17 @@ class InkSurfaceView @JvmOverloads constructor(
     private fun pageX(viewX: Float) = (viewX - panX) / zoom
     private fun pageY(viewY: Float) = (viewY - panY) / zoom
 
+    // ---- 视口变换公开(④框选遮罩 overlay 与本视图同 bounds,坐标互通) ----
+
+    /** 视口坐标 → 页坐标 */
+    fun viewToPage(viewX: Float, viewY: Float): Pair<Float, Float> = pageX(viewX) to pageY(viewY)
+
+    /** 页坐标 → 视口坐标 */
+    fun pageToView(px: Float, py: Float): Pair<Float, Float> = (px * zoom + panX) to (py * zoom + panY)
+
+    /** 页面矩形在视口中的投影(视口坐标;可能越出本视图 bounds) */
+    fun pageBoundsView(): RectF = RectF(panX, panY, panX + pageWidthPx * zoom, panY + pageHeightPx * zoom)
+
     // ---------------- 输入 ----------------
 
     @SuppressLint("ClickableViewAccessibility")
@@ -451,10 +471,19 @@ class InkSurfaceView @JvmOverloads constructor(
                     lassoStrokeActive = false
                     c?.cancelLasso()
                 }
-                if (!isWriting() && !lassoStrokeActive && !dragActive) scaleDetector.onTouchEvent(event)
+                if (cardDragActive && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                    cardDragActive = false
+                    cardDownId = null
+                    c?.cancelCardDrag()
+                }
+                if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive) scaleDetector.onTouchEvent(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 when {
+                    cardDragActive && c != null -> {
+                        c.moveCardDrag(pageX(event.x) - cardAnchorX, pageY(event.y) - cardAnchorY)
+                        return true
+                    }
                     lassoStrokeActive && c != null -> {
                         val batch = collectRaw(event).map(::toPage)
                         batch.forEach { c.extendLasso(it) }
@@ -512,6 +541,21 @@ class InkSurfaceView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 when {
+                    cardDragActive -> {
+                        cardDragActive = false
+                        // 未移动的短按 = 展开/收起卡
+                        val downId = cardDownId
+                        if (downId != null && event.eventTime - cardDownAt < 400 &&
+                            c?.cardDragOffset()?.second == (0f to 0f)
+                        ) {
+                            if (!expandedCards.add(downId)) expandedCards.remove(downId)
+                            c?.cancelCardDrag()
+                            invalidate()
+                        } else {
+                            c?.endCardDrag()
+                        }
+                        cardDownId = null
+                    }
                     lassoStrokeActive -> {
                         lassoStrokeActive = false
                         c?.endLasso()
@@ -548,6 +592,11 @@ class InkSurfaceView @JvmOverloads constructor(
                     dragActive = false
                     c?.cancelSelectionDrag()
                 }
+                if (cardDragActive) {
+                    cardDragActive = false
+                    cardDownId = null
+                    c?.cancelCardDrag()
+                }
                 fingerDrawing = false
                 return true
             }
@@ -556,12 +605,22 @@ class InkSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * 特殊落笔路由:① 点中选中集 → 拖动;② 套索模式/按住修饰(套索)→ 圈选。
+     * 特殊落笔路由:⓪ 批注卡(最上层)→ ① 点中选中集拖动 → ② 套索圈选。
      * 返回 true = 已消费(不再进入书写)。
      */
     private fun routeSpecialDown(event: MotionEvent, c: InkController?, raw: List<InkPoint>): Boolean {
         if (c == null) return false
         val px = pageX(event.x); val py = pageY(event.y)
+        // ⓪ 批注卡:命中即拖动;短按无移动在 UP 时切换展开
+        val card = c.page.cards.lastOrNull { AnnotationCardRenderer.hit(it, px, py, it.id in expandedCards) }
+        if (card != null) {
+            c.beginCardDrag(card.id)
+            cardDragActive = true
+            cardDownId = card.id
+            cardDownAt = event.eventTime
+            cardAnchorX = px; cardAnchorY = py
+            return true
+        }
         // ① 选中集拖动(橡皮/手指同样可拖)
         if (c.hitSelection(px, py)) {
             c.beginSelectionDrag(px, py)
@@ -723,6 +782,15 @@ class InkSurfaceView @JvmOverloads constructor(
         }
         canvas.drawPicture(committed)
 
+        // 批注卡层(墨迹之上;AGENT-BACKEND §9 结果贴回)
+        if (c != null) {
+            val (dragId, dragOff) = c.cardDragOffset() ?: (null to (0f to 0f))
+            for (card in c.page.cards) {
+                val (dx, dy) = if (card.id == dragId) dragOff else (0f to 0f)
+                AnnotationCardRenderer.draw(canvas, card, darkTheme, card.id in expandedCards, dx, dy)
+            }
+        }
+
         if (c != null) drawSelection(canvas, c)
 
         // 活动笔迹:Canvas 路径每帧重绘;前置缓冲路径由 GL 层绘制(跳过,避免重影)
@@ -828,6 +896,9 @@ class InkSurfaceView @JvmOverloads constructor(
         if (c != null) {
             for (s in c.page.strokes) {
                 canvas.drawPath(StrokeRenderer.buildPath(s, mmToPx, c.tool.pressureGamma), paintFor(s.color, s.tool))
+            }
+            for (card in c.page.cards) {
+                AnnotationCardRenderer.draw(canvas, card, darkTheme, expanded = true)
             }
         }
         return bmp

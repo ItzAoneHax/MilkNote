@@ -4,6 +4,13 @@ import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -12,11 +19,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.bookshelf.BookshelfScreen
 import com.milknote.app.ui.bookshelf.BookshelfViewModel
+import com.milknote.app.ui.common.CommandItem
+import com.milknote.app.ui.common.CommandPalette
 import com.milknote.app.ui.pen.PenDiagnosticsSheet
 import com.milknote.app.ui.settings.AppSettings
 import com.milknote.app.ui.settings.SettingsScreen
@@ -47,18 +62,13 @@ private fun PenAction.toInkAction(): InkAction = when (this) {
     PenAction.NONE -> InkAction.TOGGLE_ERASER // 不应出现
 }
 
-/** 从(可能被 ContextThemeWrapper 包装的)Context 找到宿主 Activity */
-private tailrec fun android.content.Context.findActivity(): android.app.Activity? =
-    when (this) {
-        is android.app.Activity -> this
-        is android.content.ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
-
 @Composable
 fun MilkRoot() {
     var screen by remember { mutableStateOf<MilkScreen>(MilkScreen.Bookshelf) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showPalette by remember { mutableStateOf(false) }
+    var showNewNotebook by remember { mutableStateOf(false) }
+    var settingsFromWriter by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val bookshelfVm: BookshelfViewModel = viewModel()
@@ -129,33 +139,152 @@ fun MilkRoot() {
         }
     }
 
-    BackHandler(enabled = screen is MilkScreen.Writer || screen is MilkScreen.Settings) {
-        when (screen) {
-            is MilkScreen.Writer -> { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf }
-            is MilkScreen.Settings -> screen = MilkScreen.Bookshelf
+    // ---- 外接键盘快捷键(⌘K 命令面板 / ⌥A Agent;MainActivity.dispatchKeyEvent 发射) ----
+    LaunchedEffect(Unit) {
+        ServiceLocator.uiEvents.collect { ev ->
+            when (ev) {
+                ServiceLocator.UiEvent.OpenPalette -> showPalette = true
+                ServiceLocator.UiEvent.OpenAgent -> {
+                    if (screen is MilkScreen.Writer) {
+                        val st = writerVm.state.value
+                        st.notebook?.let {
+                            ServiceLocator.agentController.openDrawer(
+                                com.milknote.agent.PageRef(it.id, st.currentPageId),
+                            )
+                        }
+                    } else {
+                        showPalette = true   // 书架/设置页:⌥A 降级为面板
+                    }
+                }
+            }
+        }
+    }
+
+    val openSettings: (fromWriter: Boolean) -> Unit = { fromWriter ->
+        settingsFromWriter = fromWriter
+        screen = MilkScreen.Settings
+    }
+
+    // ---- ⌘K 面板条目(按当前屏幕;DESIGN-V0 §5.4) ----
+    val paletteItems: List<CommandItem> = when (val s = screen) {
+        is MilkScreen.Writer -> {
+            val st = writerVm.state.value
+            listOfNotNull(
+                CommandItem("id_snip", "框选讲解", hint = "笔键长按", section = "Agent") {
+                    writerVm.enterSnip()
+                },
+                CommandItem("id_explain", "讲解本页", hint = st.currentPageId, section = "Agent") {
+                    val nb = st.notebook ?: return@CommandItem
+                    ServiceLocator.agentController.let {
+                        it.bindPage(com.milknote.agent.PageRef(nb.id, st.currentPageId))
+                        it.quickIntent(com.milknote.agent.Intents.Id.EXPLAIN)
+                    }
+                },
+                CommandItem("id_chapter", "归纳本章", hint = "${st.pages.size} 页", section = "Agent") {
+                    val nb = st.notebook ?: return@CommandItem
+                    ServiceLocator.agentController.let {
+                        it.bindPage(com.milknote.agent.PageRef(nb.id, st.currentPageId))
+                        it.quickIntent(com.milknote.agent.Intents.Id.SUMMARIZE)
+                    }
+                },
+                CommandItem("id_export", "全部导出 PDF", hint = "${st.pages.size} 页", section = "笔记") {
+                    writerVm.exportPdf { writerVm.toast(it) }
+                },
+                CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
+                CommandItem("id_settings", "设置", section = "通用") { openSettings(true) },
+            )
+        }
+        else -> {
+            val notebooks = bookshelfVm.notebooks.value
+            listOf(
+                CommandItem("id_new", "新建笔记本", hint = "↵", section = "笔记本") { showNewNotebook = true },
+            ) + notebooks.take(6).map { nb ->
+                CommandItem("nb_${nb.id}", nb.name, hint = "${bookshelfVm.pageCountOf(nb.id)} 页", section = "切换笔记本") {
+                    writerVm.open(nb.id)
+                    screen = MilkScreen.Writer(nb.id)
+                }
+            } + listOf(
+                CommandItem("id_settings", "设置", section = "通用") { openSettings(false) },
+            )
+        }
+    }
+
+    BackHandler(enabled = screen is MilkScreen.Writer || screen is MilkScreen.Settings || showPalette) {
+        when {
+            showPalette -> showPalette = false
+            screen is MilkScreen.Writer -> { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf }
+            screen is MilkScreen.Settings -> {
+                screen = if (settingsFromWriter) {
+                    writerVm.state.value.notebook?.let { MilkScreen.Writer(it.id) } ?: MilkScreen.Bookshelf
+                } else MilkScreen.Bookshelf
+            }
             else -> {}
         }
     }
 
     MilkTheme(darkTheme = dark) {
-        when (val s = screen) {
-            is MilkScreen.Bookshelf -> BookshelfScreen(
-                vm = bookshelfVm,
-                onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
-                onOpenDiagnostics = { showDiagnostics = true },
-                onOpenSettings = { screen = MilkScreen.Settings },
-            )
-            is MilkScreen.Writer -> WriterScreen(
-                vm = writerVm,
-                dark = dark,
-                onBack = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
-                onOpenDiagnostics = { showDiagnostics = true },
-            )
-            is MilkScreen.Settings -> SettingsScreen(onBack = { screen = MilkScreen.Bookshelf })
-        }
+        Box(Modifier.fillMaxSize()) {
+            when (val s = screen) {
+                is MilkScreen.Bookshelf -> BookshelfScreen(
+                    vm = bookshelfVm,
+                    onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
+                    onOpenDiagnostics = { showDiagnostics = true },
+                    onOpenSettings = { openSettings(false) },
+                    onOpenPalette = { showPalette = true },
+                    showNewNotebook = showNewNotebook,
+                    onNewNotebookHandled = { showNewNotebook = false },
+                )
+                is MilkScreen.Writer -> WriterScreen(
+                    vm = writerVm,
+                    dark = dark,
+                    onBack = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
+                    onOpenDiagnostics = { showDiagnostics = true },
+                    onOpenPalette = { showPalette = true },
+                    onOpenSettings = { openSettings(true) },
+                )
+                is MilkScreen.Settings -> SettingsScreen(
+                    onBack = {
+                        screen = if (settingsFromWriter) {
+                            writerVm.state.value.notebook?.let { MilkScreen.Writer(it.id) } ?: MilkScreen.Bookshelf
+                        } else MilkScreen.Bookshelf
+                    },
+                )
+            }
 
-        if (showDiagnostics) {
-            PenDiagnosticsSheet(onDismiss = { showDiagnostics = false })
+            // ⑤ Agent 抽屉(浮层,仅书写页;收起时流不中断)
+            if (screen is MilkScreen.Writer) {
+                Box(Modifier.fillMaxSize()) {
+                    AgentDrawerHost(
+                        onOpenSettings = { openSettings(true) },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(top = 0.dp),
+                    )
+                }
+            }
+
+            // ⌘K 命令面板(顶层)
+            AnimatedVisibility(
+                visible = showPalette,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0x52000000))
+                        .clickable { showPalette = false },
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Box(Modifier.padding(top = 90.dp).clickable(enabled = false) {}) {
+                        CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
+                    }
+                }
+            }
+
+            if (showDiagnostics) {
+                PenDiagnosticsSheet(onDismiss = { showDiagnostics = false })
+            }
         }
     }
 }

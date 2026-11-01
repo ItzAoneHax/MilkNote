@@ -1,7 +1,12 @@
 package com.milknote.app.di
 
 import android.content.Context
+import com.milknote.app.agent.AppAnnotationSink
+import com.milknote.app.agent.AppSnipSource
 import com.milknote.app.ui.settings.AppSettingsStore
+import com.milknote.agent.AgentController
+import com.milknote.agent.AgentStore
+import com.milknote.agent.KeyVault
 import com.milknote.device.pen.DefaultPenInputPort
 import com.milknote.device.pen.PenActionRouter
 import com.milknote.device.pen.PenBatteryMonitor
@@ -22,6 +27,14 @@ object ServiceLocator {
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** 全局 UI 意图(⌘K/⌥A 硬件键 → MilkRoot;MainActivity.dispatchKeyEvent 发射) */
+    sealed interface UiEvent {
+        data object OpenPalette : UiEvent
+        data object OpenAgent : UiEvent
+    }
+
+    val uiEvents = kotlinx.coroutines.flow.MutableSharedFlow<UiEvent>(extraBufferCapacity = 4)
+
     val repository: NotebookRepository by lazy {
         NotebookRepository(appContext.filesDir, appScope)
     }
@@ -34,6 +47,34 @@ object ServiceLocator {
     val penBattery: PenBatteryMonitor by lazy { PenBatteryMonitor(appContext, appScope) }
 
     val appSettings: AppSettingsStore by lazy { AppSettingsStore(appContext) }
+
+    /** Agent(M2):渲染源经 AgentBridge 由 WriterViewModel 注册 */
+    val agentSnipSource: AppSnipSource by lazy { AppSnipSource(render = ::renderAgentPage) }
+
+    val agentController: AgentController by lazy {
+        val vault = KeyVault(appContext)
+        val c = AgentController(
+            scope = appScope,
+            store = AgentStore(appContext.filesDir, notebooksRoot()),
+            snipSource = agentSnipSource,
+            annotationSink = AppAnnotationSink(),
+            keyFor = { alias -> runCatching { vault.get(alias) }.getOrNull() },
+        )
+        c.attachKeyVault(
+            put = { alias, key -> vault.put(alias, key) },
+            remove = { alias -> vault.remove(alias) },
+        )
+        c
+    }
+
+    private fun notebooksRoot() = java.io.File(appContext.filesDir, "notebooks")
+
+    /** Agent 页面渲染入口(离屏软件渲染;数据由 AgentBridge 提供) */
+    private suspend fun renderAgentPage(
+        page: com.milknote.agent.PageRef,
+        rect: com.milknote.agent.Rect4?,
+    ): android.graphics.Bitmap? =
+        com.milknote.app.agent.PageRenderer.render(page, rect)
 
     fun init(context: Context) {
         if (::appContext.isInitialized) return

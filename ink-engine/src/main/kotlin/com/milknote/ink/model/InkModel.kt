@@ -1,5 +1,7 @@
 package com.milknote.ink.model
 
+import kotlinx.serialization.Serializable
+
 /** 工具(DESIGN-V0 §6.1 Stroke.tool) */
 enum class InkTool(val id: String) {
     PEN("pen"),           // 钢笔:压感变宽 + 倾斜笔锋
@@ -42,16 +44,36 @@ enum class PressureGamma(val gamma: Float, val label: String) {
     SOFT(1.4f, "柔和"), STANDARD(1.0f, "标准"), SENSITIVE(0.7f, "灵敏");
 }
 
-/** 撤销栈操作:写入 = Add,擦除 = Remove */
+/** 撤销栈操作:写入 = Add,擦除 = Remove;批注卡同栈(DESIGN-V0 §4 结果落点 / AGENT-BACKEND §9) */
 sealed interface InkOp {
     data class Add(val stroke: Stroke) : InkOp
     data class Remove(val stroke: Stroke, val index: Int) : InkOp
+    data class AddCard(val card: AnnotationCard) : InkOp
+    data class RemoveCard(val card: AnnotationCard) : InkOp
     data class Batch(val ops: List<InkOp>) : InkOp
 }
 
-/** 页面墨迹状态:提交的笔迹 + 撤销/重做栈 */
+/**
+ * 批注卡(Agent 结果贴回的承载;页坐标 px,与笔迹同一坐标系)。
+ * 高度由文本布局测量得出(渲染层计算),不落库。
+ */
+@Serializable
+data class AnnotationCard(
+    val id: String,
+    val x: Float,               // 左上角 x(页坐标 px)
+    val y: Float,               // 左上角 y
+    val width: Float,           // 卡宽(px;默认约 74mm)
+    val kind: Kind = Kind.TEXT,
+    val text: String,           // markdown-lite 源文(TEXT)/ LaTeX 源码(LATEX)
+    val createdAt: Long = 0L,
+) {
+    enum class Kind { TEXT, LATEX }
+}
+
+/** 页面墨迹状态:提交的笔迹 + 批注卡 + 撤销/重做栈 */
 class PageInkState {
     val strokes: MutableList<Stroke> = mutableListOf()
+    val cards: MutableList<AnnotationCard> = mutableListOf()
     private val undoStack: ArrayDeque<InkOp> = ArrayDeque()
     private val redoStack: ArrayDeque<InkOp> = ArrayDeque()
 
@@ -66,9 +88,11 @@ class PageInkState {
     }
 
     /** 整页替换(切页加载;撤销栈清零,历史由文件承载) */
-    fun reset(strokes: List<Stroke>) {
+    fun reset(strokes: List<Stroke>, cards: List<AnnotationCard> = emptyList()) {
         this.strokes.clear()
         this.strokes.addAll(strokes)
+        this.cards.clear()
+        this.cards.addAll(cards)
         undoStack.clear()
         redoStack.clear()
         version++
@@ -113,6 +137,8 @@ class PageInkState {
         when (op) {
             is InkOp.Add -> strokes.add(op.stroke)
             is InkOp.Remove -> strokes.removeAt(strokes.indexOfFirst { it.id == op.stroke.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.AddCard -> cards.add(op.card)
+            is InkOp.RemoveCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
             is InkOp.Batch -> op.ops.forEach(::doApply)
         }
     }
@@ -124,6 +150,8 @@ class PageInkState {
                 val idx = op.index.coerceIn(0, strokes.size)
                 strokes.add(idx, op.stroke)
             }
+            is InkOp.AddCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.RemoveCard -> cards.add(op.card)
             is InkOp.Batch -> op.ops.reversed().forEach(::undoApply)
         }
     }

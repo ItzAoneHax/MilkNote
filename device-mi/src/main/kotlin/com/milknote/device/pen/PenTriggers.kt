@@ -22,7 +22,7 @@ enum class PenTrigger(val label: String) {
 enum class PenAction(val label: String) {
     TOGGLE_ERASER("切换笔⇄橡皮"),
     LASO("套索选择"),
-    SNIP("框选截图(M2)"),
+    SNIP("框选截图"),
     UNDO("撤销"),
     REDO("重做"),
     NEW_PAGE("新建页"),
@@ -32,14 +32,14 @@ enum class PenAction(val label: String) {
 
 /**
  * 默认映射(PEN-ADAPTATION §4.4 与 DESIGN-V0 §3.2 对齐)。
- * P1 实测修订(2026-11-01):系统长按不可被应用消费阻止(上键长按=系统框选截图、
- * 下键长按=小米创作,均系统级),PRIMARY_LONG 默认改 NONE 避免双触发;
- * M2 框选截图的触发设计另议(系统截图接力 / MediaProjection / 换触发)。
+ * 2026-11-01 修订:系统长按行为已被 gb_boosting 接管方案压制(书写页写
+ * Secure 表,PEN-ADAPTATION §4.1-3),PRIMARY_LONG 恢复 SNIP ——
+ * 笔键长按 = 应用内框选截图,即 DESIGN-V0 §4.1 的核心交互(M2 落地)。
  */
 val DEFAULT_MAPPING: Map<PenTrigger, PenAction> = mapOf(
     PenTrigger.PRIMARY_TAP to PenAction.LASO,
     PenTrigger.PRIMARY_DOUBLE to PenAction.TOGGLE_ERASER,
-    PenTrigger.PRIMARY_LONG to PenAction.NONE,
+    PenTrigger.PRIMARY_LONG to PenAction.SNIP,
     PenTrigger.PRIMARY_HOLD_WRITE to PenAction.LASO,
     PenTrigger.SECONDARY_TAP to PenAction.UNDO,
     PenTrigger.SECONDARY_HOLD_WRITE to PenAction.TEMP_ERASER,

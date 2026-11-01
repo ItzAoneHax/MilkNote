@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,10 +75,18 @@ fun BookshelfScreen(
     onOpenNotebook: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenPalette: () -> Unit = {},
+    showNewNotebook: Boolean = false,
+    onNewNotebookHandled: () -> Unit = {},
 ) {
     val notebooks by vm.notebooks.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<NotebookMeta?>(null) }
+
+    // ⌘K「新建笔记本」请求(面板 → 本屏弹窗)
+    LaunchedEffect(showNewNotebook) {
+        if (showNewNotebook) { showCreate = true; onNewNotebookHandled() }
+    }
     val battery by com.milknote.app.di.ServiceLocator.penBattery.level.collectAsState()
 
     Column(
@@ -93,6 +102,7 @@ fun BookshelfScreen(
             onNew = { showCreate = true },
             onOpenSettings = onOpenSettings,
             onBatteryLongPress = onOpenDiagnostics,
+            onOpenPalette = onOpenPalette,
         )
 
         // ---- 卡片网格 ----
@@ -153,6 +163,7 @@ private fun BookshelfTopBar(
     onNew: () -> Unit,
     onOpenSettings: () -> Unit,
     onBatteryLongPress: () -> Unit,
+    onOpenPalette: () -> Unit = {},
 ) {
     Row(
         Modifier
@@ -172,10 +183,11 @@ private fun BookshelfTopBar(
         )
         Spacer(Modifier.weight(1f))
 
-        // 搜索(M2 接 ⌘K 命令面板与识别检索;当前占位)
+        // 搜索 → ⌘K 命令面板(DESIGN-V0 §5.4 统一入口;识别检索 M3)
         Row(
             modifier = Modifier
                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                .clickable(onClick = onOpenPalette)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
