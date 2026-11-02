@@ -205,6 +205,16 @@ class ProviderWireTest {
     }
 
     @Test
+    fun `content为null的角色帧不产生字面量null文本`() {
+        // 真机实证(MiMo):role/空增量帧大量携带 "content":null;
+        // JsonNull.content 会返回 "null" 字符串,曾致回复前缀 32 个 null
+        assertEquals(0, provider.parseFrame("""{"choices":[{"delta":{"role":"assistant","content":null}}]}""").size)
+        assertEquals(0, provider.parseFrame("""{"choices":[{"delta":{"content":null},"finish_reason":null}]}""").size)
+        // 正常文本不受影响
+        assertEquals(1, provider.parseFrame("""{"choices":[{"delta":{"content":"好"}}]}""").size)
+    }
+
+    @Test
     fun `DONE与脏帧`() {
         assertEquals(1, provider.parseFrame("[DONE]").size)
         assertEquals(0, provider.parseFrame("not-json").size)

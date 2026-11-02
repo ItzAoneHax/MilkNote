@@ -139,7 +139,7 @@ sealed interface AgentError {
     data class ModelNotVision(override val detail: String) : AgentError
     data class NotFound(override val detail: String) : AgentError
     data object ContextTooLarge : AgentError { override val detail = "上下文过大" }
-    data object StreamBroken : AgentError { override val detail = "流式传输中断" }
+    data object StreamBroken : AgentError { override val detail = "回复中途断开,已生成内容已保留;点「重试」整轮重发" }
     data object Cancelled : AgentError { override val detail = "已取消" }
     data class Other(override val detail: String) : AgentError
 }

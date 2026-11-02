@@ -198,7 +198,9 @@ abstract class BaseHttpProvider(
             val data = root["data"]?.jsonArray ?: return emptyList()
             return data.mapNotNull { el ->
                 val o = el.jsonObject
-                val id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val idEl = o["id"]
+                if (idEl == null || idEl is kotlinx.serialization.json.JsonNull) return@mapNotNull null
+                val id = idEl.jsonPrimitive.content
                 val vision = if (openRouter) {
                     o["architecture"]?.jsonObject?.get("input_modalities")?.jsonArray
                         ?.any { it.jsonPrimitive.content == "image" } == true

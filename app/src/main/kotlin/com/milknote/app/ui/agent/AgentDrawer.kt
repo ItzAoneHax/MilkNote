@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -94,14 +92,14 @@ fun AgentDrawerHost(
 @Composable
 private fun AgentDrawer(state: AgentUiState, onOpenSettings: () -> Unit) {
     val agent = ServiceLocator.agentController
+    // 宿主在书写页画布区(顶栏下/底部状态条上,DESIGN-V0 §5.4);容器已吃 safeDrawing
+    // (含 IME)inset,此处不再重复 padding,否则顶进状态栏/盖住底条(真机实证)
     Column(
         Modifier
             .width(360.dp)
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface)
-            .border(0.5.dp, MaterialTheme.colorScheme.outline)
-            .navigationBarsPadding()
-            .imePadding(),
+            .border(0.5.dp, MaterialTheme.colorScheme.outline),
     ) {
         DrawerHeader(state)
         if (state.setupRequired) {

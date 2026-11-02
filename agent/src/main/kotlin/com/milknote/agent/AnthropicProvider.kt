@@ -89,8 +89,13 @@ class AnthropicProvider(
         val obj = runCatching { BaseHttpProvider.json.parseToJsonElement(p).jsonObject }.getOrNull() ?: return emptyList()
         return when (obj["type"]?.jsonPrimitive?.content) {
             "content_block_delta" -> {
-                val text = obj["delta"]?.jsonObject?.get("text")?.jsonPrimitive?.content
-                    ?: obj["delta"]?.jsonObject?.get("partial_json")?.jsonPrimitive?.content  // thinking/tool 帧按文本容错
+                // JsonNull 守卫(与 OpenAI 路径同源问题):null 值不得变字面量 "null"
+                fun txt(field: String): String? {
+                    val el = obj["delta"]?.jsonObject?.get(field) ?: return null
+                    if (el is kotlinx.serialization.json.JsonNull) return null
+                    return el.jsonPrimitive.content
+                }
+                val text = txt("text") ?: txt("partial_json")  // thinking/tool 帧按文本容错
                 if (text.isNullOrEmpty()) emptyList() else listOf(ChatEvent.Delta(text))
             }
             "message_start" -> {

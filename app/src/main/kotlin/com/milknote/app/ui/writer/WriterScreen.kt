@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.agent.SnipOverlay
 import com.milknote.app.ui.common.CommandKeyCapsule
 import com.milknote.app.ui.common.MonoText
@@ -169,6 +170,11 @@ fun WriterScreen(
                         onSend = vm::snipSend,
                     )
                 }
+                // ⑤ Agent 抽屉(画布区右缘浮层:顶栏下、底部状态条上,DESIGN-V0 §5.4)
+                AgentDrawerHost(
+                    onOpenSettings = onOpenSettings,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
                 // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈)
                 if (state.selectionCount > 0) {
                     Row(

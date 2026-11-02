@@ -22,12 +22,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.milknote.app.di.ServiceLocator
-import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.bookshelf.BookshelfScreen
 import com.milknote.app.ui.bookshelf.BookshelfViewModel
 import com.milknote.app.ui.common.CommandItem
@@ -249,18 +248,6 @@ fun MilkRoot() {
                         } else MilkScreen.Bookshelf
                     },
                 )
-            }
-
-            // ⑤ Agent 抽屉(浮层,仅书写页;收起时流不中断)
-            if (screen is MilkScreen.Writer) {
-                Box(Modifier.fillMaxSize()) {
-                    AgentDrawerHost(
-                        onOpenSettings = { openSettings(true) },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(top = 0.dp),
-                    )
-                }
             }
 
             // ⌘K 命令面板(顶层)

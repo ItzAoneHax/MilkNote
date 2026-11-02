@@ -2,6 +2,7 @@ package com.milknote.agent
 
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -143,8 +144,13 @@ class OpenAiCompatProvider(
 
         obj["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.let { choice ->
             val delta = choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
-            val text = delta?.get("content")?.jsonPrimitive?.content
-            if (!text.isNullOrEmpty()) out += ChatEvent.Delta(text)
+            // JSON null 帧(role/空增量,MiMo 等大量发送)不算文本 —— JsonNull.content
+            // 会返回字面量 "null",必须显式排除(真机实证:回复前缀 32 个 null)
+            val contentEl = delta?.get("content")
+            if (contentEl != null && contentEl !is JsonNull) {
+                val text = contentEl.jsonPrimitive.content
+                if (text.isNotEmpty()) out += ChatEvent.Delta(text)
+            }
         }
         obj["usage"]?.jsonObject?.let { u ->
             val pt = u["prompt_tokens"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
