@@ -102,6 +102,21 @@ fun WriterScreen(
             vm.toast("笔键长按接管未激活(更新后需重新 adb 授权),长按将弹系统提示")
         }
     }
+
+    // 接管生命周期闭环:MainActivity.onStop(退后台)会把 gb_boosting 写回 0 恢复系统行为;
+    // 直接恢复到书写页(不走页面导航)时在此补写,不依赖 DisposableEffect(screen) 重跑
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME &&
+                com.milknote.app.pen.PenKeyTakeover.canWrite(writerCtx)
+            ) {
+                com.milknote.app.pen.PenKeyTakeover.set(writerCtx, true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(toast) {
         if (toast != null) { kotlinx.coroutines.delay(2000); toast = null }
     }

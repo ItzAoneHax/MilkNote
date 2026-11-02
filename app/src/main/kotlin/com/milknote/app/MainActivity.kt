@@ -43,6 +43,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        // 退后台(HOME/切应用/划掉)即恢复系统笔键行为——Activity 不销毁,
+        // 仅靠 onDestroy 会残留 gb_boosting=1,导致系统长按在其它应用里失效
+        com.milknote.app.pen.PenKeyTakeover.set(applicationContext, false)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         // 兜底:进程销毁时复位笔键接管标志(防崩溃残留)
         com.milknote.app.pen.PenKeyTakeover.set(applicationContext, false)
