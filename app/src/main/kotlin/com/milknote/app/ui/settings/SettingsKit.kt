@@ -1,5 +1,6 @@
 package com.milknote.app.ui.settings
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -51,6 +52,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.onFocusChanged
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.softClickable
+import com.milknote.app.ui.common.softHover
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.LocalMilkWarning
 import com.milknote.app.ui.theme.Mono
 
@@ -98,8 +104,11 @@ internal fun SettingsNavRail(
             Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .padding(horizontal = 16.dp)
-                .clickable(onClick = onBack),
+                .padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onBack)
+                .softHover()
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -125,12 +134,18 @@ internal fun SettingsNavRail(
                 )
                 items.forEach { item ->
                     val active = item.key == selected
+                    val itemBg by animateColorAsState(
+                        targetValue = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
+                        animationSpec = tween(200),
+                        label = "navItemBg",
+                    )
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+                            .background(itemBg)
                             .clickable { onSelect(item.key) }
+                            .softHover()
                             .padding(horizontal = 12.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -183,7 +198,7 @@ internal fun SettingsSectionHeader(title: String, description: String? = null) {
     }
 }
 
-/** 设置卡:surface 底 + 16dp 圆角 + 1dp hairline 边框;卡内零 padding,由行自带 */
+/** 设置卡:surface 底 + 16dp 圆角 + 1dp hairline 边框 + 轻软阴影/顶缘内高光;卡内零 padding,由行自带 */
 @Composable
 internal fun SettingsCard(
     modifier: Modifier = Modifier,
@@ -194,9 +209,11 @@ internal fun SettingsCard(
     Column(
         modifier
             .fillMaxWidth()
+            .softShadow(3.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(containerColor)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp)),
+            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
+            .innerHighlight(),
     ) { content() }
 }
 
@@ -223,7 +240,7 @@ internal fun SettingsRow(
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick).softHover() else Modifier)
             .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -311,6 +328,7 @@ internal fun <T> InlineSelectionList(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onPick(item) }
+                        .softHover()
                         .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -332,7 +350,7 @@ internal fun <T> InlineSelectionList(
     }
 }
 
-/** 胶囊开关:on = 蓝轨白 thumb / off = 灰轨灰 thumb(ZCode 式;替换 M3 Switch) */
+/** 胶囊开关:on = 蓝轨白 thumb / off = 灰轨灰 thumb(ZCode 式;轨道/描边颜色 200ms 过渡) */
 @Composable
 internal fun MilkSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
     val thumbX by animateDpAsState(
@@ -340,12 +358,22 @@ internal fun MilkSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
         animationSpec = tween(200),
         label = "milkSwitchThumb",
     )
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        animationSpec = tween(200),
+        label = "milkSwitchTrack",
+    )
+    val trackBorder by animateColorAsState(
+        targetValue = if (checked) Color.Transparent else MaterialTheme.colorScheme.outline,
+        animationSpec = tween(200),
+        label = "milkSwitchBorder",
+    )
     Box(
         Modifier
             .size(width = 46.dp, height = 26.dp)
             .clip(CircleShape)
-            .background(if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, if (checked) Color.Transparent else MaterialTheme.colorScheme.outline, CircleShape)
+            .background(trackColor)
+            .border(1.dp, trackBorder, CircleShape)
             .clickable { onChange(!checked) },
     ) {
         Box(
@@ -362,7 +390,7 @@ internal fun MilkSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** 文字操作钮(13sp Medium;primary=蓝字,danger=红字;替换 TextButton/MiniAction) */
+/** 文字操作钮(13sp Medium;primary=蓝字,danger=红字;带按压缩放) */
 @Composable
 internal fun TextAction(
     label: String,
@@ -371,19 +399,24 @@ internal fun TextAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Text(
-        label,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
-        color = when {
+    val fg by animateColorAsState(
+        targetValue = when {
             !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             danger -> MaterialTheme.colorScheme.error
             primary -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onBackground
         },
+        animationSpec = tween(200),
+        label = "textActionFg",
+    )
+    Text(
+        label,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = fg,
         modifier = Modifier
             .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
+            .softClickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
@@ -446,6 +479,15 @@ internal fun SettingsInputField(
     onCancel: (() -> Unit)? = null,
     compact: Boolean = false,
 ) {
+    var focused by remember { mutableStateOf(false) }
+    val boxBorder by animateColorAsState(
+        targetValue = when {
+            focused || dirty -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.outline
+        },
+        animationSpec = tween(200),
+        label = "inputBorder",
+    )
     Column(
         modifier.fillMaxWidth().then(
             if (compact) Modifier.padding(vertical = 6.dp) else Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -464,11 +506,7 @@ internal fun SettingsInputField(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .border(
-                        1.dp,
-                        if (dirty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                        RoundedCornerShape(10.dp),
-                    )
+                    .border(1.dp, boxBorder, RoundedCornerShape(10.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 if (value.isEmpty()) {
@@ -489,7 +527,7 @@ internal fun SettingsInputField(
                         color = MaterialTheme.colorScheme.onBackground,
                     ),
                     visualTransformation = if (mask) PasswordVisualTransformation() else VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
                 )
             }
             if (dirty && onSave != null) {
@@ -514,20 +552,28 @@ internal fun FooterHint(text: String, mono: Boolean = false) {
     )
 }
 
-/** 多选胶囊(思考档位/输入类型声明等):on = 淡蓝底蓝字,off = 灰底灰字 */
+/** 多选胶囊(思考档位/输入类型声明等):on = 淡蓝底蓝字,off = 灰底灰字;颜色 200ms 过渡 */
 @Composable
 internal fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        targetValue = if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        animationSpec = tween(200),
+        label = "toggleChipBg",
+    )
+    val fg by animateColorAsState(
+        targetValue = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(200),
+        label = "toggleChipFg",
+    )
     Text(
         label,
         fontSize = 11.sp,
         fontWeight = if (on) FontWeight.Medium else null,
-        color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        color = fg,
         modifier = Modifier
             .clip(CircleShape)
-            .background(
-                if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-            )
+            .background(bg)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
     )

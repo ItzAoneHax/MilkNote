@@ -1,5 +1,13 @@
 package com.milknote.app.ui.writer
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +58,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
@@ -64,8 +76,15 @@ import com.milknote.app.ui.agent.SnipOverlay
 import com.milknote.app.ui.common.CommandKeyCapsule
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.PenBatteryCapsule
+import com.milknote.app.ui.common.accentBrush
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softClickable
+import com.milknote.app.ui.common.softHover
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.InkPalette
 import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.PillShape
 import com.milknote.device.pen.PenAction
 import com.milknote.ink.input.InkAction
 import com.milknote.ink.model.InkTool
@@ -171,6 +190,8 @@ fun WriterScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
             ) {
                 PaperCanvas(vm, state, dark, penConnected, surfaceRef)
+                // 纸面暗角(纯显示层,不参与导出)
+                Box(Modifier.matchParentSize().paperVignette(dark))
                 // ④ 框选遮罩(冻结画布+压暗;AGENT-BACKEND §4.2)
                 if (state.snip.phase != com.milknote.app.ui.writer.SnipPhase.IDLE) {
                     SnipOverlay(
@@ -190,54 +211,22 @@ fun WriterScreen(
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.CenterEnd),
                 )
-                // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈)
-                if (state.selectionCount > 0) {
-                    Row(
-                        Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 14.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xF023221E))
-                            .padding(horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "已选 ${state.selectionCount} 笔 · 拖动移动",
-                            color = Color(0xFFE8E6E0),
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                        Box(
-                            Modifier
-                                .clip(CircleShape)
-                                .background(Color(0x33D2483C))
-                                .clickable(onClick = vm::deleteSelection)
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
-                        ) {
-                            Text("删除", color = Color(0xFFE06558), fontSize = 12.sp)
-                        }
-                        Box(
-                            Modifier
-                                .clip(CircleShape)
-                                .clickable(onClick = vm::clearSelection)
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                        ) {
-                            Text("✕", color = Color(0xFF9B978D), fontSize = 13.sp)
-                        }
-                    }
-                }
-                toast?.let {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 40.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xE623221E))
-                            .padding(horizontal = 18.dp, vertical = 9.dp),
-                    ) {
-                        Text(it, color = Color(0xFFFAF9F5), fontSize = 13.sp)
-                    }
-                }
+                // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈);滑入+软阴影
+                SelectionBar(
+                    visible = state.selectionCount > 0,
+                    count = state.selectionCount,
+                    onDelete = vm::deleteSelection,
+                    onClear = vm::clearSelection,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+                )
+                // 轻提示 toast:底部滑入
+                var lastToast by remember { mutableStateOf("") }
+                toast?.let { lastToast = it }
+                ToastBar(
+                    visible = toast != null,
+                    text = lastToast,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
+                )
             }
         }
 
@@ -265,6 +254,8 @@ private fun WriterTopBar(
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带(§5.1):与纸面明确分界
+            .innerHighlight(strength = 0.3f)                        // 顶缘内高光
+            .edgeHairline(MaterialTheme.colorScheme.outline, bottom = true)
             .height(56.dp)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -318,33 +309,39 @@ private fun WriterTopBar(
         Spacer(Modifier.width(18.dp))
         DividerDot()
 
-        // 墨色(荧光黄=荧光笔)
+        // 墨色(荧光黄=荧光笔;选中尺寸/描边 200ms 过渡)
         Spacer(Modifier.width(18.dp))
         InkPalette.forEach { c ->
             val active = state.tool.color == c.toArgbLong()
+            val dotSize by animateDpAsState(if (active) 19.dp else 15.dp, tween(200), label = "inkDot")
+            val ring by animateDpAsState(if (active) 2.dp else 1.dp, tween(200), label = "inkRing")
+            val ringC by animateColorAsState(
+                if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
+                tween(200), label = "inkRingC",
+            )
             Box(
                 Modifier
-                    .size(if (active) 19.dp else 15.dp)
+                    .size(dotSize)
                     .clip(CircleShape)
                     .background(c)
-                    .border(
-                        width = if (active) 2.dp else 1.dp,
-                        color = if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
-                        shape = CircleShape,
-                    )
+                    .border(width = ring, color = ringC, shape = CircleShape)
                     .clickable { vm.setColor(c.toArgbLong()) },
             )
             Spacer(Modifier.width(7.dp))
         }
 
-        // 粗细
+        // 粗细(底色 200ms 过渡)
         Spacer(Modifier.width(6.dp))
         listOf(0.4f, 0.7f, 1.2f).forEach { mm ->
             val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
+            val wBg by animateColorAsState(
+                if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
+                tween(200), label = "widthBg",
+            )
             Box(
                 Modifier
                     .clip(CircleShape)
-                    .background(if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent)
+                    .background(wBg)
                     .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                     .clickable { vm.setWidth(mm) }
                     .padding(horizontal = 9.dp, vertical = 5.dp),
@@ -374,16 +371,13 @@ private fun WriterTopBar(
         CommandKeyCapsule(onClick = onOpenPalette)
         Spacer(Modifier.width(14.dp))
 
-        // Agent(M2 接框选;蓝色纪律:仅 Agent 与激活态用强调色)
+        // Agent(M2 接框选;蓝色纪律:仅 Agent 与激活态用强调色;轻投影+按压)
         Box(
             Modifier
+                .softShadow(6.dp, CircleShape)
                 .clip(CircleShape)
-                .background(
-                    androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(Color(0xFF3B5BEC), Color(0xFF5C77F2)),
-                    ),
-                )
-                .clickable(onClick = onAgent)
+                .background(accentBrush())
+                .softClickable(onClick = onAgent)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Text("Agent", color = Color.White, style = MaterialTheme.typography.labelLarge)
@@ -392,6 +386,105 @@ private fun WriterTopBar(
 }
 
 private fun Color.toArgbLong(): Long = toArgb().toLong() and 0xFFFFFFFFL
+
+/** 选中操作条:顶部滑入 + 软阴影深胶囊 */
+@Composable
+private fun SelectionBar(
+    visible: Boolean,
+    count: Int,
+    onDelete: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(200)) + slideInVertically(tween(220)) { -it },
+        exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it },
+    ) {
+        Row(
+            Modifier
+                .clip(PillShape)
+                .softShadow(8.dp, PillShape)
+                .background(Color(0xF023221E))
+                .paintedShadow(PillShape, edge = 6.dp)
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "已选 $count 笔 · 拖动移动",
+                color = Color(0xFFE8E6E0),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color(0x33D2483C))
+                    .clickable(onClick = onDelete)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            ) {
+                Text("删除", color = Color(0xFFE06558), fontSize = 12.sp)
+            }
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onClear)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            ) {
+                Text("✕", color = Color(0xFF9B978D), fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** 轻提示 toast:底部滑入 + 软阴影 */
+@Composable
+private fun ToastBar(visible: Boolean, text: String, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(200)) + slideInVertically(tween(220)) { it / 2 },
+        exit = fadeOut(tween(160)) + slideOutVertically(tween(180)) { it / 2 },
+    ) {
+        Box(
+            Modifier
+                .clip(PillShape)
+                .softShadow(8.dp, PillShape)
+                .background(Color(0xE623221E))
+                .paintedShadow(PillShape, edge = 6.dp)
+                .padding(horizontal = 18.dp, vertical = 9.dp),
+        ) {
+            Text(text, color = Color(0xFFFAF9F5), fontSize = 13.sp)
+        }
+    }
+}
+
+/** 纸面四周暗角(§5.1「柔和的皮」):极淡 radial 渐变向边缘压暗(亮 5.5%/暗 6% 黑);
+ *  半径 0.42×长边(亮色纸角 4-7% 量级),纯显示层不参与导出 */
+@Composable
+private fun Modifier.paperVignette(dark: Boolean): Modifier {
+    val edge = if (dark) Color.Black.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)
+    return drawBehind {
+        val r = maxOf(size.width, size.height) * 0.42f
+        drawRect(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to edge),
+                center = Offset(size.width / 2f, size.height / 2f),
+                radius = r,
+            ),
+        )
+    }
+}
+
+/** chrome 带边缘 hairline(1px,随主题;§5.1 顶栏/状态条/侧栏分界) */
+private fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Boolean = false, right: Boolean = false, bottom: Boolean = false): Modifier = drawBehind {
+    val t = 1.dp.toPx()
+    if (left) drawRect(color, topLeft = Offset(0f, 0f), size = Size(t, size.height))
+    if (top) drawRect(color, topLeft = Offset(0f, 0f), size = Size(size.width, t))
+    if (right) drawRect(color, topLeft = Offset(size.width - t, 0f), size = Size(t, size.height))
+    if (bottom) drawRect(color, topLeft = Offset(0f, size.height - t), size = Size(size.width, t))
+}
 
 @Composable
 private fun DividerDot() {
@@ -418,26 +511,36 @@ private fun ToolIcon(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val bg by animateColorAsState(
+        targetValue = if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
+        animationSpec = tween(200),
+        label = "toolBg",
+    )
+    val bd by animateColorAsState(
+        targetValue = if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else Color.Transparent,
+        animationSpec = tween(200),
+        label = "toolBorder",
+    )
+    val tint by animateColorAsState(
+        targetValue = when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            active -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(200),
+        label = "toolTint",
+    )
     Box(
         Modifier
             .size(32.dp)
             .clip(CircleShape)
-            .background(if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
-            .border(
-                width = if (active && enabled) 1.dp else 0.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                shape = CircleShape,
-            )
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(bg)
+            .border(1.dp, bd, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .softHover(),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon, label,
-            modifier = Modifier.size(18.dp),
-            tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-            else if (active) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Icon(icon, label, modifier = Modifier.size(18.dp), tint = tint)
     }
 }
 
@@ -458,6 +561,7 @@ private fun PageSidebar(
             .width(148.dp)
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.75f), right = true)
             .padding(horizontal = 10.dp, vertical = 10.dp),
     ) {
         Row(
@@ -465,6 +569,7 @@ private fun PageSidebar(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .clickable(onClick = onBack)
+                .softHover()
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -477,17 +582,27 @@ private fun PageSidebar(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.pages, key = { it.pageId }) { p ->
                 val active = p.pageId == state.currentPageId
+                val thumbBg by animateColorAsState(
+                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                    tween(200), label = "thumbBg",
+                )
+                val thumbBorder by animateColorAsState(
+                    if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    tween(200), label = "thumbBorder",
+                )
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface)
+                        .animateItem()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(thumbBg)
                         .border(
                             width = if (active) 1.5.dp else 1.dp,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            shape = RoundedCornerShape(8.dp),
+                            color = thumbBorder,
+                            shape = RoundedCornerShape(10.dp),
                         )
                         .clickable { onSwitch(p.pageId) }
+                        .softHover()
                         .padding(5.dp),
                 ) {
                     val bmp = thumbs[p.pageId]
@@ -512,9 +627,11 @@ private fun PageSidebar(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                        .animateItem()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                         .clickable(onClick = onNewPage)
+                        .softHover()
                         .padding(vertical = 9.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -573,6 +690,7 @@ private fun StatusBar(state: WriterUiState) {
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带:与画布明确分界
+            .edgeHairline(MaterialTheme.colorScheme.outline, top = true)
             .padding(horizontal = 20.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

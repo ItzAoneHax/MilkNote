@@ -77,7 +77,20 @@ fun SettingsScreen(onBack: () -> Unit) {
             versionLine = "v${com.milknote.app.BuildConfig.VERSION_NAME} · ${fmtTime(com.milknote.app.BuildConfig.BUILD_TIME)}",
             onBack = onBack,
         )
-        Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outline))
+        // 导航/内容分隔:上下渐隐 hairline(去生硬实线)
+        Box(
+            Modifier
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to androidx.compose.ui.graphics.Color.Transparent,
+                        0.05f to MaterialTheme.colorScheme.outline,
+                        0.95f to MaterialTheme.colorScheme.outline,
+                        1f to androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                ),
+        )
         Column(
             Modifier
                 .weight(1f)

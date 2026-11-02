@@ -1,5 +1,6 @@
 package com.milknote.app.ui.settings
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -43,6 +44,9 @@ import com.milknote.agent.ReasoningEffort
 import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.dashedBorder
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 
@@ -684,6 +688,11 @@ private fun AddProviderDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { preset ->
                         val sel = preset.id == presetId
+                        val chipBg by animateColorAsState(
+                            if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            tween(200), label = "presetChipBg",
+                        )
                         Text(
                             preset.title,
                             fontSize = 11.sp,
@@ -691,7 +700,7 @@ private fun AddProviderDialog(
                             color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                .background(chipBg)
                                 .clickable {
                                     presetId = preset.id
                                     if (preset.id == "custom") { title = ""; baseUrl = "" }
@@ -777,9 +786,12 @@ internal fun DialogCard(title: String, content: @Composable () -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
+            .softShadow(12.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
+            .innerHighlight()
+            .paintedShadow(RoundedCornerShape(16.dp))
             .padding(16.dp),
     ) {
         Column {

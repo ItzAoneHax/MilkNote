@@ -4,9 +4,13 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -57,7 +61,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -74,6 +80,10 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 import com.milknote.app.ui.common.accentBrush
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softHover
+import com.milknote.app.ui.common.softShadow
 
 /** ⑤ Agent 抽屉:右缘滑入 360dp 浮层(DESIGN-V0 §5.4;AGENT-BACKEND §8) */
 @Composable
@@ -104,8 +114,10 @@ private fun AgentDrawer(state: AgentUiState, onOpenSettings: () -> Unit) {
         Modifier
             .width(360.dp)
             .fillMaxHeight()
+            .softShadow(12.dp, RectangleShape)
             .background(MaterialTheme.colorScheme.surface)
-            .border(0.5.dp, MaterialTheme.colorScheme.outline),
+            .border(0.5.dp, MaterialTheme.colorScheme.outline)
+            .paintedShadow(RectangleShape, edge = 14.dp),
     ) {
         DrawerHeader(state)
         if (state.setupRequired) {
@@ -126,6 +138,7 @@ private fun DrawerHeader(state: AgentUiState) {
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .innerHighlight(strength = 0.25f)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -137,6 +150,7 @@ private fun DrawerHeader(state: AgentUiState) {
                 .clip(CircleShape)
                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                 .clickable { showModels = !showModels }
+                .softHover()
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -173,7 +187,13 @@ private fun DrawerHeader(state: AgentUiState) {
             Icon(Icons.Outlined.Close, "收起", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    if (showModels) ModelSheet(state) { showModels = false }
+    AnimatedVisibility(
+        visible = showModels,
+        enter = expandVertically(tween(200)) + fadeIn(tween(200)),
+        exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+    ) {
+        ModelSheet(state) { showModels = false }
+    }
 }
 
 /** 无可用视觉模型 → 引导卡(§3.4:入口即视觉,不显示空对话) */
@@ -210,22 +230,27 @@ private fun SetupGuide(onOpenSettings: () -> Unit) {
     }
 }
 
-/** 上下文 chips:选区 N / 当前页 p.X / +整章 + 预估(§5.2) */
+/** 上下文 chips:选区 N / 当前页 p.X / +整章 + 预估(§5.2);颜色 200ms 过渡 */
 @Composable
 private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        animationSpec = tween(200),
+        label = "chipBg",
+    )
+    val borderC by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
+        animationSpec = tween(200),
+        label = "chipBorder",
+    )
     Box(
         Modifier
             .clip(CircleShape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            )
-            .border(
-                width = if (selected) 1.dp else 0.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                shape = CircleShape,
-            )
+            .background(bg)
+            .border(1.dp, borderC, CircleShape)
             .clickable(onClick = onClick)
+            .softHover()
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(
@@ -274,12 +299,12 @@ private fun Messages(state: AgentUiState, modifier: Modifier = Modifier) {
     }
 }
 
-/** 思考过程折叠胶囊(默认收起;mono 灰,展开后内衬浅底) */
+/** 思考过程折叠胶囊(默认收起;mono 灰,展开后内衬浅底;展开 200ms 过渡) */
 @Composable
 private fun ReasoningBlock(msg: com.milknote.agent.UiMessage) {
     var expanded by remember(msg.id) { mutableStateOf(false) }
     val streamingThought = msg.streaming && msg.text.isBlank()
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(200))) {
         Row(
             Modifier
                 .clip(CircleShape)
@@ -411,17 +436,21 @@ private fun ActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit,
 ) {
+    val bg by animateColorAsState(
+        targetValue = when {
+            !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            accent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        },
+        animationSpec = tween(200),
+        label = "actionChipBg",
+    )
     Row(
         Modifier
             .clip(CircleShape)
-            .background(
-                when {
-                    !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    accent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                },
-            )
+            .background(bg)
             .clickable(enabled = enabled, onClick = onClick)
+            .softHover()
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -553,12 +582,19 @@ private fun Composer(state: AgentUiState) {
             }
             Spacer(Modifier.height(6.dp))
         }
+        var composerFocused by remember { mutableStateOf(false) }
+        val composerBorder by animateColorAsState(
+            targetValue = if (composerFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            else MaterialTheme.colorScheme.outline,
+            animationSpec = tween(200),
+            label = "composerBorder",
+        )
         Row(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                .border(1.dp, composerBorder, RoundedCornerShape(14.dp))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -587,7 +623,7 @@ private fun Composer(state: AgentUiState) {
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { composerFocused = it.isFocused },
                 )
             }
             Spacer(Modifier.width(8.dp))
@@ -644,6 +680,7 @@ private fun AttachmentPanel(
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+            .innerHighlight(strength = 0.25f)
             .padding(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -677,6 +714,7 @@ private fun AttachmentPanel(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onPickPage(pg) }
+                        .softHover()
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -699,6 +737,7 @@ private fun AttachPick(label: String, onClick: () -> Unit) {
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
             .clickable(onClick = onClick)
+            .softHover()
             .padding(horizontal = 10.dp, vertical = 5.dp),
     )
 }
@@ -763,9 +802,12 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
+            .softShadow(8.dp, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+            .innerHighlight(strength = 0.25f)
+            .paintedShadow(RoundedCornerShape(14.dp), edge = 10.dp)
             .padding(vertical = 8.dp),
     ) {
         state.profiles.forEach { profile ->
@@ -780,10 +822,12 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable {
                             agent.selectModel(profile.id, m.id)
                             onDismiss()
                         }
+                        .softHover()
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -865,17 +909,21 @@ private fun effortLabel(e: com.milknote.agent.ReasoningEffort): String = when (e
 
 @Composable
 private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        animationSpec = tween(200),
+        label = "effortChipBg",
+    )
     Text(
         label,
         fontSize = 11.sp,
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .clip(CircleShape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-            )
+            .background(bg)
             .clickable(onClick = onClick)
+            .softHover()
             .padding(horizontal = 10.dp, vertical = 5.dp),
     )
 }

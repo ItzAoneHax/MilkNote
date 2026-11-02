@@ -36,12 +36,9 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,13 +54,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.milknote.app.ui.common.CommandKeyCapsule
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.PenBatteryCapsule
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.common.formatRelative
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softCard
+import com.milknote.app.ui.common.softClickable
+import com.milknote.app.ui.common.softHover
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
 import com.milknote.notes.model.NotebookMeta
 
@@ -114,13 +115,15 @@ fun BookshelfScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             items(notebooks, key = { it.id }) { nb ->
-                NotebookCard(
-                    meta = nb,
-                    pageCount = vm.pageCountOf(nb.id),
-                    recent = nb.id == notebooks.firstOrNull()?.id,
-                    onOpen = { onOpenNotebook(nb.id) },
-                    onDelete = { deleteTarget = nb },
-                )
+                Box(Modifier.animateItem()) {
+                    NotebookCard(
+                        meta = nb,
+                        pageCount = vm.pageCountOf(nb.id),
+                        recent = nb.id == notebooks.firstOrNull()?.id,
+                        onOpen = { onOpenNotebook(nb.id) },
+                        onDelete = { deleteTarget = nb },
+                    )
+                }
             }
             item(key = "__new__") {
                 NewNotebookCard(onNew = { showCreate = true })
@@ -140,18 +143,52 @@ fun BookshelfScreen(
         )
     }
 
+    // ---- 删除确认(Milk 弹窗语言:边框+软阴影+高光,替代 M3 AlertDialog) ----
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text("删除「${target.name}」?") },
-            text = { Text("笔记本目录(${target.id}.milk)将被整体删除,包括全部页面笔迹。此操作不可撤销。") },
-            confirmButton = {
-                TextButton(onClick = { vm.delete(target.id); deleteTarget = null }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+        androidx.compose.ui.window.Dialog(onDismissRequest = { deleteTarget = null }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 60.dp)
+                    .softShadow(12.dp, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
+                    .innerHighlight()
+                    .paintedShadow(RoundedCornerShape(20.dp))
+                    .padding(24.dp),
+            ) {
+                Text("删除「${target.name}」?", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "笔记本目录(${target.id}.milk)将被整体删除,包括全部页面笔迹。此操作不可撤销。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(18.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text(
+                        "取消",
+                        fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .softClickable { deleteTarget = null }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "删除",
+                        fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .softClickable { vm.delete(target.id); deleteTarget = null }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
                 }
-            },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
-        )
+            }
+        }
     }
 }
 
@@ -184,21 +221,14 @@ private fun BookshelfTopBar(
         Spacer(Modifier.weight(1f))
 
         // 搜索 → ⌘K 命令面板(DESIGN-V0 §5.4 统一入口;识别检索 M3)
-        Row(
-            modifier = Modifier
-                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                .clickable(onClick = onOpenPalette)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("搜索", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(14.dp))
-            Text("⌘K", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        SearchCommandPill(onClick = onOpenPalette)
         Spacer(Modifier.width(14.dp))
-        Box(Modifier.combinedClickable(onClick = onOpenSettings, onLongClick = onBatteryLongPress)) {
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .combinedClickable(onClick = onOpenSettings, onLongClick = onBatteryLongPress)
+                .softHover()
+        ) {
             PenBatteryCapsule(level = battery)
         }
         Spacer(Modifier.width(14.dp))
@@ -208,7 +238,8 @@ private fun BookshelfTopBar(
             Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .clickable(onClick = onOpenSettings),
+                .clickable(onClick = onOpenSettings)
+                .softHover(),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -219,12 +250,13 @@ private fun BookshelfTopBar(
         }
         Spacer(Modifier.width(14.dp))
 
-        // [+ 新建笔记本] 胶囊主按钮(柔和渐变)
+        // [+ 新建笔记本] 胶囊主按钮(柔和渐变 + 轻投影 + 按压缩放)
         Row(
             modifier = Modifier
+                .softShadow(6.dp, CircleShape)
                 .clip(CircleShape)
                 .background(accentBrush())
-                .clickable(onClick = onNew)
+                .softClickable(onClick = onNew)
                 .padding(horizontal = 18.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -232,6 +264,26 @@ private fun BookshelfTopBar(
             Spacer(Modifier.width(6.dp))
             Text("新建笔记本", color = Color.White, style = MaterialTheme.typography.labelLarge)
         }
+    }
+}
+
+/** 搜索→⌘K 胶囊(书架顶栏;hover 淡背景) */
+@Composable
+internal fun SearchCommandPill(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .softHover()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("搜索", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(14.dp))
+        Text("⌘K", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -252,6 +304,7 @@ private fun NotebookCard(
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface)
             .combinedClickable(onClick = onOpen, onLongClick = onDelete)
+            .innerHighlight()
             .padding(12.dp),
     ) {
         Box(
@@ -307,14 +360,16 @@ private fun NotebookCard(
     }
 }
 
-/** 虚线新建卡 */
+/** 虚线新建卡(与笔记本卡同语言:软阴影 + hover 上浮) */
 @Composable
 private fun NewNotebookCard(onNew: () -> Unit) {
     Column(
         modifier = Modifier
             .height(236.dp)
+            .softCard()
             .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = 20.dp)
             .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
             .clickable(onClick = onNew)
             .padding(12.dp),
         verticalArrangement = Arrangement.Center,

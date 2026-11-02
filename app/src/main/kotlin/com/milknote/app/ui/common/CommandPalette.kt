@@ -1,6 +1,7 @@
 package com.milknote.app.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -69,9 +70,12 @@ fun CommandPalette(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 90.dp)
-            .shadow(18.dp, RoundedCornerShape(18.dp))
+            .softShadow(14.dp, RoundedCornerShape(18.dp))
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp))
+            .innerHighlight()
+            .paintedShadow(RoundedCornerShape(18.dp))
             .onKeyEvent { ev ->
                 when {
                     ev.key == Key.Escape && ev.type == KeyEventType.KeyUp -> { onDismiss(); true }
@@ -108,6 +112,8 @@ fun CommandPalette(
                 )
             }
         }
+        // 搜索框/结果 hairline 分隔
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
 
         // 分组结果
         Column(
@@ -129,11 +135,14 @@ fun CommandPalette(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable {
                             item.action()
                             onDismiss()
                         }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .softHover()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(item.title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)

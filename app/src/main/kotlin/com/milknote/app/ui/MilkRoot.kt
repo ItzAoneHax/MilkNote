@@ -5,8 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -250,7 +252,7 @@ fun MilkRoot() {
                 )
             }
 
-            // ⌘K 命令面板(顶层)
+            // ⌘K 命令面板(顶层;scrim 淡入,面板本体 0.97→1 缩放入场)
             AnimatedVisibility(
                 visible = showPalette,
                 enter = fadeIn(),
@@ -264,7 +266,14 @@ fun MilkRoot() {
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     Box(Modifier.padding(top = 90.dp).clickable(enabled = false) {}) {
-                        CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
+                        AnimatedVisibility(
+                            visible = showPalette,
+                            enter = fadeIn(animationSpec = tween(180)) +
+                                scaleIn(initialScale = 0.97f, animationSpec = tween(200)),
+                            exit = fadeOut(animationSpec = tween(140)),
+                        ) {
+                            CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
+                        }
                     }
                 }
             }

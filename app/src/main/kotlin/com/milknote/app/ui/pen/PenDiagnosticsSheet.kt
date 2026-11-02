@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.innerHighlight
+import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
 import com.milknote.device.pen.DeviceInfo
 import java.text.SimpleDateFormat
@@ -99,8 +103,12 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
+                .softShadow(12.dp, RoundedCornerShape(18.dp))
                 .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp))
+                .innerHighlight()
+                .paintedShadow(RoundedCornerShape(18.dp))
                 .padding(20.dp),
         ) {
             Text("笔诊断", style = MaterialTheme.typography.titleMedium)

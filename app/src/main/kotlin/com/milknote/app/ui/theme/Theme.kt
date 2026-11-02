@@ -42,6 +42,9 @@ private val DarkColors = darkColorScheme(
 /** 警示色(M3 scheme 无 warning 槽,经 CompositionLocal 提供) */
 val LocalMilkWarning = androidx.compose.runtime.staticCompositionLocalOf { WarnAmber }
 
+/** 当前是否暗色主题(themeMode 手动覆盖时不等于系统值;柔和层配色用) */
+val LocalMilkDark = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /** 圆角比例(§5.1 视觉语言):卡片/弹窗 ~20,缩略图 ~10,小控件全胶囊 */
 val MilkShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
@@ -67,6 +70,7 @@ fun MilkTheme(darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkThe
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.material3.LocalContentColor provides colors.onBackground,
             LocalMilkWarning provides if (darkTheme) WarnAmberDark else WarnAmber,
+            LocalMilkDark provides darkTheme,
         ) {
             content()
         }
