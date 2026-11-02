@@ -136,6 +136,12 @@ class OpenAiCompatProvider(
                 // 精确 usage(§7.3);仅流式路径发 —— 非流式发会被部分网关 400(opencode 同款)
                 put("stream_options", buildJsonObject { put("include_usage", true) })
             }
+            // 思考强度(§3.8):按厂商 wire format 翻译;AUTO 不发
+            ThinkingDispatch.applyOpenAi(
+                this, req.reasoningEffort,
+                ThinkingDispatch.formatOf(profile.presetId),
+                ThinkingDispatch.parseLevels(profile.activeModel()?.thinkingLevels ?: emptyList()),
+            )
         }
         return Json.encodeToString(JsonObject.serializer(), obj)
     }

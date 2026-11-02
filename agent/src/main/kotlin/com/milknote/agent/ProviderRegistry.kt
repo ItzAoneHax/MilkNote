@@ -17,71 +17,94 @@ data class ProviderPreset(
 
 object ProviderRegistry {
 
-    private fun m(id: String, maxImages: Int = 8) = ModelInfo(
+    private fun m(id: String, maxImages: Int = 8, thinking: List<ReasoningEffort> = emptyList()) = ModelInfo(
         id = id, displayName = id, vision = true,
         visionSource = VisionSource.PRESET.name, maxImages = maxImages,
+        // 思考档位按 pi-ai 目录核验值声明(每家不同;§3.8);空=该模型不可调(仅 AUTO)
+        thinkingLevels = thinking.map { it.name },
     )
+
+    // DeepSeek V4.1-Flash:low/high/max(pi-ai DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP,medium=null)
+    private val DS_FLASH = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.HIGH, ReasoningEffort.MAX)
+    // GLM(zai 格式):none/low/medium/high(glm-5.2 另有 xhigh;5.3 保守不含)
+    private val GLM = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // Qwen:enable_thinking 开关 + reasoning_effort
+    private val QWEN = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // Kimi K3 系:reasoning_effort(models 列表上报档位)
+    private val KIMI_K3 = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // MiMo(xiaomi,deepseek 格式):仅 high(pi-ai xiaomi 目录)
+    private val MIMO = listOf(ReasoningEffort.OFF, ReasoningEffort.HIGH)
+    // MiniMax M3.1:自适应思考,无 none 档不可关(pi-ai off:null;AUTO=自适应默认)
+    private val MINIMAX = listOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // OpenAI gpt-6.1 推理系:minimal..high,关不掉(OFF 省略=默认)
+    private val OPENAI_R = listOf(ReasoningEffort.MINIMAL, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // Claude:budget 档
+    private val CLAUDE = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // Gemini 兼容层 reasoning_effort
+    private val GEMINI = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // 自定义模型默认按 OpenAI 标准透传(声明四档)
+    private val CUSTOM_DEFAULT = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
 
     val presets: List<ProviderPreset> = listOf(
         ProviderPreset(
             id = "glm", title = "智谱 GLM",
             baseUrl = "https://open.bigmodel.cn/api/paas/v4",
-            models = listOf(m("glm-5.3-flash"), m("glm-5.3-flashx")),
+            models = listOf(m("glm-5.3-flash", thinking = GLM), m("glm-5.3-flashx", thinking = GLM)),
             imageStyle = ImageStyle.RAW_BASE64,   // 智谱端点裸 base64(§3.5 已知差异)
             note = "GLM-5 系首个原生多模态;文本旗舰无视觉不预置",
         ),
         ProviderPreset(
             id = "deepseek", title = "DeepSeek",
             baseUrl = "https://api.deepseek.com/v1",
-            models = listOf(m("deepseek-flash")),
+            models = listOf(m("deepseek-flash", thinking = DS_FLASH)),
             imageStyle = ImageStyle.DATA_URI,
             note = "官方唯一视觉模型;峰谷计费非高峰半价",
         ),
         ProviderPreset(
             id = "kimi", title = "Kimi(月之暗面)",
             baseUrl = "https://api.moonshot.cn/v1",
-            models = listOf(m("kimi-k3.1-pro"), m("kimi-k3.1-pro-highspeed"), m("kimi-k3")),
+            models = listOf(m("kimi-k3.1-pro", thinking = KIMI_K3), m("kimi-k3.1-pro-highspeed", thinking = KIMI_K3), m("kimi-k3", thinking = KIMI_K3)),
             imageStyle = ImageStyle.DATA_URI,
             note = "K3 系原生视觉;图片仅接受 base64(本应用天然兼容)",
         ),
         ProviderPreset(
             id = "minimax", title = "MiniMax(国内)",
             baseUrl = "https://api.minimaxi.com/v1",
-            models = listOf(m("MiniMax-M3.1-Flash"), m("MiniMax-M3")),
+            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX), m("MiniMax-M3", thinking = MINIMAX)),
             imageStyle = ImageStyle.DATA_URI,
             note = "国内/国际账号与端点不互通",
         ),
         ProviderPreset(
             id = "minimax_intl", title = "MiniMax(国际)",
             baseUrl = "https://api.minimax.io/v1",
-            models = listOf(m("MiniMax-M3.1-Flash"), m("MiniMax-M3")),
+            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX), m("MiniMax-M3", thinking = MINIMAX)),
             imageStyle = ImageStyle.DATA_URI,
             note = "国内/国际账号与端点不互通",
         ),
         ProviderPreset(
             id = "mimo", title = "MiMo(小米)",
             baseUrl = "https://api.xiaomimimo.com/v1",
-            models = listOf(m("mimo-v2.6-pro"), m("mimo-v2.6-flash")),
+            models = listOf(m("mimo-v2.6-pro", thinking = MIMO), m("mimo-v2.6-flash", thinking = MIMO)),
             imageStyle = ImageStyle.DATA_URI,
             note = "V2.6 系全模态;具体视觉 id 以平台模型列表为准",
         ),
         ProviderPreset(
             id = "qwen", title = "通义 Qwen",
             baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            models = listOf(m("qwen3.8-max", maxImages = 10), m("qwen3-vl-plus"), m("qwen3-vl-flash")),
+            models = listOf(m("qwen3.8-max", maxImages = 10, thinking = QWEN), m("qwen3-vl-plus", thinking = QWEN), m("qwen3-vl-flash", thinking = QWEN)),
             imageStyle = ImageStyle.DATA_URI,
             note = "新工作空间为专属域名形态,以百炼控制台为准",
         ),
         ProviderPreset(
             id = "openai", title = "OpenAI",
             baseUrl = "https://api.openai.com/v1",
-            models = listOf(m("gpt-6.1-terra")),
+            models = listOf(m("gpt-6.1-terra", thinking = OPENAI_R)),
             imageStyle = ImageStyle.DATA_URI,
         ),
         ProviderPreset(
             id = "anthropic", title = "Anthropic Claude",
             baseUrl = "https://api.anthropic.com/v1",
-            models = listOf(m("claude-opus-5-5"), m("claude-sonnet-5-5"), m("claude-fable-5-1"), m("claude-haiku-5-5")),
+            models = listOf(m("claude-opus-5-5", thinking = CLAUDE), m("claude-sonnet-5-5", thinking = CLAUDE), m("claude-fable-5-1", thinking = CLAUDE), m("claude-haiku-5-5", thinking = CLAUDE)),
             imageStyle = ImageStyle.DATA_URI,
             note = "原生 /v1/messages(A2);Claude 系中转站选「自定义 + Anthropic 协议」",
             protocol = Protocol.ANTHROPIC,
@@ -95,7 +118,7 @@ object ProviderRegistry {
         ProviderPreset(
             id = "gemini", title = "Google Gemini",
             baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/",
-            models = listOf(m("gemini-4-argon"), m("gemini-3.8-flash")),
+            models = listOf(m("gemini-4-argon", thinking = GEMINI), m("gemini-3.8-flash", thinking = GEMINI)),
             imageStyle = ImageStyle.DATA_URI,
         ),
         ProviderPreset(

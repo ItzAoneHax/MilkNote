@@ -19,6 +19,8 @@ data class ModelInfo(
     val vision: Boolean = true,
     val visionSource: String = VisionSource.PRESET.name,
     val maxImages: Int = 8,
+    /** 该模型可选思考档位(ReasoningEffort.name,递进序,OFF 在列=可显式关闭;空=仅 AUTO) */
+    val thinkingLevels: List<String> = emptyList(),
     val priceInPerM: Double? = null,   // ¥/1M tokens(可空)
     val priceOutPerM: Double? = null,
 )
@@ -30,6 +32,16 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }
 /** 对话协议(A2:Anthropic 原生 /v1/messages 与 OpenAI 兼容并存,按 profile 选择) */
 @Serializable
 enum class Protocol { OPENAI_COMPATIBLE, ANTHROPIC }
+
+/**
+ * 思考强度档位(A2.3,pi-ai 同款递进序):每家可选档位不同 —— 由 ModelInfo.thinkingLevels
+ * 按模型声明(UI 只显示真支持的档),分发层按厂商格式翻译(§3.8):
+ * OpenAI reasoning_effort、DeepSeek thinking.type+effort(low/high/max,无 medium)、
+ * GLM(zai) thinking.type+reasoning_effort、Qwen enable_thinking、
+ * OpenRouter reasoning.effort、Anthropic thinking.budget_tokens。
+ * AUTO = 不发任何思考参数,跟随模型默认。
+ */
+enum class ReasoningEffort { AUTO, OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX }
 
 /** 用户自填的配置单元(§3.2):一家端点 + 一个 Key 引用 + N 模型 */
 @Serializable
@@ -45,6 +57,8 @@ data class ProviderProfile(
     val protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
     /** 流式是否携带 stream_options.include_usage(400 自适应关闭后回写 false) */
     val streamOptionsEnabled: Boolean = true,
+    /** 思考强度档位(ReasoningEffort.name;AUTO=不发参数) */
+    val reasoningEffort: String = ReasoningEffort.AUTO.name,
 ) {
     fun activeModel(): ModelInfo? = models.firstOrNull { it.id == activeModelId }
         ?: models.firstOrNull { it.vision }
@@ -119,6 +133,7 @@ data class ChatRequest(
     val temperature: Double = 0.3,
     val maxTokens: Int? = null,               // 测试连接 =1
     val stream: Boolean = true,
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.AUTO,
 )
 
 sealed interface ChatEvent {

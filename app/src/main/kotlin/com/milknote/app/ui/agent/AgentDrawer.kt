@@ -141,6 +141,19 @@ private fun DrawerHeader(state: AgentUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
+            // 思考档位徽标(AUTO 不显示)
+            state.profiles.firstOrNull { it.id == state.activeProfileId }?.let { pf ->
+                val eff = runCatching { com.milknote.agent.ReasoningEffort.valueOf(pf.reasoningEffort) }
+                    .getOrDefault(com.milknote.agent.ReasoningEffort.AUTO)
+                if (eff != com.milknote.agent.ReasoningEffort.AUTO) {
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "思考·${effortLabel(eff)}",
+                        fontFamily = Mono, fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Spacer(Modifier.width(4.dp))
             Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
@@ -657,6 +670,46 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
                 }
             }
         }
+        // ---- 思考强度(§3.8:每家档位不同,按当前模型声明显示) ----
+        val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
+        val activeModel = activeProfile?.activeModel()
+        val declared = activeModel?.thinkingLevels
+            ?.mapNotNull { runCatching { com.milknote.agent.ReasoningEffort.valueOf(it) }.getOrNull() }
+            ?: listOf(
+                // 自定义模型未声明:按 OpenAI 标准给通用四档
+                com.milknote.agent.ReasoningEffort.OFF,
+                com.milknote.agent.ReasoningEffort.LOW,
+                com.milknote.agent.ReasoningEffort.MEDIUM,
+                com.milknote.agent.ReasoningEffort.HIGH,
+            )
+        val current = runCatching { com.milknote.agent.ReasoningEffort.valueOf(activeProfile?.reasoningEffort ?: "AUTO") }
+            .getOrDefault(com.milknote.agent.ReasoningEffort.AUTO)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "思考强度 · ${activeModel?.id ?: state.activeModelId ?: ""}",
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+        )
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            EffortChip("自动", current == com.milknote.agent.ReasoningEffort.AUTO) {
+                agent.setReasoningEffort(com.milknote.agent.ReasoningEffort.AUTO)
+            }
+            declared.forEach { level ->
+                EffortChip(effortLabel(level), current == level) {
+                    agent.setReasoningEffort(level)
+                }
+            }
+        }
+        Text(
+            "档位映射因厂商而异(OpenAI/Kimi reasoning_effort · DeepSeek/GLM/Qwen thinking 开关 · OpenRouter reasoning.effort · Claude 预算);自动=不发参数",
+            fontSize = 9.sp, lineHeight = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+        )
         Spacer(Modifier.height(4.dp))
         Text(
             "管理模型 → 设置 · Agent",
@@ -667,6 +720,34 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
                 .clickable(onClick = onDismiss),
         )
     }
+}
+
+private fun effortLabel(e: com.milknote.agent.ReasoningEffort): String = when (e) {
+    com.milknote.agent.ReasoningEffort.AUTO -> "自动"
+    com.milknote.agent.ReasoningEffort.OFF -> "关"
+    com.milknote.agent.ReasoningEffort.MINIMAL -> "最低"
+    com.milknote.agent.ReasoningEffort.LOW -> "低"
+    com.milknote.agent.ReasoningEffort.MEDIUM -> "中"
+    com.milknote.agent.ReasoningEffort.HIGH -> "高"
+    com.milknote.agent.ReasoningEffort.XHIGH -> "超高"
+    com.milknote.agent.ReasoningEffort.MAX -> "最高"
+}
+
+@Composable
+private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 11.sp,
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    )
 }
 
 // ---------------- Markdown 渲染(§6.3 容错子集) ----------------

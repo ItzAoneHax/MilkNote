@@ -69,13 +69,24 @@ class AnthropicProvider(
                 })
             }
         }
+        // 思考档位 → budget_tokens(AUTO/OFF 不发 thinking,即默认关)
+        val budget = ThinkingDispatch.anthropicBudget(req.reasoningEffort)
         val obj = buildJsonObject {
             put("model", req.model)
             put("stream", req.stream)
-            put("max_tokens", req.maxTokens ?: defaultMaxTokens)   // Anthropic 必填
+            // budget 必须严格小于 max_tokens:MAX 档自动抬高输出上限
+            val cap = req.maxTokens ?: if (budget != null && budget >= defaultMaxTokens) budget + 4096 else defaultMaxTokens
+            put("max_tokens", cap)   // Anthropic 必填
             put("system", req.system)
             put("messages", messages)
-            put("temperature", req.temperature)
+            if (budget != null) {
+                put("thinking", buildJsonObject {
+                    put("type", "enabled")
+                    put("budget_tokens", budget)
+                })
+            }
+            // 温度与思考不兼容:开启思考时省略(pi-ai anthropic-messages 同款,省略=默认 1)
+            if (budget == null) put("temperature", req.temperature)
         }
         return BaseHttpProvider.json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(), obj,

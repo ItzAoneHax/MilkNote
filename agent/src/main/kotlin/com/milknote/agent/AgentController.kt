@@ -214,6 +214,27 @@ class AgentController(
         saveBookAndRefresh(book.copy(profiles = updated))
     }
 
+    /** 思考强度(§3.8):落 active profile,AUTO=不发参数;下次发送生效 */
+    fun setReasoningEffort(effort: ReasoningEffort) {
+        val book = currentBook()
+        val updated = book.copy(profiles = book.profiles.map {
+            if (it.id == book.activeProfileId) it.copy(reasoningEffort = effort.name) else it
+        })
+        saveBookAndRefresh(updated)
+        update { it.copy(toast = "思考强度:${effortLabel(effort)}") }
+    }
+
+    private fun effortLabel(e: ReasoningEffort): String = when (e) {
+        ReasoningEffort.AUTO -> "自动(模型默认)"
+        ReasoningEffort.OFF -> "关"
+        ReasoningEffort.MINIMAL -> "最低"
+        ReasoningEffort.LOW -> "低"
+        ReasoningEffort.MEDIUM -> "中"
+        ReasoningEffort.HIGH -> "高"
+        ReasoningEffort.XHIGH -> "超高"
+        ReasoningEffort.MAX -> "最高"
+    }
+
     /** 切模型(仅视觉;下次发送生效,不重发历史) */
     fun selectModel(profileId: String, modelId: String) {
         val book = currentBook()
@@ -521,6 +542,8 @@ class AgentController(
                 images = finalImages.map { java.util.Base64.getEncoder().encodeToString(it.png) },
                 imageMediaTypes = finalImages.map { if (it.jpeg) "image/jpeg" else "image/png" },
                 imageStyle = profile.imageStyle,
+                reasoningEffort = runCatching { ReasoningEffort.valueOf(profile.reasoningEffort) }
+                    .getOrDefault(ReasoningEffort.AUTO),
             )
             runExchange(profile, model, req, userMsg, asstMsg, intentForChips)
         }

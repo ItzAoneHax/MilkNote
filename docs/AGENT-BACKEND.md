@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A2(2026-11-02;A2.2 同日增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2.3 同日增补:§3.8 思考强度档位 —— 每家可选档不同,按模型声明(`ModelInfo.thinkingLevels`,pi-ai 目录核验值),UI 只显示真支持的档;分发五格式 + Anthropic budget,档位/`AUTO=不发`;A2.2 增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -231,6 +231,29 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }   // GLM=RAW,OpenAI/Gemini/Qwen=D
   - 空响应(流结束无终止帧且零内容)= 可重试错误 `EmptyResponse`(自动重试 1 次),**不落空气泡**;有内容无终止帧 = StreamBroken 半截保留(harness STREAM_CLOSED 语义;opencode 中途重试会造成文本重复,已避开);
   - `content:null`/`reasoning_content` 等帧的 JsonNull 显式排除(kotlinx JsonNull.content 会返回字面量 "null",真机实证曾拼入 32 个)。
 - **多图**:content 中按顺序排 `[图1][图2]…[文]`,图序即语义序(选区在前,补充页在后);`maxImages` 由 `ModelInfo` 声明(预设多为 4–10,取保守值),`ContextBuilder` 超出时自动截断并提示。
+
+### 3.8 思考强度档位(A2.3 增补,2026-11-02)
+
+思考档位**每家不同**,按 pi-ai(earendil-works/pi)目录核验值声明在预设模型上(`ModelInfo.thinkingLevels`),UI 只显示该模型真支持的档(pi-ai「verbatim,不发明默认档」原则);`AUTO=不发任何参数(模型默认)`。分发按厂商 wire format(`ThinkingDispatch`):
+
+| 预设 | format | 开档 | 关 | 实测档位(pi-ai 目录) |
+|---|---|---|---|---|
+| DeepSeek | deepseek | `thinking:{type:enabled}`+`reasoning_effort` | `thinking:{type:disabled}` | flash:off/**low**/high/max(**无 medium**) |
+| 智谱 GLM | zai | `thinking:{type:enabled,clear_thinking:false}`+`reasoning_effort` | `thinking:{type:disabled}` | off/low/medium/high(5.2 另有 xhigh) |
+| 通义 Qwen | qwen | `enable_thinking:true`+`reasoning_effort` | `enable_thinking:false` | off/low/medium/high |
+| Kimi K3 系 | openai | `reasoning_effort` | 省略 | off/low/medium/high |
+| MiMo(小米) | deepseek | 同 DeepSeek | 同 | **仅 off/high** |
+| MiniMax | openai | `reasoning_effort`(自适应思考) | **不可关**(off:null,AUTO=自适应默认) | low/medium/high |
+| OpenAI gpt-6.1 | openai | `reasoning_effort` | 省略(推理关不掉) | minimal/low/medium/high |
+| Gemini | openai | `reasoning_effort` | 省略 | off/low/medium/high |
+| OpenRouter | openrouter | `reasoning:{effort}` | `reasoning:{effort:"none"}`(模型声明无 off 则省略) | 随上游模型 |
+| Anthropic Claude | budget | `thinking:{type:enabled,budget_tokens}`(min 1024/low 2048/med 4096/high 6144/max 12288,**max 自动抬高输出上限**) | 不发(默认关) | off/low/medium/high |
+| Grok / 纯视觉旧模型 | — | 不可调(无档位,UI 仅「自动」) | — | — |
+
+- 自定义模型未声明档位 → 默认给 off/low/medium/high 按 OpenAI 标准 `reasoning_effort` 透传(绝大多数中转照办)。
+- 请求档不在模型声明内 → **就近降档**(如对 DeepSeek 发 medium 实际落 low;pi-ai 是直接 UNSUPPORTED,笔记场景取更宽容的降级)。
+- DeepSeek **Messages 格式**(§3.7 中转)的档位走 `output_config.effort`(仅 low/high/max,harness 实证 medium 直接 UNSUPPORTED)——Anthropic 原生协议路径暂不映射 DeepSeek 专有字段,选 Claude 直连或 OpenAI 兼容路径。
+- ⑤ UI:模型胶囊旁徽标(非 AUTO 时「思考·高」);模型面板「思考强度」区按声明显示 chips。
 
 ### 3.7 Anthropic Messages 原生协议(A2 增补,2026-11-02)
 
