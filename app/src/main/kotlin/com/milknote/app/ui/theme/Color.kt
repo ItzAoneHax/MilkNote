@@ -13,6 +13,7 @@ val AccentBlue = Color(0xFF3B5BEC)
 val AccentBlueSoft = Color(0xFF5C77F2)   // 渐变亮端
 val HighlightYellow = Color(0xFFFFD65A)  // 荧光笔(默认 45% alpha)
 val RedPen = Color(0xFFD2483C)
+val WarnAmber = Color(0xFFD98E04)        // 警示(低电量等;原散落硬编码)
 val DotLight = Color(0xFFD8D4C8)         // 纸面点阵
 
 // ---- 暗色 ----
@@ -23,6 +24,7 @@ val InkDark = Color(0xFFE8E6E0)
 val MutedDark = Color(0xFFB7B3A8)        // 次要文字:对比度 ≥4.5(深纸底)
 val LineDark = Color(0xFF33343B)
 val AccentBlueDark = Color(0xFF7D92FF)
+val WarnAmberDark = Color(0xFFE8A838)
 val DotDark = Color(0xFF2C2D33)
 
 // ---- 封面色板(新建弹窗 6 色,与 note-domain COVER_COLORS 对齐) ----

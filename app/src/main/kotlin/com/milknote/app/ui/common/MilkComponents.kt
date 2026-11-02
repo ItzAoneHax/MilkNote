@@ -45,7 +45,7 @@ fun PenBatteryCapsule(
 ) {
     val color = when {
         level < 0 -> MaterialTheme.colorScheme.onSurfaceVariant
-        level < 20 -> Color(0xFFD98E04)
+        level < 20 -> com.milknote.app.ui.theme.LocalMilkWarning.current
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(

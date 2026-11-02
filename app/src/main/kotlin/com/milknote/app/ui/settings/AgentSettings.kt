@@ -1,5 +1,7 @@
 package com.milknote.app.ui.settings
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -39,15 +42,16 @@ import com.milknote.agent.ProviderRegistry
 import com.milknote.agent.ReasoningEffort
 import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 
 /**
- * 设置 → Agent(A2.4 重构,选择列表模式迁移自 deepseek-harness ui-settings-models):
+ * 设置 → Agent(A2.4 逻辑 + A2.7 视觉重构,选择列表模式迁移自 deepseek-harness ui-settings-models):
  * - Provider 卡 = 主字段「只写 API Key」+ 折叠自定义区(harness ProviderEditor 同款)
  * - 模型目录 = 行式编辑器:id 行 + 展开区(显示名/输入类型/思考档位声明/容量)(harness ModelRow)
  * - 拉取 = 候选勾选选择器,一次加减多个,默认勾选已配置项(harness fetch picker)
- * 风格按 DESIGN-V0 §5:mono 元数据 / 单强调色 / 胶囊小控件 / MilkTheme。
+ * 视觉走 SettingsKit:hairline 行 / 值列 › / ✓ 当前 / 文字操作钮 / mono 只用于值。
  */
 @Composable
 fun AgentSettingsSection() {
@@ -83,8 +87,8 @@ fun AgentSettingsSection() {
                 onTest = {
                     scope.launch {
                         agent.testConnection(profile.id).onSuccess { ms ->
-                            testResult = testResult + (profile.id to "✓ 鉴权可达 · ${ms}ms")
-                        }.onFailure { e -> testResult = testResult + (profile.id to "✗ ${e.message?.take(110)}") }
+                            testResult = testResult + (profile.id to "鉴权可达 · ${ms}ms")
+                        }.onFailure { e -> testResult = testResult + (profile.id to (e.message?.take(110) ?: "连接失败")) }
                     }
                 },
                 onSetActive = { agent.setActiveProfile(profile.id) },
@@ -103,27 +107,21 @@ fun AgentSettingsSection() {
             Spacer(Modifier.height(10.dp))
         }
 
-        // 新增
+        // 新增(虚线框行,DESIGN-V0 §5.4 语言)
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                .dashedBorder(MaterialTheme.colorScheme.outline, cornerRadius = 12.dp)
                 .clickable { adding = true }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("+ 新增 Provider", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            Text("+ 新增 Provider", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.weight(1f))
-            Text("预设 12 家 / 自定义", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("预设 12 家 / 自定义", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        Text(
-            "Key 经 Android Keystore 加密仅存本机,不随笔记本备份。整个 Agent 仅在视觉模型上工作;思考档位按模型声明,每家不同。",
-            fontSize = 10.sp, lineHeight = 15.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-            modifier = Modifier.padding(top = 4.dp),
-        )
+        FooterHint("思考档位按模型声明,每家不同;拉取不覆盖已调过的声明。")
     }
 
     if (adding) {
@@ -157,21 +155,14 @@ private fun ProviderCard(
     onFetch: ((Result<List<ModelInfo>>) -> Unit) -> Unit,
     onApplyFetched: (List<ModelInfo>) -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .border(
-                width = if (active) 1.dp else 0.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(12.dp),
-            )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+    SettingsCard(
+        modifier = Modifier.animateContentSize(tween(200)),
+        borderColor = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outline,
+        containerColor = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
     ) {
-        // ---- 标题行:激活点 | 名称 | 协议标签(mono)| 缺 Key | 模型数 | › ----
+        // ---- 标题行:激活点 | 名称 | 协议标签 | 缺 Key | 模型数 | ▸/▾ ----
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggleExpand),
+            Modifier.fillMaxWidth().clickable(onClick = onToggleExpand).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -192,17 +183,17 @@ private fun ProviderCard(
             Spacer(Modifier.weight(1f))
             MonoMetaLine("${profile.models.size} 模型")
             Spacer(Modifier.width(8.dp))
-            Text(if (expanded) "▾" else "▸", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (expanded) "▾" else "▸", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         if (expanded) {
-            Spacer(Modifier.height(10.dp))
+            Hairline()
             // ---- 主字段:API Key(只写;harness「单一主键输入」位) ----
             ApiKeyBlock(hasKey = hasKey, onSave = { ServiceLocator.agentController.setApiKey(profile.id, it) })
-            Spacer(Modifier.height(8.dp))
+            Hairline()
             // ---- 自定义区:baseUrl ----
-            EditableMonoField(label = "baseUrl", value = profile.baseUrl, onCommit = onBaseUrlChange)
-            Spacer(Modifier.height(10.dp))
+            BaseUrlField(value = profile.baseUrl, onCommit = onBaseUrlChange)
+            Hairline()
             // ---- 模型目录 ----
             ModelCatalogSection(
                 profile = profile,
@@ -216,14 +207,23 @@ private fun ProviderCard(
                 onApplyFetched = onApplyFetched,
             )
             testLine?.let {
-                Spacer(Modifier.height(6.dp))
-                Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Hairline()
+                StatusLine(it, tone = if (it.startsWith("鉴权可达")) StatusTone.OK else StatusTone.ERROR)
             }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MiniAction(if (active) "✓ 当前 Provider" else "设为当前") { if (!active) onSetActive() }
-                MiniAction("测试连接") { onTest() }
-                MiniAction("删除 Provider", danger = true) { onDelete() }
+            Hairline()
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextAction(
+                    if (active) "✓ 当前 Provider" else "设为当前",
+                    primary = active,
+                    onClick = { if (!active) onSetActive() },
+                )
+                TextAction("测试连接", onClick = onTest)
+                Spacer(Modifier.weight(1f))
+                TextAction("删除 Provider", danger = true, onClick = onDelete)
             }
         }
     }
@@ -237,12 +237,12 @@ private fun ProtocolTag(protocol: Protocol) {
             Protocol.OPENAI_COMPATIBLE -> "OpenAI 兼容"
             Protocol.ANTHROPIC -> "Anthropic"
         },
-        fontFamily = Mono, fontSize = 9.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+        fontFamily = Mono, fontSize = 10.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .clip(CircleShape)
             .border(0.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
 
@@ -250,74 +250,47 @@ private fun ProtocolTag(protocol: Protocol) {
 private fun ApiKeyBlock(hasKey: Boolean, onSave: (String) -> Unit) {
     var editing by remember { mutableStateOf(!hasKey) }
     var key by remember { mutableStateOf("") }
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("API Key", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (!editing) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("API Key", fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
             Spacer(Modifier.weight(1f))
-            if (!editing) {
-                Text("•••• 已保存(仅本机)", fontFamily = Mono, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                MiniAction("更换") { editing = true }
-            }
+            Text("•••• 已保存(仅本机)", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            TextAction("更换") { editing = true }
         }
-        if (editing) {
-            Spacer(Modifier.height(5.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                ) {
-                    if (key.isEmpty()) {
-                        Text("sk-…", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                    }
-                    BasicTextField(
-                        value = key,
-                        onValueChange = { key = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = MaterialTheme.colorScheme.onBackground),
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                MiniAction("保存", primary = true) {
-                    if (key.isNotBlank()) { onSave(key); editing = false; key = "" }
-                }
-            }
-        }
+    } else {
+        SettingsInputField(
+            value = key,
+            onValueChange = { key = it },
+            label = "API Key",
+            placeholder = "sk-…",
+            mono = true,
+            mask = true,
+            dirty = key.isNotBlank(),
+            onSave = {
+                if (key.isNotBlank()) { onSave(key); editing = false; key = "" }
+            },
+            onCancel = if (hasKey) ({ editing = false }) else null,
+        )
     }
 }
 
-/** 就地编辑的 mono 字段(baseUrl):失焦提交 */
+/** 就地编辑的 baseUrl 字段(mono;脏→保存) */
 @Composable
-private fun EditableMonoField(label: String, value: String, onCommit: (String) -> Unit) {
+private fun BaseUrlField(value: String, onCommit: (String) -> Unit) {
     var text by remember(value) { mutableStateOf(value) }
-    Column {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(4.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
-            BasicTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = MaterialTheme.colorScheme.onBackground),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (text != value) {
-            Spacer(Modifier.height(4.dp))
-            MiniAction("保存 baseUrl", primary = true) { onCommit(text) }
-        }
-    }
+    SettingsInputField(
+        value = text,
+        onValueChange = { text = it },
+        label = "baseUrl",
+        mono = true,
+        dirty = text != value,
+        onSave = { onCommit(text) },
+        onCancel = { text = value },
+    )
 }
 
 // ==================== 模型目录(harness ModelListEditor/ModelRow 模式) ====================
@@ -339,18 +312,22 @@ private fun ModelCatalogSection(
 
     Column {
         // ---- 目录头:模型 · N(继承/自定义)+ 拉取 + 添加 ----
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("模型", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("模型", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
             Spacer(Modifier.width(6.dp))
             MonoMetaLine(
                 "${profile.models.size}" + if (profile.presetId != null) " · 预设可编辑" else " · 自定义",
             )
             Spacer(Modifier.weight(1f))
-            MiniAction(
+            TextAction(
                 when (fetchState) {
                     is FetchState.Loading -> "拉取中…"
                     else -> "从端点拉取"
                 },
+                enabled = fetchState !is FetchState.Loading,
             ) {
                 if (fetchState !is FetchState.Loading) {
                     fetchState = FetchState.Loading
@@ -362,8 +339,7 @@ private fun ModelCatalogSection(
                     }
                 }
             }
-            Spacer(Modifier.width(6.dp))
-            MiniAction("+ 添加") {
+            TextAction("+ 添加") {
                 if (newModelId.isNotBlank()) {
                     onAddModel(newModelId.trim())
                     newModelId = ""
@@ -375,36 +351,22 @@ private fun ModelCatalogSection(
 
         // 添加行(点 + 添加 出现/harness addModel)
         if (fetchState is FetchState.Adding) {
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                ) {
-                    if (newModelId.isEmpty()) {
-                        Text("modelId(如 glm-5.4v)", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                    }
-                    BasicTextField(
-                        value = newModelId,
-                        onValueChange = { newModelId = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = MaterialTheme.colorScheme.onBackground),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                MiniAction("加入", primary = true) {
+            SettingsInputField(
+                value = newModelId,
+                onValueChange = { newModelId = it },
+                label = "modelId",
+                placeholder = "如 glm-5.4v",
+                mono = true,
+                dirty = newModelId.isNotBlank(),
+                onSave = {
                     if (newModelId.isNotBlank()) {
                         onAddModel(newModelId.trim())
                         newModelId = ""
                         fetchState = null
                     }
-                }
-                MiniAction("取消") { fetchState = null; newModelId = "" }
-            }
+                },
+                onCancel = { fetchState = null; newModelId = "" },
+            )
         }
 
         // 拉取勾选器(harness fetch picker:候选列表 + 勾选,默认勾选已配置;应用=整表替换)
@@ -419,31 +381,37 @@ private fun ModelCatalogSection(
                 onCancel = { fetchState = null },
             )
             is FetchState.Failed -> {
-                Spacer(Modifier.height(4.dp))
-                Text("✗ ${fs.message}(可手填 modelId)", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                StatusLine("${fs.message}(可手填 modelId)", tone = StatusTone.ERROR)
             }
             else -> {}
         }
 
-        Spacer(Modifier.height(4.dp))
         if (profile.models.isEmpty()) {
-            Text(
-                "暂无模型:从端点拉取,或在上方手填 modelId(勾选「图片」输入类型后方可用于框选)",
-                fontSize = 10.sp, lineHeight = 15.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
+            StatusLine("暂无模型:从端点拉取,或手填 modelId(勾选「图片」输入类型后方可用于框选)", tone = StatusTone.NEUTRAL)
         }
-        profile.models.forEach { model ->
-            ModelRow(
-                model = model,
-                isDefault = model.id == profile.activeModelId,
-                expanded = expandedModelId == model.id,
-                onToggle = { onToggleModel(model.id) },
-                onSelectDefault = { onSelectModel(model.id) },
-                onRemove = { onRemoveModel(model.id) },
-                onUpdate = { dn, vis, lv, ctx, out -> onUpdateModel(model.id, dn, vis, lv, ctx, out) },
-            )
+        // ---- 模型行列表(inset 面板,hairline 分行) ----
+        if (profile.models.isNotEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .padding(4.dp),
+            ) {
+                profile.models.forEachIndexed { idx, model ->
+                    if (idx > 0) Hairline()
+                    ModelRow(
+                        model = model,
+                        isDefault = model.id == profile.activeModelId,
+                        expanded = expandedModelId == model.id,
+                        onToggle = { onToggleModel(model.id) },
+                        onSelectDefault = { onSelectModel(model.id) },
+                        onRemove = { onRemoveModel(model.id) },
+                        onUpdate = { dn, vis, lv, ctx, out -> onUpdateModel(model.id, dn, vis, lv, ctx, out) },
+                    )
+                }
+            }
         }
     }
 }
@@ -472,39 +440,39 @@ private fun FetchPicker(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-            .padding(10.dp),
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .padding(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("端点返回 ${candidates.size} 个模型", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.weight(1f))
-            Text("已选 ${picked.size}", fontFamily = Mono, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+            Text("已选 ${picked.size}", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Box(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            if (query.isEmpty()) Text("搜索…", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            if (query.isEmpty()) Text("搜索…", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
             BasicTextField(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = MaterialTheme.colorScheme.onBackground),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         val filtered = remember(candidates, query) {
             candidates.filter { query.isBlank() || it.id.contains(query, true) }
         }
         Column(Modifier.height(240.dp)) {
-            androidx.compose.foundation.lazy.LazyColumn {
+            LazyColumn {
                 items(filtered.size) { idx ->
                     val c = filtered[idx]
                     val checked = c.id in picked
@@ -512,38 +480,38 @@ private fun FetchPicker(
                         Modifier
                             .fillMaxWidth()
                             .clickable { picked = if (checked) picked - c.id else picked + c.id }
-                            .padding(vertical = 6.dp),
+                            .padding(horizontal = 4.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             Modifier
-                                .size(15.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .size(16.dp)
+                                .clip(RoundedCornerShape(5.dp))
                                 .background(if (checked) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp)),
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)),
                             contentAlignment = Alignment.Center,
-                        ) { if (checked) Text("✓", color = Color.White, fontSize = 10.sp) }
-                        Spacer(Modifier.width(8.dp))
-                        Text(c.id, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
+                        ) { if (checked) Text("✓", color = MaterialTheme.colorScheme.onPrimary, fontSize = 11.sp) }
+                        Spacer(Modifier.width(10.dp))
+                        Text(c.id, fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
                         Spacer(Modifier.weight(1f))
                         if (c.vision) {
-                            Text("视觉", fontSize = 9.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("视觉", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                         } else {
-                            Text("需勾图片", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Text("需勾图片", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MiniAction("应用所选", primary = true) {
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextAction("应用所选", primary = true) {
                 // 已配置行保留原声明(用户调过的档位不被拉取覆盖);勾选的新行按候选进表
                 val kept = current.filter { it.id in picked }
                 val fresh = candidates.filter { it.id in picked && current.none { cur -> cur.id == it.id } }
                 onApply(kept + fresh)
             }
-            MiniAction("取消") { onCancel() }
+            TextAction("取消") { onCancel() }
         }
     }
 }
@@ -565,16 +533,12 @@ private fun ModelRow(
     var out by remember(model.maxTokensK) { mutableStateOf(if (model.maxTokensK > 0) model.maxTokensK.toString() else "") }
     val levels = remember(model.thinkingLevels) { ThinkingDispatchUI.parse(model.thinkingLevels) }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = if (expanded) 0.75f else 0.45f))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        // ---- 折叠行:默认点 | id(mono)+ 徽章 | 容量 | › | 删 ----
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(200))) {
+        // ---- 折叠行:默认点 | id(mono)+ 徽章 | 容量 | ▸ | 删 ----
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 Modifier
                     .size(16.dp)
@@ -583,93 +547,86 @@ private fun ModelRow(
                     .background(if (isDefault) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                     .border(1.dp, if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(model.id, fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
                     Spacer(Modifier.width(6.dp))
-                    if (!model.vision) Text("纯文本", fontSize = 9.sp, color = MaterialTheme.colorScheme.error)
+                    if (!model.vision) Text("纯文本", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
                     if (model.visionSource == VisionSource.DECLARED.name) {
                         Spacer(Modifier.width(4.dp))
-                        Text("已声明", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                        Text("已声明", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (levels.isNotEmpty()) {
                     Text(
                         "思考 " + levels.joinToString("/") { ThinkingDispatchUI.label(it) },
-                        fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             MonoMetaLine(capacityLine(model))
             Spacer(Modifier.width(6.dp))
-            Text(if (expanded) "▾" else "▸", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onToggle).padding(4.dp))
+            Text(if (expanded) "▾" else "▸", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onToggle).padding(4.dp))
             Spacer(Modifier.width(2.dp))
-            Text("✕", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.clickable(onClick = onRemove).padding(4.dp))
+            Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onRemove).padding(4.dp))
         }
 
         // ---- 展开区:显示名 / 输入类型 / 思考档位声明 / 容量(harness ModelRow 高级区) ----
         if (expanded) {
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("显示名", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
+            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp)) {
+                Spacer(Modifier.height(4.dp))
+                Text("显示名", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
                 Box(
                     Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     BasicTextField(
                         value = name,
                         onValueChange = { name = it },
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            }
-            Spacer(Modifier.height(6.dp))
-            // 输入类型(harness ModelInputTypes:文本/图片复选 = 视觉声明)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("输入类型", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                MiniAction(
-                    if (model.vision) "图片 ✓" else "图片",
-                    primary = model.vision,
-                ) { onUpdate(null, !model.vision, null, null, null) }
-                Spacer(Modifier.width(6.dp))
-                Text("文本 ✓", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                Spacer(Modifier.weight(1f))
-                MiniAction("保存") { onUpdate(name.ifBlank { null }, null, null, ctx.toIntOrNull(), out.toIntOrNull()) }
-            }
-            Spacer(Modifier.height(6.dp))
-            // 思考档位声明(harness ModelReasoningEfforts:多选声明,空=不可调)
-            Text("思考档位声明(空 = 该模型不可调)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                ThinkingDispatchUI.editable.forEach { level ->
-                    val on = levels.contains(level)
-                    Text(
-                        ThinkingDispatchUI.label(level),
-                        fontSize = 10.sp,
-                        color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .clickable {
-                                val next = if (on) levels - level else levels + level
-                                onUpdate(null, null, next, null, null)
-                            }
-                            .padding(horizontal = 9.dp, vertical = 4.dp),
-                    )
+                Spacer(Modifier.height(10.dp))
+                // 输入类型(harness ModelInputTypes:文本/图片复选 = 视觉声明)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("输入类型", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(10.dp))
+                    ToggleChip("图片", on = model.vision) { onUpdate(null, !model.vision, null, null, null) }
+                    Spacer(Modifier.width(6.dp))
+                    ToggleChip("文本", on = true) {}
                 }
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CapacityField("上下文 k tok", ctx) { ctx = it }
-                CapacityField("最大输出 k tok", out) { out = it }
+                Spacer(Modifier.height(10.dp))
+                // 思考档位声明(harness ModelReasoningEfforts:多选声明,空=不可调)
+                Text("思考档位声明(空 = 该模型不可调)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ThinkingDispatchUI.editable.forEach { level ->
+                        val on = levels.contains(level)
+                        ToggleChip(
+                            ThinkingDispatchUI.label(level),
+                            on = on,
+                        ) {
+                            val next = if (on) levels - level else levels + level
+                            onUpdate(null, null, next, null, null)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CapacityField("上下文 k tok", ctx) { ctx = it }
+                    CapacityField("最大输出 k tok", out) { out = it }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextAction("保存", primary = true) { onUpdate(name.ifBlank { null }, null, null, ctx.toIntOrNull(), out.toIntOrNull()) }
+                }
             }
         }
     }
@@ -678,21 +635,21 @@ private fun ModelRow(
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.CapacityField(label: String, value: String, onChange: (String) -> Unit) {
     Column(Modifier.weight(1f)) {
-        Text(label, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(3.dp))
         Box(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 5.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 7.dp),
         ) {
-            if (value.isEmpty()) Text("—", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            if (value.isEmpty()) Text("—", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
             BasicTextField(
                 value = value,
                 onValueChange = onChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = MaterialTheme.colorScheme.onBackground),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -730,6 +687,7 @@ private fun AddProviderDialog(
                         Text(
                             preset.title,
                             fontSize = 11.sp,
+                            fontWeight = if (sel) FontWeight.Medium else null,
                             color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -748,25 +706,24 @@ private fun AddProviderDialog(
         }
         // 协议(自定义可选 Anthropic;预设跟随)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("协议", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("协议", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(10.dp))
-            MiniAction(if (!anthropic) "OpenAI 兼容 ✓" else "OpenAI 兼容") { anthropic = false }
+            TextAction(if (!anthropic) "OpenAI 兼容 ✓" else "OpenAI 兼容", primary = !anthropic) { anthropic = false }
             Spacer(Modifier.width(6.dp))
-            MiniAction(if (anthropic) "Anthropic ✓" else "Anthropic") { anthropic = true }
+            TextAction(if (anthropic) "Anthropic ✓" else "Anthropic", primary = anthropic) { anthropic = true }
             Spacer(Modifier.weight(1f))
-            if (anthropic) MonoMetaLine("POST {base}/v1/messages", 9)
+            if (anthropic) MonoMetaLine("POST {base}/v1/messages")
         }
-        Spacer(Modifier.height(8.dp))
-        FieldRow("名称", title) { title = it }
-        FieldRow("baseUrl", baseUrl, mono = true) { baseUrl = it }
-        FieldRow("API Key(仅存本机)", key, mono = true, mask = true) { key = it }
+        SettingsInputField(value = title, onValueChange = { title = it }, label = "名称", mono = false, compact = true)
+        SettingsInputField(value = baseUrl, onValueChange = { baseUrl = it }, label = "baseUrl", mono = true, compact = true)
+        SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key(仅存本机)", mono = true, mask = true, compact = true)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 Modifier
                     .clip(CircleShape)
                     .then(
-                        if (baseUrl.isNotBlank()) Modifier.background(accentBrushSafe())
+                        if (baseUrl.isNotBlank()) Modifier.background(MaterialTheme.colorScheme.primary)
                         else Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
                     )
                     .clickable(enabled = baseUrl.isNotBlank()) {
@@ -777,42 +734,22 @@ private fun AddProviderDialog(
                         )
                     }
                     .padding(horizontal = 18.dp, vertical = 8.dp),
-            ) { Text("保存", color = if (baseUrl.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
+            ) {
+                Text(
+                    "保存",
+                    color = if (baseUrl.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                )
+            }
         }
     }
 }
 
-@Composable
-private fun accentBrushSafe() = com.milknote.app.ui.common.accentBrush()
-
 // ==================== 小控件 ====================
 
 @Composable
-private fun MiniAction(label: String, danger: Boolean = false, primary: Boolean = false, onClick: () -> Unit) {
-    Text(
-        label,
-        fontSize = 11.sp,
-        color = when {
-            danger -> MaterialTheme.colorScheme.error
-            primary -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(
-                when {
-                    primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                },
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
-}
-
-@Composable
-private fun MonoMetaLine(text: String, size: Int = 10) {
-    Text(text, fontFamily = Mono, fontSize = size.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+private fun MonoMetaLine(text: String) {
+    Text(text, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** 档位标签/解析(UI 侧) */
@@ -846,37 +783,9 @@ internal fun DialogCard(title: String, content: @Composable () -> Unit) {
             .padding(16.dp),
     ) {
         Column {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(10.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
             content()
-        }
-    }
-}
-
-@Composable
-internal fun FieldRow(label: String, value: String, mono: Boolean = false, mask: Boolean = false, onChange: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(4.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall.copy(
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontFamily = if (mono) Mono else null,
-                ),
-                visualTransformation = if (mask) androidx.compose.ui.text.input.PasswordVisualTransformation()
-                else androidx.compose.ui.text.input.VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
