@@ -256,6 +256,54 @@ class ProviderStreamHttpTest {
     }
 
     @Test
+    fun `思考帧流过-先思考后作答-断流含思考不自动重试`() {
+        // a) 正常:reasoning_content 流 → Thinking;content → Delta
+        val srv = MiniHttp(
+            Resp("200 OK", sse(
+                """{"choices":[{"delta":{"reasoning_content":"盘算"}}]}""",
+                """{"choices":[{"delta":{"reasoning_content":"一下"}}]}""",
+                """{"choices":[{"delta":{"content":"答"}}]}""",
+                "[DONE]",
+            )),
+        )
+        try {
+            val events = chat(OpenAiCompatProvider(providerOf(srv.baseUrl), { "k" }))
+            assertEquals("盘算一下", events.filterIsInstance<ChatEvent.Thinking>().joinToString("") { it.text })
+            assertEquals("答", events.filterIsInstance<ChatEvent.Delta>().joinToString("") { it.text })
+        } finally { srv.close() }
+
+        // b) 只有思考就断流:思考=已计费内容 → StreamBroken(不伪完成)
+        val srv2 = MiniHttp(
+            Resp("200 OK", sse(
+                """{"choices":[{"delta":{"reasoning_content":"想了一半"}}]}""",
+                // 断
+            )),
+        )
+        try {
+            val events = chat(OpenAiCompatProvider(providerOf(srv2.baseUrl), { "k" }))
+            assertTrue(events.any { it is ChatEvent.Error && (it as ChatEvent.Error).error is AgentError.StreamBroken })
+            assertTrue(events.none { it is ChatEvent.Done })
+        } finally { srv2.close() }
+    }
+
+    @Test
+    fun `Anthropic thinking_delta进Thinking`() {
+        val srv = MiniHttp(
+            Resp("200 OK", sse(
+                """{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"先想"}}""",
+                """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"答"}}""",
+                """{"type":"message_stop"}""",
+            )),
+        )
+        try {
+            val p = providerOf(srv.baseUrl).copy(protocol = Protocol.ANTHROPIC, activeModelId = "claude-x")
+            val events = chat(AnthropicProvider(p, { "k" }))
+            assertEquals("先想", events.filterIsInstance<ChatEvent.Thinking>().joinToString("") { it.text })
+            assertEquals("答", events.filterIsInstance<ChatEvent.Delta>().joinToString("") { it.text })
+        } finally { srv.close() }
+    }
+
+    @Test
     fun `Anthropic原生流-事件帧与usage拼合`() {
         val srv = MiniHttp(
             Resp("200 OK", sse(

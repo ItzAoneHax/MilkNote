@@ -95,7 +95,9 @@ class AnthropicProvider(
                     if (el is kotlinx.serialization.json.JsonNull) return null
                     return el.jsonPrimitive.content
                 }
-                val text = txt("text") ?: txt("partial_json")  // thinking/tool 帧按文本容错
+                // 思考块(extended thinking):thinking_delta.thinking;redacted/签名帧忽略
+                txt("thinking")?.let { return listOf(ChatEvent.Thinking(it)) }
+                val text = txt("text") ?: txt("partial_json")  // tool 帧按文本容错
                 if (text.isNullOrEmpty()) emptyList() else listOf(ChatEvent.Delta(text))
             }
             "message_start" -> {

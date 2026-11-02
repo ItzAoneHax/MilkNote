@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A2(2026-11-02;A2.1 同日增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2.2 同日增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -401,6 +401,8 @@ data class IntentSpec(
 ### 6.3 输出契约 → UI 渲染约定
 
 助手输出按声明只用 Markdown 子集;UI 侧约定:`#标签` 行内高亮为 chip 胶囊(⑤ 稿 `mn-tag`)、`$…$` 渲染为 mono 公式 span(M3 升级真实公式排版)、`$$…$$` 渲染为公式卡。渲染器是**容错子集解析器**(遇到超集语法按纯文本降级),不要求模型 100% 守约。
+
+**思考过程(A2.2)**:思考模型(DeepSeek-Flash 默认思考、GLM-5 系、Claude extended thinking)的思考增量以折叠胶囊展示在答案上方,**默认收起**;流式中(答案未出)显示「✻ 思考中…」,完成后显示「✻ 思考过程 · N 字」,点按展开 mono 灰文本。思考随消息落盘、随会话恢复;**贴回批注层只含答案正文,不含思考**。
 
 ### 6.4 追问与 slash 命令
 

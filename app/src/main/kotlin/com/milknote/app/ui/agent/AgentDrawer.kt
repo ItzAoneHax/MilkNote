@@ -284,6 +284,44 @@ private fun Messages(state: AgentUiState, modifier: Modifier = Modifier) {
     }
 }
 
+/** 思考过程折叠胶囊(默认收起;mono 灰,展开后内衬浅底) */
+@Composable
+private fun ReasoningBlock(msg: com.milknote.agent.UiMessage) {
+    var expanded by remember(msg.id) { mutableStateOf(false) }
+    val streamingThought = msg.streaming && msg.text.isBlank()
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (streamingThought) "✻ 思考中…" else "✻ 思考过程 · ${msg.reasoning.length} 字",
+                fontFamily = Mono, fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(if (expanded) "▾" else "▸", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                msg.reasoning,
+                fontFamily = Mono, fontSize = 10.sp, lineHeight = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun UserMessage(msg: com.milknote.agent.UiMessage) {
     Column(
@@ -329,6 +367,11 @@ private fun AssistantMessage(state: AgentUiState, msg: com.milknote.agent.UiMess
     val agent = ServiceLocator.agentController
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth()) {
+        // 思考过程:默认折叠;流式中(答案未出)显示「思考中…」,完成后显示字数
+        if (msg.reasoning.isNotBlank()) {
+            ReasoningBlock(msg)
+            Spacer(Modifier.height(6.dp))
+        }
         MarkdownBlocks(msg.text + if (msg.streaming) " ▍" else "")
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

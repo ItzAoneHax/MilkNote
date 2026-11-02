@@ -77,6 +77,7 @@ data class AgentMessage(
     val role: Role,
     val sentAt: Long,
     val text: String,                            // 用户补充文字 / 助手累积文本
+    val reasoning: String = "",                  // 助手侧:思考过程(默认折叠展示)
     val attachments: List<Attachment> = emptyList(),
     val intent: String? = null,                  // 首条用户消息记录
     val modelId: String? = null,                 // 助手侧:实际使用的模型
@@ -122,6 +123,8 @@ data class ChatRequest(
 
 sealed interface ChatEvent {
     data class Delta(val text: String) : ChatEvent
+    /** 思考过程增量(DeepSeek reasoning_content / Anthropic thinking_delta;默认折叠展示) */
+    data class Thinking(val text: String) : ChatEvent
     data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatEvent
     data class Done(val finishReason: String?) : ChatEvent
     data class Error(val error: AgentError) : ChatEvent

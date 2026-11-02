@@ -31,6 +31,7 @@ data class UiMessage(
     val id: String,
     val role: AgentMessage.Role,
     val text: String,
+    val reasoning: String = "",              // 助手思考过程(默认折叠展示)
     val attachments: List<Attachment> = emptyList(),
     val intent: Intents.Id? = null,
     val modelId: String? = null,
@@ -311,7 +312,7 @@ class AgentController(
     }
 
     private fun AgentMessage.toUi() = UiMessage(
-        id = id, role = role, text = text, attachments = attachments,
+        id = id, role = role, text = text, reasoning = reasoning, attachments = attachments,
         intent = intent?.let { runCatching { Intents.Id.valueOf(it) }.getOrNull() },
         modelId = modelId, promptTokens = promptTokens, completionTokens = completionTokens,
         phase = AgentMessage.Phase.valueOf(phase),
@@ -547,6 +548,7 @@ class AgentController(
         sendJob = scope.launch {
             var attempt = 0
             val text = StringBuilder()
+            val thinking = StringBuilder()
             var usage: ChatEvent.Usage? = null
 
             fun replaceAssistant(transform: (UiMessage) -> UiMessage) {
@@ -575,6 +577,11 @@ class AgentController(
                 try {
                     provider.chat(req).collect { ev ->
                         when (ev) {
+                            is ChatEvent.Thinking -> {
+                                gotDelta = true   // 思考也是已计费内容:不进自动重试(§11)
+                                thinking.append(ev.text)
+                                replaceAssistant { it.copy(reasoning = thinking.toString(), streaming = true) }
+                            }
                             is ChatEvent.Delta -> {
                                 gotDelta = true
                                 text.append(ev.text)
@@ -601,14 +608,14 @@ class AgentController(
                         )
                     }
                     update { it.copy(phase = AgentMessage.Phase.DONE) }
-                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage, model.id)
+                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage, model.id, thinking.toString())
                     return@launch
                 }
 
                 val e = err
                 if (e == null) {   // 流自然结束无 [DONE]:按完成处理(防御)
                     replaceAssistant { it.copy(streaming = false, phase = AgentMessage.Phase.DONE) }
-                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage, model.id)
+                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage, model.id, thinking.toString())
                     return@launch
                 }
 
@@ -616,7 +623,7 @@ class AgentController(
                 if (e is AgentError.Cancelled) {
                     replaceAssistant { it.copy(streaming = false, phase = AgentMessage.Phase.INTERRUPTED) }
                     update { it.copy(phase = AgentMessage.Phase.INTERRUPTED) }
-                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.INTERRUPTED, intent, usage, model.id)
+                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.INTERRUPTED, intent, usage, model.id, thinking.toString())
                     return@launch
                 }
 
@@ -624,7 +631,7 @@ class AgentController(
                 if (gotDelta || text.isNotEmpty()) {
                     replaceAssistant { it.copy(streaming = false, phase = AgentMessage.Phase.FAILED) }
                     update { it.copy(phase = AgentMessage.Phase.FAILED, error = AgentError.StreamBroken) }
-                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage, model.id)
+                    persistWith(userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage, model.id, thinking.toString())
                     return@launch
                 }
 
@@ -663,7 +670,7 @@ class AgentController(
 
                 replaceAssistant { it.copy(streaming = false, phase = AgentMessage.Phase.FAILED) }
                 update { it.copy(phase = AgentMessage.Phase.FAILED, error = e) }
-                persistWith(userMsg, asstMsg, "", AgentMessage.Phase.FAILED, intent, null, model.id)
+                persistWith(userMsg, asstMsg, "", AgentMessage.Phase.FAILED, intent, null, model.id, thinking.toString())
                 return@launch
             }
         }
@@ -677,6 +684,7 @@ class AgentController(
         intent: Intents.Id?,
         usage: ChatEvent.Usage?,
         modelId: String,
+        thinkingText: String = "",
     ) {
         val s = session ?: return
         val u = AgentMessage(
@@ -685,7 +693,7 @@ class AgentController(
         )
         val a = AgentMessage(
             id = asstMsg.id, role = AgentMessage.Role.ASSISTANT, sentAt = System.currentTimeMillis(),
-            text = asstText, modelId = modelId,
+            text = asstText, reasoning = thinkingText, modelId = modelId,
             promptTokens = usage?.promptTokens ?: 0,
             completionTokens = usage?.completionTokens ?: 0,
             phase = phase.name,

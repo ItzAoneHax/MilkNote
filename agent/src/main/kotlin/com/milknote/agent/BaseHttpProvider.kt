@@ -105,6 +105,7 @@ abstract class BaseHttpProvider(
                     for (ev in events) {
                         when (ev) {
                             is ChatEvent.Delta -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }
+                            is ChatEvent.Thinking -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }   // 思考也是已计费内容(§11 不重复计费)
                             is ChatEvent.Usage -> pendingUsage = ev
                             is ChatEvent.Done -> {
                                 sawDone = true

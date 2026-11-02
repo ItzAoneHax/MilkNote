@@ -171,6 +171,31 @@ class AgentControllerTest {
     }
 
     @Test
+    fun `思考过程累积展示并随会话恢复`() = runTest {
+        val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {
+            listOf(
+                ChatEvent.Thinking("先想"),
+                ChatEvent.Thinking("清楚"),
+                ChatEvent.Delta("答案"),
+                ChatEvent.Usage(50, 20),
+                ChatEvent.Done(null),
+            )
+        }
+        val c = e.controller
+        c.openDrawer(PageRef("nb1", "p0001"))
+        c.sendWithIntent(Intents.Id.EXPLAIN)
+        advanceUntilIdle()
+        val msg = c.state.value.messages.last()
+        assertEquals("先想清楚", msg.reasoning)
+        assertEquals("答案", msg.text)
+
+        // 落盘 → 重开抽屉恢复
+        c.closeDrawer()
+        c.openDrawer(PageRef("nb1", "p0001"))
+        assertEquals("先想清楚", c.state.value.messages.last().reasoning)
+    }
+
+    @Test
     fun `RateLimit自动退避重试成功`() = runTest {
         var calls = 0
         val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {

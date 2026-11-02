@@ -215,6 +215,19 @@ class ProviderWireTest {
     }
 
     @Test
+    fun `reasoning双字段取首个非空防重复`() {
+        // 中转站(chutes 等)同时回 reasoning_content 与 reasoning(同内容)→ 只取一份
+        val frames = provider.parseFrame("""{"choices":[{"delta":{"reasoning_content":"想","reasoning":"想"}}]}""")
+        assertEquals(1, frames.size)
+        assertEquals("想", (frames[0] as ChatEvent.Thinking).text)
+        // 首字段为空串时取后一个
+        val f2 = provider.parseFrame("""{"choices":[{"delta":{"reasoning_content":"","reasoning":"后"}}]}""")
+        assertEquals("后", (f2[0] as ChatEvent.Thinking).text)
+        // null 帧仍零事件
+        assertEquals(0, provider.parseFrame("""{"choices":[{"delta":{"reasoning":null}}]}""").size)
+    }
+
+    @Test
     fun `DONE与脏帧`() {
         assertEquals(1, provider.parseFrame("[DONE]").size)
         assertEquals(0, provider.parseFrame("not-json").size)

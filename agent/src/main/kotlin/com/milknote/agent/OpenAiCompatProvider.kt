@@ -172,6 +172,14 @@ class OpenAiCompatProvider(
                 val text = contentEl.jsonPrimitive.content
                 if (text.isNotEmpty()) out += ChatEvent.Delta(text)
             }
+            // 思考过程(deepseek-harness 同款字段序:首个非空,防中转站双字段重复)
+            val reasoning = listOf("reasoning_content", "reasoning", "reasoning_text")
+                .firstNotNullOfOrNull { f ->
+                    val el = delta?.get(f) ?: return@firstNotNullOfOrNull null
+                    if (el is JsonNull) return@firstNotNullOfOrNull null
+                    el.jsonPrimitive.content.ifEmpty { null }
+                }
+            if (reasoning != null) out += ChatEvent.Thinking(reasoning)
         }
         obj["usage"]?.jsonObject?.let { u ->
             val pt = u["prompt_tokens"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
