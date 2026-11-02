@@ -160,7 +160,7 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0-m2"
+        versionName = "0.3.0-m2"
         // 应用内更新比对用:每次构建取当前时间(同 versionCode 覆盖安装,以时间为新)
         buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
     }
