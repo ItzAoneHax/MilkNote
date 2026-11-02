@@ -68,8 +68,8 @@ class AgentController(
     private val snipSource: SnipSource?,
     private val annotationSink: AnnotationSink?,
     private val keyFor: (String) -> String?,                  // alias → 明文 Key(装配层接 KeyVault)
-    private val providerFactory: (ProviderProfile, () -> String?, (ImageStyle) -> Unit) -> AgentProvider =
-        { p, k, onStyle -> ProviderFactory.create(p, k, onStyle) },   // 按 protocol 分发(OpenAI 兼容/Anthropic 原生)
+    private val providerFactory: (ProviderProfile, () -> String?, (CompatPatch) -> Unit) -> AgentProvider =
+        { p, k, onPatch -> ProviderFactory.create(p, k, onPatch) },   // 按 protocol 分发(OpenAI 兼容/Anthropic 原生)
 ) {
 
     private val _state = MutableStateFlow(AgentUiState())
@@ -556,10 +556,15 @@ class AgentController(
             }
 
             while (true) {
-                val provider = providerFactory(profile, { keyFor(profile.apiKeyAlias) }) { newStyle ->
-                    // imageStyle 自适应回写(§3.5)
+                val provider = providerFactory(profile, { keyFor(profile.apiKeyAlias) }) { patch ->
+                    // 兼容性自适配回写(§3.5:imageStyle / streamOptions),落盘后续不再抖动
                     store.saveProfiles(currentBook().let { b ->
-                        b.copy(profiles = b.profiles.map { if (it.id == profile.id) it.copy(imageStyle = newStyle) else it })
+                        b.copy(profiles = b.profiles.map {
+                            if (it.id == profile.id) it.copy(
+                                imageStyle = patch.imageStyle ?: it.imageStyle,
+                                streamOptionsEnabled = patch.streamOptions ?: it.streamOptionsEnabled,
+                            ) else it
+                        })
                     })
                 }
                 lastProvider = provider
@@ -641,10 +646,13 @@ class AgentController(
                     }
                 }
 
-                // 首 token 前自动重试(§11):RateLimit 2s/8s/30s ×3;Server 1s/5s ×2
+                // 首 token 前自动重试(§11):RateLimit 2s/8s/30s ×3(服务端 Retry-After 优先);
+                // Server 1s/5s ×2;EmptyResponse 1s ×1(空响应是可重试错误,不落空气泡)
                 val backoff = when (e) {
-                    is AgentError.RateLimit -> listOf(2_000L, 8_000L, 30_000L).getOrNull(attempt)
+                    is AgentError.RateLimit ->
+                        if (attempt < 3) e.retryAfterMs ?: listOf(2_000L, 8_000L, 30_000L)[attempt] else null
                     is AgentError.Server -> listOf(1_000L, 5_000L).getOrNull(attempt)
+                    is AgentError.EmptyResponse -> if (attempt == 0) 1_000L else null
                     else -> null
                 }
                 if (backoff != null) {

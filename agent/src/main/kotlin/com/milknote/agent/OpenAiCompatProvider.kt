@@ -35,11 +35,14 @@ interface AgentProvider {
 class OpenAiCompatProvider(
     profile: ProviderProfile,
     keyResolver: () -> String?,
-    private val onStyleAdopted: (ImageStyle) -> Unit = {},
+    private val onPatch: (CompatPatch) -> Unit = {},
 ) : BaseHttpProvider(profile, keyResolver) {
 
     @Volatile var style: ImageStyle = profile.imageStyle
         private set
+
+    /** 流式是否带 stream_options.include_usage(端点 400 拒识时自适应关闭并回写) */
+    @Volatile private var sendStreamOptions: Boolean = profile.streamOptionsEnabled
 
     internal override fun endpoint(path: String, sse: Boolean): String {
         val base = profile.baseUrl.trimEnd('/')
@@ -55,26 +58,39 @@ class OpenAiCompatProvider(
 
     internal override fun buildBody(req: ChatRequest): String = buildRequestBody(req, style)
 
-    // ---- imageStyle 自适应(§3.5:只重试一次,回写 profile) ----
+    // ---- 兼容性自适配(§3.5:stream_options / imageStyle 各至多一次,合并为一轮重试并回写) ----
 
     override fun chatFlow(req: ChatRequest) = flow {
-        var styleRetry = false
+        var dropStyle = false
+        var dropStreamOptions = false
         runOnce(req).collect { e ->
-            if (!styleRetry && e is ChatEvent.Error && isImageFormatError(e.error) && req.images.isNotEmpty()) {
-                styleRetry = true   // 丢弃该错误,换风格整轮重试(§3.5 只重试一次)
-            } else {
-                emit(e)
+            val err = (e as? ChatEvent.Error)?.error
+            when {
+                !dropStyle && err != null && isImageFormatError(err) && req.images.isNotEmpty() ->
+                    dropStyle = true
+                !dropStreamOptions && err != null && isStreamOptionsError(err) && req.stream ->
+                    dropStreamOptions = true
+                else -> emit(e)
             }
         }
-        if (styleRetry) {
-            style = if (style == ImageStyle.DATA_URI) ImageStyle.RAW_BASE64 else ImageStyle.DATA_URI
-            onStyleAdopted(style)
+        if (dropStyle || dropStreamOptions) {
+            if (dropStyle) {
+                style = if (style == ImageStyle.DATA_URI) ImageStyle.RAW_BASE64 else ImageStyle.DATA_URI
+                onPatch(CompatPatch(imageStyle = style))
+            }
+            if (dropStreamOptions) {
+                sendStreamOptions = false
+                onPatch(CompatPatch(streamOptions = false))
+            }
             runOnce(req.copy(imageStyle = style)).collect { emit(it) }
         }
     }
 
     private fun isImageFormatError(err: AgentError): Boolean =
         err is AgentError.Other && err.detail.contains("图片格式")
+
+    private fun isStreamOptionsError(err: AgentError): Boolean =
+        err is AgentError.Other && err.detail.contains("stream_options")
 
     // ---- JSON 组装/解析(§3.5) ----
 
@@ -114,7 +130,12 @@ class OpenAiCompatProvider(
             put("stream", req.stream)
             put("messages", messages)
             put("temperature", req.temperature)
-            req.maxTokens?.let { put("max_tokens", it) }
+            // max_tokens 不发送:OpenAI 推理系(gpt-6.x/o 系)只认 max_completion_tokens,
+            // 发错字段直接 400;不限制则走厂商默认(讲解场景回答量级远低于上限)
+            if (req.stream && sendStreamOptions) {
+                // 精确 usage(§7.3);仅流式路径发 —— 非流式发会被部分网关 400(opencode 同款)
+                put("stream_options", buildJsonObject { put("include_usage", true) })
+            }
         }
         return Json.encodeToString(JsonObject.serializer(), obj)
     }
@@ -162,7 +183,7 @@ class OpenAiCompatProvider(
 
     companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
-        const val FRAME_TIMEOUT_MS = 60_000
+        const val FRAME_TIMEOUT_MS = 180_000   // 帧间空闲:整章长 prefill 无心跳可静默 >60s(harness 用 300s 看门狗)
         const val PRESET_OPENROUTER = "openrouter"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }

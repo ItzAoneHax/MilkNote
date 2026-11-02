@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A2(2026-11-02;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2.1 同日增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -222,7 +222,14 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }   // GLM=RAW,OpenAI/Gemini/Qwen=D
 - **image_url 自适应**:按 profile 的 `imageStyle` 组 url;若首个图片请求 400 且错误指向图片格式,自动换另一种 style 重试一次并**记住**(写回 profile),后续不再抖动。GLM 预设直接配 `RAW_BASE64`(智谱端点 base64 不带 `data:` 前缀的已知差异)。
 - **厂商适配注记(2026-10-31 核验)**:§3.3 全部预设厂商均支持 SSE 流式;Kimi 仅接受 base64(本设计从不发送公网 URL,天然兼容);Anthropic 官方兼容层完整支持 `stream`/`image_url`(本项目不使用其受限参数);Grok 视觉内置于文本模型,无需特殊分支。
 - **图片编码预算**(见 §5.3):长边 ≤1568px;PNG 优先(笔迹线条锐利、纸面平色压缩率高),编码后 >2MB 自动降 JPEG q88;硬上限 5MB(base64 前)。预算常量集中在 `ImageBudget` 一处,厂商有更严限制时按 profile 覆写。
-- **超时**:连接 10s / 读 120s(流式间隔用帧间超时 60s,非整体超时);OkHttp 单 client 复用,连接池 5。
+- **超时**:连接 10s / 帧间空闲 180s(整章长 prefill 无心跳可静默超 60s;harness 普遍 300s 看门狗);models 拉取 30s、测试连接 20s 短超时。
+- **A2.1 对照 deepseek-harness/opencode 增补**:
+  - `stream_options:{"include_usage":true}` **仅流式路径携带**(非流式发会被部分网关 400),端点拒识(400 文案含 stream_options)→ 自适应去参重试一次并回写 profile(`streamOptionsEnabled=false`),精确 usage 覆盖 OpenAI/Gemini/GLM 等;
+  - OpenAI 路径**不发送 max_tokens**(gpt-6.x/o 系推理模型只认 max_completion_tokens,发错字段直接 400;不限制走厂商默认);
+  - 中转站 302 **不静默跟随**(`instanceFollowRedirects=false`,跟随会以 GET 丢请求体);
+  - 429 读取 `retry-after-ms`(ms)/`Retry-After`(s)随错误上抛,控制器退避优先采信(≤120s 才采信,≤30s 直接用作 sleep);
+  - 空响应(流结束无终止帧且零内容)= 可重试错误 `EmptyResponse`(自动重试 1 次),**不落空气泡**;有内容无终止帧 = StreamBroken 半截保留(harness STREAM_CLOSED 语义;opencode 中途重试会造成文本重复,已避开);
+  - `content:null`/`reasoning_content` 等帧的 JsonNull 显式排除(kotlinx JsonNull.content 会返回字面量 "null",真机实证曾拼入 32 个)。
 - **多图**:content 中按顺序排 `[图1][图2]…[文]`,图序即语义序(选区在前,补充页在后);`maxImages` 由 `ModelInfo` 声明(预设多为 4–10,取保守值),`ContextBuilder` 超出时自动截断并提示。
 
 ### 3.7 Anthropic Messages 原生协议(A2 增补,2026-11-02)
@@ -231,7 +238,7 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }   // GLM=RAW,OpenAI/Gemini/Qwen=D
 
 - **端点**:`POST {baseUrl}/v1/messages`(baseUrl 以 `/v1` 结尾、裸域、`…/anthropic` 中转前缀三种写法自动归一);模型列表 `GET {baseUrl}/v1/models`(同样 `{data:[{id}]}` 形状)。
 - **请求头**:`x-api-key` + `anthropic-version: 2023-06-01`,并同时携带 `Authorization: Bearer`(中转站普遍只认 Bearer,官方两者皆收)。
-- **请求体**:`system` 为顶层字符串;**`max_tokens` 必填**(缺省 4096,测试连接 =1);图片为 content block:
+- **请求体**:`system` 为顶层字符串;**`max_tokens` 必填**(缺省 8192:归纳整章长回答不截断,Claude 3+ 全支持;测试连接 =1);图片为 content block:
   `{type:"image", source:{type:"base64", media_type:"image/png|image/jpeg", data:"<base64>"}}`,图先文后语义序不变;`media_type` 跟随真实编码字节(JPEG 降级后不再错报 png)。
 - **流式帧**:每帧 data 载荷自带 `type` 字段(`event:` 行天然被 SSE 解析器丢弃):`content_block_delta.delta.text_delta` → Delta;`message_start.usage.input_tokens` + `message_delta.usage.output_tokens` 拼合 → Usage;`message_stop` → Done;`ping`/内容块起止帧忽略;`error` 帧按 `error.type` 映射(overloaded→Server、rate_limit→RateLimit、authentication→Auth)。
 - **错误码**:401/403 Auth、429 RateLimit、**529(Overloaded)→ Server**、5xx Server、400 图片文案 → ModelNotVision(§3.4 兜底同款)。
@@ -549,7 +556,8 @@ interface AnnotationSink {
 |---|---|---|---|
 | `NoProvider` / `NotVisionOnly` | 入口检查 | 抽屉引导卡「配置视觉模型」 | 直达设置 |
 | `Auth`(401/403) | HTTP | 「Key 无效或额度不足」+ 设置链接 | 不重试 |
-| `RateLimit`(429) | HTTP | 「请求过快」 | 自动退避 2s/8s/30s,共 3 次 |
+| `RateLimit`(429) | HTTP | 「请求过快」 | 服务端 Retry-After 优先(≤120s 采信);否则自动退避 2s/8s/30s,共 3 次 |
+| `EmptyResponse`(A2.1) | 流尾零内容 | 空气泡即错误 | 自动重试 1 次(1s);仍空则失败提示 |
 | `Server`(5xx) | HTTP | 「服务方故障」 | 自动重试 2 次(1s/5s) |
 | `Network`(IOException/离线) | 异常 | 「网络不可用」 | 不自动重试(监听恢复后提示一键重发) |
 | `Timeout`(连接/帧间) | OkHttp | 同 Network | 同上 |

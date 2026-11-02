@@ -155,6 +155,22 @@ class AgentControllerTest {
     }
 
     @Test
+    fun `空响应自动重试一次`() = runTest {
+        var calls = 0
+        val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {
+            calls++
+            if (calls == 1) listOf(ChatEvent.Error(AgentError.EmptyResponse))
+            else listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
+        }
+        e.controller.openDrawer(PageRef("nb1", "p0001"))
+        e.controller.sendWithIntent(Intents.Id.EXPLAIN)
+        advanceUntilIdle()
+        assertEquals(2, calls)   // 空响应不落空气泡:静默重发一次
+        assertEquals("答", e.controller.state.value.messages.last().text)
+        assertEquals(AgentMessage.Phase.DONE, e.controller.state.value.messages.last().phase)
+    }
+
+    @Test
     fun `RateLimit自动退避重试成功`() = runTest {
         var calls = 0
         val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {

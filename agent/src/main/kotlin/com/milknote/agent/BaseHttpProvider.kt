@@ -82,13 +82,21 @@ abstract class BaseHttpProvider(
                 val errText = runCatching {
                     conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 }.getOrDefault("")
-                emit(ChatEvent.Error(mapHttpError(code, errText)))
+                val retryAfterMs = retryAfterMsOf(conn)   // 429 退避指示(retry-after-ms / Retry-After)
+                val mapped = mapHttpError(code, errText)
+                emit(
+                    ChatEvent.Error(
+                        if (mapped is AgentError.RateLimit && retryAfterMs != null) mapped.copy(retryAfterMs = retryAfterMs)
+                        else mapped,
+                    ),
+                )
                 return@flow
             }
 
             val parser = SseParser()
             var gotAnyDelta = false
             var pendingUsage: ChatEvent.Usage? = null
+            var sawDone = false   // 服务端显式终止帧([DONE]/message_stop)
             BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -99,6 +107,7 @@ abstract class BaseHttpProvider(
                             is ChatEvent.Delta -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }
                             is ChatEvent.Usage -> pendingUsage = ev
                             is ChatEvent.Done -> {
+                                sawDone = true
                                 emit(ev)
                                 pendingUsage?.let { emit(it) }
                                 return@flow
@@ -115,8 +124,9 @@ abstract class BaseHttpProvider(
                     for (ev in parseFrame(payload)) emit(ev)
                 }
             }
-            // 流正常关闭但无终止帧:按完成处理(防御)
-            emit(ChatEvent.Done(null))
+            // 流结束但无显式终止帧:已有内容 = 中途断流(半截保留,§11 StreamBroken,
+            // 不得伪标完成);无内容 = 空响应 —— 是可重试错误,不落空气泡(harness EMPTY_RESPONSE)
+            emit(ChatEvent.Error(if (gotAnyDelta) AgentError.StreamBroken else AgentError.EmptyResponse))
         } catch (t: Throwable) {
             val cancelled = t is java.io.IOException && wasCancelled(conn)
             emit(ChatEvent.Error(if (cancelled) AgentError.Cancelled else ErrorMapping.fromException(t)))
@@ -132,11 +142,20 @@ abstract class BaseHttpProvider(
         true
     }
 
+    /** 429 退避指示:retry-after-ms(ms)优先,其次 Retry-After(秒/HTTP-date 不解析) */
+    private fun retryAfterMsOf(conn: HttpURLConnection): Long? {
+        conn.getHeaderField("retry-after-ms")?.toLongOrNull()?.let { return it }
+        conn.getHeaderField("Retry-After")?.toLongOrNull()?.let { return it * 1000 }
+        return null
+    }
+
     protected fun open(url: String, method: String, sse: Boolean): HttpURLConnection {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = method
+        // 中转站 302 不静默跟随(deepseek-harness 同款):跳走会以 GET 丢请求体,宁可显式报错
+        conn.instanceFollowRedirects = false
         conn.connectTimeout = connectTimeoutMs
-        conn.readTimeout = frameTimeoutMs   // 流式帧间超时(§3.5)
+        conn.readTimeout = frameTimeoutMs   // 流式帧间超时(§3.5;整章长 prefill 可静默 >60s)
         conn.doOutput = method == "POST"
         conn.setRequestProperty("Content-Type", "application/json")
         conn.setRequestProperty("Accept", if (sse) "text/event-stream" else "application/json")
@@ -148,6 +167,7 @@ abstract class BaseHttpProvider(
 
     override suspend fun fetchModels(): Result<List<ModelInfo>> = runCatching {
         val conn = open(endpoint("models", sse = false), "GET", sse = false)
+        conn.readTimeout = 30_000   // 列表拉取不吃流式长超时
         active.set(conn)
         try {
             val code = conn.responseCode
@@ -174,6 +194,7 @@ abstract class BaseHttpProvider(
             maxTokens = 1,
         )
         val conn = open(endpoint("chat", sse = false), "POST", sse = false)
+        conn.readTimeout = 20_000   // 鉴权探测不吃流式长超时
         active.set(conn)
         try {
             conn.outputStream.use { it.write(buildBody(req).toByteArray(Charsets.UTF_8)) }
@@ -224,10 +245,10 @@ object ProviderFactory {
     fun create(
         profile: ProviderProfile,
         keyResolver: () -> String?,
-        onStyleAdopted: (ImageStyle) -> Unit = {},
+        onPatch: (CompatPatch) -> Unit = {},
     ): AgentProvider = if (profile.protocol == Protocol.ANTHROPIC) {
         AnthropicProvider(profile, keyResolver)
     } else {
-        OpenAiCompatProvider(profile, keyResolver, onStyleAdopted)
+        OpenAiCompatProvider(profile, keyResolver, onPatch)
     }
 }

@@ -18,7 +18,7 @@ class AnthropicProvider(
     keyResolver: () -> String?,
 ) : BaseHttpProvider(profile, keyResolver) {
 
-    /** Anthropic 强制 max_tokens;讲解类回答 ≤2k tok,4096 保守且各家全兼容 */
+    /** Anthropic 强制 max_tokens;8192:归纳整章长回答不截断,Claude 3+ 全支持 */
     private val defaultMaxTokens: Int get() = DEFAULT_MAX_TOKENS
 
     private var stashedInputTokens = 0   // message_start 带 input,message_delta 带 output,拼合
@@ -136,6 +136,6 @@ class AnthropicProvider(
 
     companion object {
         const val ANTHROPIC_VERSION = "2023-06-01"
-        const val DEFAULT_MAX_TOKENS = 4096
+        const val DEFAULT_MAX_TOKENS = 8192
     }
 }

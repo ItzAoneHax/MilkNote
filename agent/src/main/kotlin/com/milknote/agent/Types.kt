@@ -43,6 +43,8 @@ data class ProviderProfile(
     val activeModelId: String = "",
     val imageStyle: ImageStyle = ImageStyle.DATA_URI,
     val protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
+    /** 流式是否携带 stream_options.include_usage(400 自适应关闭后回写 false) */
+    val streamOptionsEnabled: Boolean = true,
 ) {
     fun activeModel(): ModelInfo? = models.firstOrNull { it.id == activeModelId }
         ?: models.firstOrNull { it.vision }
@@ -132,7 +134,8 @@ sealed interface AgentError {
     data object NoProvider : AgentError { override val detail = "未配置视觉模型" }
     data object NotVision : AgentError { override val detail = "该模型非视觉模型,不可选" }
     data class Auth(override val detail: String) : AgentError
-    data class RateLimit(override val detail: String) : AgentError
+    /** retryAfterMs:服务端 Retry-After / retry-after-ms 指示(控制器退避优先采用) */
+    data class RateLimit(override val detail: String, val retryAfterMs: Long? = null) : AgentError
     data class Server(override val detail: String) : AgentError
     data class Network(override val detail: String) : AgentError
     data object Timeout : AgentError { override val detail = "网络超时" }
@@ -140,6 +143,7 @@ sealed interface AgentError {
     data class NotFound(override val detail: String) : AgentError
     data object ContextTooLarge : AgentError { override val detail = "上下文过大" }
     data object StreamBroken : AgentError { override val detail = "回复中途断开,已生成内容已保留;点「重试」整轮重发" }
+    data object EmptyResponse : AgentError { override val detail = "模型返回了空响应" }   // 可重试,不落空消息(harness EMPTY_RESPONSE)
     data object Cancelled : AgentError { override val detail = "已取消" }
     data class Other(override val detail: String) : AgentError
 }
@@ -158,3 +162,9 @@ data class Rect4(val l: Float, val t: Float, val r: Float, val b: Float) {
             Rect4(minOf(x0, x1), minOf(y0, y1), maxOf(x0, x1), maxOf(y0, y1))
     }
 }
+
+/** Provider 兼容性自适配补丁(§3.5):发现即回写 profile 持久化,后续不再抖动 */
+data class CompatPatch(
+    val imageStyle: ImageStyle? = null,
+    val streamOptions: Boolean? = null,
+)
