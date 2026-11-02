@@ -22,6 +22,7 @@ object ErrorMapping {
         val text = body.lowercase()
         return when {
             code == 401 || code == 403 -> AgentError.Auth("Key 无效或额度不足(HTTP $code)")
+            code == 529 -> AgentError.Server("服务过载(HTTP 529),请稍后重试")   // Anthropic Overloaded
             code == 404 -> AgentError.NotFound("接口或模型不存在(HTTP 404),模型 id 可能已下线,请更新")
             code == 429 -> AgentError.RateLimit("请求过快(HTTP 429)")
             code in 500..599 -> AgentError.Server("服务方故障(HTTP $code)")

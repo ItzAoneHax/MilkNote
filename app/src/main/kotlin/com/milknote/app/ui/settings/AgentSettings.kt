@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.milknote.agent.Protocol
 import com.milknote.agent.ProviderRegistry
 import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
@@ -92,7 +93,8 @@ fun AgentSettingsSection() {
                             }
                         }
                         Text(
-                            profile.baseUrl.ifBlank { "未填 baseUrl" },
+                            profile.baseUrl.ifBlank { "未填 baseUrl" } +
+                                if (profile.protocol == Protocol.ANTHROPIC) "  · Anthropic 原生" else "",
                             fontFamily = Mono, fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -201,8 +203,8 @@ fun AgentSettingsSection() {
     }
 
     if (adding) {
-        AddProviderDialog { presetId, title, baseUrl, key ->
-            agent.addProfile(presetId ?: "custom", title, baseUrl, key)
+        AddProviderDialog { presetId, title, baseUrl, key, protocol ->
+            agent.addProfile(presetId ?: "custom", title, baseUrl, key, protocol)
             adding = false
         }
     }
@@ -298,13 +300,38 @@ private fun MiniAction(label: String, danger: Boolean = false, onClick: () -> Un
 
 /** 新增 Provider:预设选择 + 自定义;Key 仅写入 KeyVault */
 @Composable
-private fun AddProviderDialog(onConfirm: (presetId: String?, title: String, baseUrl: String, key: String) -> Unit) {
+private fun AddProviderDialog(
+    onConfirm: (presetId: String?, title: String, baseUrl: String, key: String, protocol: Protocol) -> Unit,
+) {
     var presetId by remember { mutableStateOf(ProviderRegistry.presets.first().id) }
     var title by remember { mutableStateOf(ProviderRegistry.presets.first().title) }
     var baseUrl by remember { mutableStateOf(ProviderRegistry.presets.first().baseUrl) }
     var key by remember { mutableStateOf("") }
+    // 协议:自定义可选 Anthropic 原生(部分模型/中转站仅有 Messages 格式);预设按各自协议
+    var anthropic by remember { mutableStateOf(false) }
 
     DialogCard(title = "新增 Provider") {
+        // 协议选择(选预设时自动跟随;自定义手动选)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("协议", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(10.dp))
+            MiniAction(if (anthropic) "OpenAI 兼容" else "OpenAI 兼容 ✓") {
+                anthropic = false
+            }
+            Spacer(Modifier.width(6.dp))
+            MiniAction(if (anthropic) "Anthropic 原生 ✓" else "Anthropic 原生") {
+                anthropic = true
+            }
+            Spacer(Modifier.weight(1f))
+            if (anthropic) {
+                Text(
+                    "POST {base}/v1/messages · x-api-key",
+                    fontFamily = Mono, fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         // 预设网格
         Column {
             ProviderRegistry.presets.chunked(3).forEach { row ->
@@ -326,6 +353,7 @@ private fun AddProviderDialog(onConfirm: (presetId: String?, title: String, base
                                     } else {
                                         title = preset.title
                                         baseUrl = preset.baseUrl
+                                        anthropic = preset.protocol == Protocol.ANTHROPIC
                                     }
                                 }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -344,7 +372,13 @@ private fun AddProviderDialog(onConfirm: (presetId: String?, title: String, base
                 Modifier
                     .clip(CircleShape)
                     .background(accentBrush())
-                    .clickable { onConfirm(if (presetId == "custom") null else presetId, title, baseUrl, key) }
+                    .clickable {
+                        onConfirm(
+                            if (presetId == "custom") null else presetId,
+                            title, baseUrl, key,
+                            if (anthropic) Protocol.ANTHROPIC else Protocol.OPENAI_COMPATIBLE,
+                        )
+                    }
                     .padding(horizontal = 18.dp, vertical = 8.dp),
             ) { Text("保存", color = Color.White, fontSize = 13.sp) }
         }

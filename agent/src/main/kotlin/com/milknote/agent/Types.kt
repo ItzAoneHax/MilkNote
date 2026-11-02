@@ -27,6 +27,10 @@ data class ModelInfo(
 @Serializable
 enum class ImageStyle { DATA_URI, RAW_BASE64 }
 
+/** 对话协议(A2:Anthropic 原生 /v1/messages 与 OpenAI 兼容并存,按 profile 选择) */
+@Serializable
+enum class Protocol { OPENAI_COMPATIBLE, ANTHROPIC }
+
 /** 用户自填的配置单元(§3.2):一家端点 + 一个 Key 引用 + N 模型 */
 @Serializable
 data class ProviderProfile(
@@ -38,6 +42,7 @@ data class ProviderProfile(
     val models: List<ModelInfo> = emptyList(),
     val activeModelId: String = "",
     val imageStyle: ImageStyle = ImageStyle.DATA_URI,
+    val protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
 ) {
     fun activeModel(): ModelInfo? = models.firstOrNull { it.id == activeModelId }
         ?: models.firstOrNull { it.vision }
@@ -106,6 +111,7 @@ data class ChatRequest(
     val history: List<WireMessage> = emptyList(),
     val newUserText: String,
     val images: List<String> = emptyList(),   // base64(无前缀),语义序:选区在前
+    val imageMediaTypes: List<String> = emptyList(),   // 与 images 对应("image/png"/"image/jpeg";缺省 png)
     val imageStyle: ImageStyle = ImageStyle.DATA_URI,
     val temperature: Double = 0.3,
     val maxTokens: Int? = null,               // 测试连接 =1

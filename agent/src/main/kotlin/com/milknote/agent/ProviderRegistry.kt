@@ -12,6 +12,7 @@ data class ProviderPreset(
     val models: List<ModelInfo>,
     val imageStyle: ImageStyle,
     val note: String = "",
+    val protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
 )
 
 object ProviderRegistry {
@@ -79,10 +80,11 @@ object ProviderRegistry {
         ),
         ProviderPreset(
             id = "anthropic", title = "Anthropic Claude",
-            baseUrl = "https://api.anthropic.com/v1/",
+            baseUrl = "https://api.anthropic.com/v1",
             models = listOf(m("claude-opus-5-5"), m("claude-sonnet-5-5"), m("claude-fable-5-1"), m("claude-haiku-5-5")),
             imageStyle = ImageStyle.DATA_URI,
-            note = "官方 OpenAI SDK 兼容层;stream/image_url 完整支持",
+            note = "原生 /v1/messages(A2);Claude 系中转站选「自定义 + Anthropic 协议」",
+            protocol = Protocol.ANTHROPIC,
         ),
         ProviderPreset(
             id = "grok", title = "xAI Grok",
@@ -127,5 +129,6 @@ object ProviderRegistry {
         models = preset.models,
         activeModelId = preset.models.firstOrNull()?.id ?: "",
         imageStyle = preset.imageStyle,
+        protocol = preset.protocol,
     )
 }

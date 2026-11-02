@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A1(2026-10-31;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -120,7 +120,7 @@ interface AgentController {
 ```kotlin
 interface AgentProvider {
     val id: String                       // profile 唯一 id
-    val protocol: Protocol               // OPENAI_COMPATIBLE(M2 唯一;ANTHROPIC→M3)
+    val protocol: Protocol               // OPENAI_COMPATIBLE / ANTHROPIC(§3.7,A2 起)
     suspend fun models(): List<ModelInfo>          // 已配置模型的可见列表
     fun chat(req: ChatRequest): Flow<ChatEvent>    // 流式对话(§3.5)
     suspend fun cancel(msgId: String)              // 取消在途请求
@@ -174,7 +174,7 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }   // GLM=RAW,OpenAI/Gemini/Qwen=D
 | MiMo(小米) | `https://api.xiaomimimo.com/v1` | `mimo-v2.6-pro`、`mimo-v2.6-flash` | DATA_URI | V2.5 系已于 2026-10-21 下线;V2.6 系全模态(文档含图片理解章节),具体可视觉 id 以平台「模型列表」页实测核验(§14-A8);另提供 Anthropic 兼容端点 |
 | 通义 Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.8-max`、`qwen3-vl-plus`、`qwen3-vl-flash` | DATA_URI | 旗舰 qwen3.8-max 视觉全面(单图 ≤20MB、图列表 8000 张);新工作空间为专属域名形态(`{ws}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`,以百炼控制台为准);旧 `qwen-vl-max` 快照 2026 年陆续下线 |
 | OpenAI | `https://api.openai.com/v1` | `gpt-6.1-terra` | DATA_URI | 2026-10-26 发布,视觉推理;GPT-5.5/5.1/4o/4.1 已从 ChatGPT 退役(API 兼容保留但不再预置);Chat Completions 端点持续可用 |
-| Anthropic Claude | `https://api.anthropic.com/v1/`(**官方 OpenAI SDK 兼容层**) | `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-fable-5-1`、`claude-haiku-5-5` | DATA_URI | 全系图片输入(1M ctx);兼容层 `stream`/`image_url` **完整支持**(`detail` 忽略);本项目仅发送 model/messages/stream/temperature(≤1),全部在支持范围内;`n=1`、不发 `top_p` |
+| Anthropic Claude | `https://api.anthropic.com/v1`(**原生 /v1/messages**,A2 起) | `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-fable-5-1`、`claude-haiku-5-5` | DATA_URI(原生路径无关) | 全系图片输入(1M ctx);走 §3.7 原生协议;Claude 系中转站(如 `…/anthropic` 前缀)选「自定义 + Anthropic 协议」,baseUrl 三种写法自动归一 |
 | xAI Grok | `https://api.x.ai/v1` | `grok-4.7`、`grok-4.6` | DATA_URI | 视觉内置于文本模型(无独立 vision id),jpg/png ≤20MiB;grok-4.7 500k ctx |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-4-argon`、`gemini-3.8-flash` | DATA_URI | 旗舰 Gemini 4 Argon(统一 1M ctx,推理旗舰),Gemini 系原生多模态输入;兼容层支持 `image_url`(data URI)/流式/`stream_options.include_usage`(用量精确);整体 beta;2.5 系仅限既有用户,不再预置 |
 | 中转站 · OpenRouter | `https://openrouter.ai/api/v1` | `厂商/模型`(如 `anthropic/claude-opus-5-5`、`z-ai/glm-5.3-flash`、`deepseek/deepseek-flash`) | DATA_URI | **`GET /models` 返回 `architecture.input_modalities`,含 `"image"` 即可自动标记 vision(§3.4 优待)**;一个 Key 通吃全部厂商,DeepSeek/Kimi/MiMo 等均已上架 |
@@ -224,6 +224,19 @@ enum class ImageStyle { DATA_URI, RAW_BASE64 }   // GLM=RAW,OpenAI/Gemini/Qwen=D
 - **图片编码预算**(见 §5.3):长边 ≤1568px;PNG 优先(笔迹线条锐利、纸面平色压缩率高),编码后 >2MB 自动降 JPEG q88;硬上限 5MB(base64 前)。预算常量集中在 `ImageBudget` 一处,厂商有更严限制时按 profile 覆写。
 - **超时**:连接 10s / 读 120s(流式间隔用帧间超时 60s,非整体超时);OkHttp 单 client 复用,连接池 5。
 - **多图**:content 中按顺序排 `[图1][图2]…[文]`,图序即语义序(选区在前,补充页在后);`maxImages` 由 `ModelInfo` 声明(预设多为 4–10,取保守值),`ContextBuilder` 超出时自动截断并提示。
+
+### 3.7 Anthropic Messages 原生协议(A2 增补,2026-11-02)
+
+部分模型/端点**只有 Anthropic 格式**(Claude 官方原生 API、各家 Claude 系中转站、DeepSeek 等 `/anthropic` 端点)——`ProviderProfile.protocol = ANTHROPIC` 时走本协议,请求/流式/错误与 OpenAI 路径差异如下:
+
+- **端点**:`POST {baseUrl}/v1/messages`(baseUrl 以 `/v1` 结尾、裸域、`…/anthropic` 中转前缀三种写法自动归一);模型列表 `GET {baseUrl}/v1/models`(同样 `{data:[{id}]}` 形状)。
+- **请求头**:`x-api-key` + `anthropic-version: 2023-06-01`,并同时携带 `Authorization: Bearer`(中转站普遍只认 Bearer,官方两者皆收)。
+- **请求体**:`system` 为顶层字符串;**`max_tokens` 必填**(缺省 4096,测试连接 =1);图片为 content block:
+  `{type:"image", source:{type:"base64", media_type:"image/png|image/jpeg", data:"<base64>"}}`,图先文后语义序不变;`media_type` 跟随真实编码字节(JPEG 降级后不再错报 png)。
+- **流式帧**:每帧 data 载荷自带 `type` 字段(`event:` 行天然被 SSE 解析器丢弃):`content_block_delta.delta.text_delta` → Delta;`message_start.usage.input_tokens` + `message_delta.usage.output_tokens` 拼合 → Usage;`message_stop` → Done;`ping`/内容块起止帧忽略;`error` 帧按 `error.type` 映射(overloaded→Server、rate_limit→RateLimit、authentication→Auth)。
+- **错误码**:401/403 Auth、429 RateLimit、**529(Overloaded)→ Server**、5xx Server、400 图片文案 → ModelNotVision(§3.4 兜底同款)。
+- **imageStyle 自适应不适用**(原生路径图片恒为 base64 块,无前缀差异)。
+- 实现共享 `BaseHttpProvider` 公共管道(连接生命周期/SSE 循环/取消),OpenAI 与 Anthropic 仅差端点/头/体/帧解析四个钩子;`ProviderFactory` 按 profile.protocol 分发。
 
 ### 3.6 Key 与敏感配置存储(`KeyVault`)
 

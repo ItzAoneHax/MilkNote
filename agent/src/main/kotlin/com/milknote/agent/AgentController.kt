@@ -69,7 +69,7 @@ class AgentController(
     private val annotationSink: AnnotationSink?,
     private val keyFor: (String) -> String?,                  // alias → 明文 Key(装配层接 KeyVault)
     private val providerFactory: (ProviderProfile, () -> String?, (ImageStyle) -> Unit) -> AgentProvider =
-        { p, k, onStyle -> OpenAiCompatProvider(p, k, onStyle) },
+        { p, k, onStyle -> ProviderFactory.create(p, k, onStyle) },   // 按 protocol 分发(OpenAI 兼容/Anthropic 原生)
 ) {
 
     private val _state = MutableStateFlow(AgentUiState())
@@ -77,7 +77,7 @@ class AgentController(
 
     private var session: AgentSession? = null
     private var sendJob: Job? = null
-    private var activeProvider: OpenAiCompatProvider? = null  // cancel 用(真实 provider 才有)
+    private var lastProvider: AgentProvider? = null   // stop() 取消在途请求用
 
     /** ModelNotVision 连坐计数(§3.4:连续 2 次本地标 vision=false) */
     private val notVisionStrikes = HashMap<String, Int>()
@@ -120,8 +120,14 @@ class AgentController(
         }
     }
 
-    /** 新增 profile(预设或自定义);apiKey 空 = 暂不可用 */
-    fun addProfile(presetId: String, title: String, baseUrl: String, apiKey: String) {
+    /** 新增 profile(预设或自定义);apiKey 空 = 暂不可用;自定义可指定 Anthropic 原生协议 */
+    fun addProfile(
+        presetId: String,
+        title: String,
+        baseUrl: String,
+        apiKey: String,
+        protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
+    ) {
         val preset = ProviderRegistry.byId(presetId)
         val alias = "pk_" + UUID.randomUUID().toString().substring(0, 8)
         if (apiKey.isNotEmpty()) keySinkPut(alias, apiKey)
@@ -138,6 +144,7 @@ class AgentController(
                 title = title.ifBlank { "自定义" },
                 baseUrl = baseUrl,
                 apiKeyAlias = alias,
+                protocol = protocol,
             )
         }
         if (profile.baseUrl.isBlank()) {
@@ -361,7 +368,7 @@ class AgentController(
 
     fun stop() {
         sendJob?.cancel()
-        activeProvider?.cancel()
+        lastProvider?.cancel()
         val s = _state.value
         val idx = s.messages.indexOfLast { it.streaming }
         if (idx >= 0) {
@@ -511,6 +518,7 @@ class AgentController(
                 history = history,
                 newUserText = PromptEngine.assembleUserContent(userWire, finalImages.size),
                 images = finalImages.map { java.util.Base64.getEncoder().encodeToString(it.png) },
+                imageMediaTypes = finalImages.map { if (it.jpeg) "image/jpeg" else "image/png" },
                 imageStyle = profile.imageStyle,
             )
             runExchange(profile, model, req, userMsg, asstMsg, intentForChips)
@@ -554,7 +562,7 @@ class AgentController(
                         b.copy(profiles = b.profiles.map { if (it.id == profile.id) it.copy(imageStyle = newStyle) else it })
                     })
                 }
-                if (provider is OpenAiCompatProvider) activeProvider = provider
+                lastProvider = provider
 
                 var done: ChatEvent.Done? = null
                 var err: AgentError? = null
