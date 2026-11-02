@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A2(2026-11-02;A2.5 同日增补:流完成判定改按 pi-ai hasFinishReason 语义 —— **finish_reason 是权威完成信号,[DONE] 与流关闭只是终止符**(真机 MiMo 实证:发完 finish_reason 即关流,曾被误报「流式传输中断」);finish_reason 后继续吃帧(include_usage 的 usage-only 帧不丢);mapStopReason 映射(content_filter/network_error/未知 → 错误,文本保留);[DONE] 本身仍视作完成(较 pi-ai 严判略松,兼容懒中转);Anthropic stop_reason 进 Done;A2.4 增补:§12 设置页 Provider/模型列表界面重构 —— 选择列表模式迁移自 deepseek-harness ui-settings-models:Provider 卡=只写 API Key 主字段+折叠自定义区(harness ProviderEditor);模型目录=行式编辑器(展开区:显示名/输入类型复选即视觉声明/思考档位多选声明/上下文·最大输出容量位,harness ModelRow);端点拉取=候选勾选选择器(搜索+默认勾选已配置+应用整表替换且保留已调过的声明,harness fetch picker);协议显示产品名;A2.3 增补:§3.8 思考强度档位 —— 每家可选档不同,按模型声明(`ModelInfo.thinkingLevels`,pi-ai 目录核验值),UI 只显示真支持的档;分发五格式 + Anthropic budget,档位/`AUTO=不发`;A2.2 增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2.6 同日增补:①提示词不再要求结尾 #标签(讲解/归纳契约移除,渲染器保留容错);②⑤ 顶部「当前页/+整章」chips 移除 —— 上下文全部显式化:📎 附件面板(ZCode 式:当前页/整章/本笔记本任意页多点累积)→ 附件卡片挂 composer(✕ 可移除 + ≈tok 预估)→ 随下一条消息发出;发送图 = 草稿附件(框选 + 📎),不再隐式附加;IntentSpec.attachFullPageDefault 移除;quickIntent 改显式附加后发送;A2.5 增补:流完成判定改按 pi-ai hasFinishReason 语义 —— **finish_reason 是权威完成信号,[DONE] 与流关闭只是终止符**(真机 MiMo 实证:发完 finish_reason 即关流,曾被误报「流式传输中断」);finish_reason 后继续吃帧(include_usage 的 usage-only 帧不丢);mapStopReason 映射(content_filter/network_error/未知 → 错误,文本保留);[DONE] 本身仍视作完成(较 pi-ai 严判略松,兼容懒中转);Anthropic stop_reason 进 Done;A2.4 增补:§12 设置页 Provider/模型列表界面重构 —— 选择列表模式迁移自 deepseek-harness ui-settings-models:Provider 卡=只写 API Key 主字段+折叠自定义区(harness ProviderEditor);模型目录=行式编辑器(展开区:显示名/输入类型复选即视觉声明/思考档位多选声明/上下文·最大输出容量位,harness ModelRow);端点拉取=候选勾选选择器(搜索+默认勾选已配置+应用整表替换且保留已调过的声明,harness fetch picker);协议显示产品名;A2.3 增补:§3.8 思考强度档位 —— 每家可选档不同,按模型声明(`ModelInfo.thinkingLevels`,pi-ai 目录核验值),UI 只显示真支持的档;分发五格式 + Anthropic budget,档位/`AUTO=不发`;A2.2 增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -363,12 +363,15 @@ data class AgentContext(
 
 ### 5.2 组装规则(与 ⑤ chips 一一对应)
 
-| Chip | 默认 | 组装行为 |
-|---|---|---|
-| `选区 · <识别标题>` | **必有**(来自框选) | 1 张选区图;标题取自意图+尺寸,不做图像理解 |
-| `当前页 p.N` | 默认**开** | 追加整页渲染图(长边同预算);供模型看选区上下文 |
-| `+ 整章` | 默认**关** | 追加本章其余页(按页序,截 `maxImages-已用` 张,封顶 8);开时提示「将上传 N 页」 |
-| 回形针附加 | — | 从缩略图侧栏/相册追加任意页图 |
+| 来源 | 交互(A2.6 起,全部显式) |
+|---|---|
+| 框选选区 | 笔键长按/⌘K → 选区直接进草稿附件 |
+| 📎 附件面板 → 当前页 | 点按即附加整页渲染图 |
+| 📎 附件面板 → 整章 | 附加本章其余页(按页序截断,封顶 8) |
+| 📎 附件面板 → 任意页 | 本笔记本页面列表,多点累积 |
+| 附件卡片 | 挂 composer 上方,✕ 移除,显示 ≈tok;随下一条消息发出(发送后清空) |
+
+> A2.5 及以前:顶部「当前页/+整章」chips + 意图默认带当前页;A2.6 移除 —— 上下文最小上传原则改为完全显式。
 
 - 每会话记住上次勾选,下批同款;`toggleContext` 即时重算 `estTokens` 与预估张数。
 - 「讲解本页」(⌘K):无选区,`CURRENT_PAGE` 独占;「归纳本章」:`CHAPTER` 独占(截断规则同上)。

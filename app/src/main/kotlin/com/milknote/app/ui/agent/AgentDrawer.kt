@@ -10,6 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,6 +52,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +72,7 @@ import com.milknote.agent.AgentUiState
 import com.milknote.agent.Intents
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.theme.Mono
+import kotlinx.coroutines.launch
 import com.milknote.app.ui.common.accentBrush
 
 /** ⑤ Agent 抽屉:右缘滑入 360dp 浮层(DESIGN-V0 §5.4;AGENT-BACKEND §8) */
@@ -105,7 +111,6 @@ private fun AgentDrawer(state: AgentUiState, onOpenSettings: () -> Unit) {
         if (state.setupRequired) {
             SetupGuide(onOpenSettings)
         } else {
-            ContextChips(state)
             Messages(state, Modifier.weight(1f))
             Composer(state)
             DrawerHints(state)
@@ -206,34 +211,6 @@ private fun SetupGuide(onOpenSettings: () -> Unit) {
 }
 
 /** 上下文 chips:选区 N / 当前页 p.X / +整章 + 预估(§5.2) */
-@Composable
-private fun ContextChips(state: AgentUiState) {
-    val agent = ServiceLocator.agentController
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (state.draftAttachments.isNotEmpty()) {
-            Chip("选区 · ${state.draftAttachments.size}", selected = true) {}
-        }
-        state.chips.forEach { chip ->
-            Chip(
-                label = chip.label + if (chip.selected && chip.estImages > 0) " +${chip.estImages}" else "",
-                selected = chip.selected,
-            ) { agent.toggleContext(chip.id) }
-        }
-        Spacer(Modifier.weight(1f))
-        Text(
-            "≈${agent.estTokensNow()} tok",
-            fontFamily = Mono, fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
 @Composable
 private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
@@ -499,8 +476,9 @@ private fun errorTitle(e: AgentError): String = when (e) {
 @Composable
 private fun Composer(state: AgentUiState) {
     val agent = ServiceLocator.agentController
+    val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
-    LaunchedEffect(state.draftText) { }
+    var showAttach by remember { mutableStateOf(false) }
     val streaming = state.phase == AgentMessage.Phase.STREAMING || state.phase == AgentMessage.Phase.SENDING
 
     // slash 面板(§6.4:前缀匹配六意图 + /清空)
@@ -513,6 +491,47 @@ private fun Composer(state: AgentUiState) {
     } else emptyList()
 
     Column(Modifier.fillMaxWidth()) {
+        // 📎 附件面板(ZCode 式:选当前页/整章/任意页,多点累积)
+        if (showAttach) {
+            AttachmentPanel(
+                boundPage = state.boundPage,
+                onPickPage = { ref ->
+                    scope.launch { agent.addPageAttachment(ref) }
+                },
+                onPickCurrent = {
+                    state.boundPage?.let { ref -> scope.launch { agent.addPageAttachment(ref) } }
+                },
+                onPickChapter = {
+                    scope.launch {
+                        val n = agent.addChapterAttachments()
+                        if (n == 0) agent.setDraftText(state.draftText)   // 触发重组提示
+                    }
+                },
+                onClose = { showAttach = false },
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        // 附件卡片行:挂在输入框上方,✕ 可移除,随下一条消息发出
+        if (state.draftAttachments.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                state.draftAttachments.forEach { d ->
+                    DraftAttachmentCard(d) { agent.removeDraftAttachment(d.id) }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                Text(
+                    "${state.draftAttachments.size} 个附件 · ≈${agent.estTokensNow()} tok",
+                    fontFamily = Mono, fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
         if (slashSuggestions.isNotEmpty()) {
             Row(
                 Modifier
@@ -543,13 +562,14 @@ private fun Composer(state: AgentUiState) {
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 回形针:当前页并入草稿附件
+            // 回形针:附件面板(当前页/整章/任意页;A2.6 真实作用)
             Icon(
-                Icons.Outlined.AttachFile, "附加当前页",
+                Icons.Outlined.AttachFile,
+                if (showAttach) "收起附件面板" else "附件",
                 modifier = Modifier
                     .size(20.dp)
-                    .clickable { agent.toggleContext("current_page") },   // 附加当前页 = 开 current_page chip
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    .clickable { showAttach = !showAttach },
+                tint = if (showAttach) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
@@ -599,6 +619,116 @@ private fun Composer(state: AgentUiState) {
                 }
             }
         }
+    }
+}
+
+/** 📎 附件面板:当前页 / 整章 / 本笔记本任意页(可多点累积;ZCode 式选择列表) */
+@Composable
+private fun AttachmentPanel(
+    boundPage: com.milknote.agent.PageRef?,
+    onPickPage: (com.milknote.agent.PageRef) -> Unit,
+    onPickCurrent: () -> Unit,
+    onPickChapter: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var pages by remember { mutableStateOf<List<com.milknote.agent.PageRef>>(emptyList()) }
+    LaunchedEffect(boundPage?.notebookId) {
+        boundPage?.let {
+            pages = runCatching { ServiceLocator.agentSnipSource.pagesOf(it.notebookId) }.getOrDefault(emptyList())
+        }
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+            .padding(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.weight(1f))
+            Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onClose).padding(4.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        // 快捷:当前页 / 整章
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AttachPick("当前页 ${boundPage?.pageId ?: ""}") { onPickCurrent() }
+            AttachPick("整章 · 其余 ${maxOf(pages.size - 1, 0)} 页") { onPickChapter() }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "本笔记本页面(点按附加,可多选)",
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(4.dp))
+        // 页列表(排除当前页——上面已有快捷)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 180.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            pages.filter { it.pageId != boundPage?.pageId }.forEach { pg ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onPickPage(pg) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(pg.pageId, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.weight(1f))
+                    Text("+ 附加", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachPick(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 11.sp,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    )
+}
+
+/** 草稿附件卡片(logicalName + 尺寸 + ✕ 移除) */
+@Composable
+private fun DraftAttachmentCard(d: com.milknote.agent.DraftAttachment, onRemove: () -> Unit) {
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+            .border(0.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Outlined.Description, null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(d.logicalName, fontFamily = Mono, fontSize = 9.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Text("✕", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onRemove).padding(2.dp))
+        }
+        Text(
+            "${d.widthPx}×${d.heightPx}px" + if (d.source == com.milknote.agent.Attachment.Source.SNIP) " · 选区" else "",
+            fontSize = 8.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        )
     }
 }
 

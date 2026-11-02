@@ -229,7 +229,6 @@ class WriterViewModel : ViewModel() {
 
     fun snipPickIntent(intent: Intents.Id) {
         _state.value = _state.value.copy(snip = _state.value.snip.copy(intent = intent))
-        ServiceLocator.agentController.intentPicked(intent)
     }
 
     /** 发送 ↵:选区(视口坐标)→ 页坐标 → Agent 草稿附件 → 意图发送(§2.2 链路) */

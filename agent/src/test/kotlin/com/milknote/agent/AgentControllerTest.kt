@@ -125,10 +125,10 @@ class AgentControllerTest {
         assertEquals(100, asst.promptTokens)
         assertEquals(Intents.Id.EXPLAIN, s.messages.first().intent)
 
-        // 讲解默认带当前页 → 2 图,图在最后一条 user(§6.2)
+        // A2.6:不再隐式带当前页 —— 图 = 框选草稿附件(1 张;显式附加走 📎 面板)
         val req = e.provider.requests.last()
-        assertEquals(2, req.images.size)
-        assertTrue(req.newUserText.startsWith("[图1] [图2]"))
+        assertEquals(1, req.images.size)
+        assertTrue(req.newUserText.startsWith("[图1]"))
 
         // 附件与会话落盘(.milk/agent/,§7.2)
         assertTrue(File(e.notebooksRoot, "nb1.milk/agent/att").listFiles()!!.isNotEmpty())
@@ -140,10 +140,12 @@ class AgentControllerTest {
         val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) { listOf(ChatEvent.Delta("答"), ChatEvent.Done(null)) }
         val c = e.controller
         c.openDrawer(PageRef("nb1", "p0001"))
+        c.addPageAttachment(PageRef("nb1", "p0001"))   // 📎 显式附加当前页 → 1 图
         c.sendWithIntent(Intents.Id.EXPLAIN)
         advanceUntilIdle()
         assertEquals(1, e.provider.requests.last().images.size)
 
+        // 追问:草稿已清空 → 无新图,仅文字历史
         c.setDraftText("第二条是什么?")
         c.send()
         advanceUntilIdle()
@@ -299,18 +301,6 @@ class AgentControllerTest {
         c.insertAnnotation(c.state.value.messages.last().id)
         advanceUntilIdle()
         assertTrue(e.sink.inserted.first().third)
-    }
-
-    @Test
-    fun `整章chips多图截断`() = runTest {
-        val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)), pageCount = 12) { listOf(ChatEvent.Delta("归纳"), ChatEvent.Done(null)) }
-        val c = e.controller
-        c.openDrawer(PageRef("nb1", "p0003"))
-        c.toggleContext("chapter")
-        c.sendWithIntent(Intents.Id.SUMMARIZE)
-        advanceUntilIdle()
-        val req = e.provider.requests.last()
-        assertTrue("images=${req.images.size}", req.images.size in 2..10)
     }
 
     @Test

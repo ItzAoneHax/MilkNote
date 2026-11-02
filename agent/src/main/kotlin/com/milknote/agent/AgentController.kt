@@ -20,13 +20,6 @@ data class DraftAttachment(
     val source: Attachment.Source,
 )
 
-data class ContextChip(
-    val id: String,                     // current_page / chapter
-    val label: String,
-    val selected: Boolean,
-    val estImages: Int,
-)
-
 data class UiMessage(
     val id: String,
     val role: AgentMessage.Role,
@@ -49,7 +42,6 @@ data class AgentUiState(
     val profiles: List<ProviderProfile> = emptyList(),
     val activeProfileId: String? = null,
     val activeModelId: String? = null,
-    val chips: List<ContextChip> = emptyList(),
     val messages: List<UiMessage> = emptyList(),
     val draftText: String = "",
     val draftAttachments: List<DraftAttachment> = emptyList(),
@@ -332,7 +324,6 @@ class AgentController(
                     setupRequired = it.setupRequired,
                     boundPage = page,
                     messages = session?.messages?.map { m -> m.toUi() } ?: emptyList(),
-                    chips = defaultChips(currentPageSelected = true),
                 )
             }
         }
@@ -340,10 +331,6 @@ class AgentController(
 
     /** ⑤ 打开:恢复该页最近会话(无则建空) */
     fun openDrawer(page: PageRef) {
-        val src = snipSource
-        if (src != null) {
-            scope.launch { chapterPagesCached = src.pagesOf(page.notebookId).size }
-        }
         bindPage(page)
         _state.value = _state.value.copy(
             drawerOpen = true,
@@ -370,14 +357,7 @@ class AgentController(
             providerId = _state.value.activeProfileId ?: "",
             modelId = _state.value.activeModelId ?: "",
         )
-        update {
-            it.copy(
-                messages = emptyList(),
-                draftAttachments = emptyList(),
-                draftText = "",
-                chips = defaultChips(currentPageSelected = true),
-            )
-        }
+        update { it.copy(messages = emptyList(), draftAttachments = emptyList(), draftText = "") }
     }
 
     private fun AgentMessage.toUi() = UiMessage(
@@ -386,11 +366,6 @@ class AgentController(
         modelId = modelId, promptTokens = promptTokens, completionTokens = completionTokens,
         phase = AgentMessage.Phase.valueOf(phase),
         insertedAnnotationId = insertedAnnotationId,
-    )
-
-    private fun defaultChips(currentPageSelected: Boolean): List<ContextChip> = listOf(
-        ContextChip("current_page", "当前页", currentPageSelected, 1),
-        ContextChip("chapter", "整章", false, 0),
     )
 
     // ==================== 框选(§4.2 → 附件) ====================
@@ -418,15 +393,56 @@ class AgentController(
 
     fun setDraftText(text: String) = update { it.copy(draftText = text) }
 
-    /** ④ 意图条选中:仅按意图默认刷新 chips(用户仍可手动改;Send 才消费) */
-    fun intentPicked(intent: Intents.Id) {
-        val spec = Intents.byId(intent)
-        update { it.copy(chips = defaultChips(spec.attachFullPageDefault)) }
-    }
-
     /** ④ 意图条「发送 ↵」:带意图首轮(或抽屉开着时多选区累积后发送) */
     fun sendWithIntent(intent: Intents.Id, extraText: String = "") {
         launchSend(intent, extraText)
+    }
+
+    // ---- 📎 附件面板(A2.6,ZCode 式:附件挂 composer、✕ 可移除、随下一条消息发出) ----
+
+    /** 附加整页(当前页或指定页) */
+    suspend fun addPageAttachment(page: PageRef): String? {
+        val src = snipSource ?: return null
+        val res = src.capturePage(page) ?: return null
+        val draft = DraftAttachment(
+            id = UUID.randomUUID().toString().substring(0, 8),
+            logicalName = res.logicalName,
+            widthPx = res.widthPx, heightPx = res.heightPx,
+            png = res.png, jpeg = res.jpeg,
+            anchor = null, source = Attachment.Source.FULL_PAGE,
+        )
+        update { it.copy(draftAttachments = it.draftAttachments + draft, drawerOpen = true) }
+        return res.logicalName
+    }
+
+    /** 附加整章(其余页,按模型图预算截断);返回添加张数 */
+    suspend fun addChapterAttachments(): Int {
+        val bound = _state.value.boundPage ?: return 0
+        val src = snipSource ?: return 0
+        val pages = src.pagesOf(bound.notebookId)
+        val cap = ImageBudget.chapterPageCount(pages.size, imagesUsed = 0, max = ImageBudget.maxImagesFor(activeModelInfo()))
+        val rest = pages.filter { it.pageId != bound.pageId }.takeLast(cap)
+        var added = 0
+        for (p in rest) {
+            val res = src.capturePage(p) ?: continue
+            update { st ->
+                st.copy(draftAttachments = st.draftAttachments + DraftAttachment(
+                    id = UUID.randomUUID().toString().substring(0, 8),
+                    logicalName = res.logicalName,
+                    widthPx = res.widthPx, heightPx = res.heightPx,
+                    png = res.png, jpeg = res.jpeg,
+                    anchor = null, source = Attachment.Source.EXTRA_PAGE,
+                ))
+            }
+            added++
+        }
+        if (added > 0) update { it.copy(drawerOpen = true) }
+        return added
+    }
+
+    /** 移除草稿附件 */
+    fun removeDraftAttachment(id: String) {
+        update { it.copy(draftAttachments = it.draftAttachments.filterNot { d -> d.id == id }) }
     }
 
     /** ⑤ 输入框「发送」:追问(意图上下文保留;可无图) */
@@ -471,28 +487,6 @@ class AgentController(
         launchSend(userMsg.intent, "")
     }
 
-    /** 整章页数缓存(openDrawer 时后台刷新;chips 预估用,不阻塞交互) */
-    @Volatile private var chapterPagesCached = 1
-
-    fun toggleContext(chipId: String) {
-        val chapterPages = chapterPagesCached
-        update { s ->
-            s.copy(chips = s.chips.map { chip ->
-                when (chip.id) {
-                    chipId -> {
-                        val flipped = chip.copy(selected = !chip.selected)
-                        if (chipId == "chapter") flipped.copy(
-                            estImages = if (flipped.selected)
-                                ImageBudget.chapterPageCount(chapterPages, 1, ImageBudget.MAX_IMAGES_PER_REQUEST)
-                            else 0,
-                        ) else flipped
-                    }
-                    else -> chip
-                }
-            })
-        }
-    }
-
     fun consumeToast() = update { it.copy(toast = null) }
 
     // ---- 发送管线 ----
@@ -516,28 +510,8 @@ class AgentController(
         val intentForChips = intent
         scope.launch {
             val phase0 = _state.value
-            // 1. 组装上下文图:草稿选区(前)→ 当前页 → 整章(§5.2)
-            val images = ArrayList<DraftAttachment>()
-            images.addAll(phase0.draftAttachments)
-            val wantCurrent = phase0.chips.firstOrNull { it.id == "current_page" }?.selected == true
-            val wantChapter = phase0.chips.firstOrNull { it.id == "chapter" }?.selected == true
-            if (wantCurrent) snipSource?.capturePage(page)?.let {
-                images.add(
-                    DraftAttachment("cp", it.logicalName, it.widthPx, it.heightPx, it.png, it.jpeg, null, Attachment.Source.FULL_PAGE),
-                )
-            }
-            if (wantChapter) {
-                val pages = snipSource?.pagesOf(page.notebookId) ?: emptyList()
-                val budget = ImageBudget.chapterPageCount(pages.size, images.size, ImageBudget.maxImagesFor(model))
-                for (p in pages.takeLast(budget)) {
-                    if (p.pageId == page.pageId) continue
-                    snipSource?.capturePage(p)?.let {
-                        images.add(
-                            DraftAttachment("ch_${p.pageId}", it.logicalName, it.widthPx, it.heightPx, it.png, it.jpeg, null, Attachment.Source.EXTRA_PAGE),
-                        )
-                    }
-                }
-            }
+            // 1. 上下文图 = 草稿附件(框选 + 📎 显式附加;A2.6 起不再隐式带当前页/整章)
+            val images = ArrayList(phase0.draftAttachments)
             val capped = ImageBudget.truncate(images, ImageBudget.maxImagesFor(model))
             if (capped.second > 0) {
                 update { it.copy(toast = "已达单请求图上限,已截去最早 ${capped.second} 张") }
@@ -575,7 +549,6 @@ class AgentController(
                     draftAttachments = emptyList(),
                     phase = AgentMessage.Phase.STREAMING,
                     error = null,
-                    chips = defaultChips(currentPageSelected = false),   // 追问轮默认无新图(§6.4)
                 )
             }
 
@@ -856,27 +829,19 @@ class AgentController(
         return s.profiles.firstOrNull { it.id == s.activeProfileId }?.activeModel()
     }
 
-    /** ⌘K「讲解本页/归纳本章」:直接 ⑤ 并自动发送(§8.3) */
+    /** ⌘K「讲解本页/归纳本章」:直接 ⑤,显式附加对应页后自动发送(§8.3) */
     fun quickIntent(intent: Intents.Id) {
         val page = _state.value.boundPage ?: return
         openDrawer(page)
-        val chips = if (intent == Intents.Id.SUMMARIZE) {
-            listOf(
-                ContextChip("current_page", "当前页", false, 1),
-                ContextChip("chapter", "整章", true, minOf(chapterPagesCached, ImageBudget.CHAPTER_IMAGE_CAP)),
-            )
-        } else {
-            defaultChips(currentPageSelected = true)
+        scope.launch {
+            if (intent == Intents.Id.SUMMARIZE) addChapterAttachments() else addPageAttachment(page)
+            sendWithIntent(intent)
         }
-        update { it.copy(chips = chips) }
-        sendWithIntent(intent)
     }
 
-    /** 上下文规模预估(chips 常驻「≈ N tok」) */
+    /** 上下文规模预估(附件区「≈ N tok」;仅按草稿附件计) */
     fun estTokensNow(): Int {
         val s = _state.value
-        val imgs = s.draftAttachments.size +
-            s.chips.filter { it.selected }.sumOf { maxOf(it.estImages, if (it.id == "current_page") 1 else 0) }
-        return ImageBudget.estTokens(imgs, s.draftText.length)
+        return ImageBudget.estTokens(s.draftAttachments.size, s.draftText.length)
     }
 }
