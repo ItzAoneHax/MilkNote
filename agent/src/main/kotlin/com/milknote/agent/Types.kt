@@ -144,6 +144,11 @@ sealed interface ChatEvent {
     data class Delta(val text: String) : ChatEvent
     /** 思考过程增量(DeepSeek reasoning_content / Anthropic thinking_delta;默认折叠展示) */
     data class Thinking(val text: String) : ChatEvent
+    /**
+     * finish_reason 见到但流未终止(pi-ai hasFinishReason 同款):
+     * 完成判定只认它 —— [DONE] 只是流终止符;后续帧(如 include_usage 的 usage-only 帧)仍要吃。
+     */
+    data class Finish(val reason: String) : ChatEvent
     data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatEvent
     data class Done(val finishReason: String?) : ChatEvent
     data class Error(val error: AgentError) : ChatEvent
@@ -164,7 +169,7 @@ sealed interface AgentError {
     data class ModelNotVision(override val detail: String) : AgentError
     data class NotFound(override val detail: String) : AgentError
     data object ContextTooLarge : AgentError { override val detail = "上下文过大" }
-    data object StreamBroken : AgentError { override val detail = "回复中途断开,已生成内容已保留;点「重试」整轮重发" }
+    data object StreamBroken : AgentError { override val detail = "流提前结束且缺少 finish_reason;点「重试」整轮重发" }
     data object EmptyResponse : AgentError { override val detail = "模型返回了空响应" }   // 可重试,不落空消息(harness EMPTY_RESPONSE)
     data object Cancelled : AgentError { override val detail = "已取消" }
     data class Other(override val detail: String) : AgentError

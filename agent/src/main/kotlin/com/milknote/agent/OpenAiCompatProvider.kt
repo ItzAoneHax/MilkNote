@@ -170,6 +170,11 @@ class OpenAiCompatProvider(
         }
 
         obj["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.let { choice ->
+            // finish_reason:权威完成信号(pi-ai hasFinishReason);非终止事件,后续帧继续吃
+            val finEl = choice["finish_reason"]
+            if (finEl != null && finEl !is JsonNull) {
+                finEl.jsonPrimitive.content.ifEmpty { null }?.let { out += ChatEvent.Finish(it) }
+            }
             val delta = choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
             // JSON null 帧(role/空增量,MiMo 等大量发送)不算文本 —— JsonNull.content
             // 会返回字面量 "null",必须显式排除(真机实证:回复前缀 32 个 null)

@@ -256,6 +256,61 @@ class ProviderStreamHttpTest {
     }
 
     @Test
+    fun `finish_reason收尾无DONE-合法完成不误报中断`() {
+        // 真机 MiMo 实证:发完 finish_reason 即关流,无 [DONE](pi-ai hasFinishReason 语义)
+        val srv = MiniHttp(
+            Resp("200 OK", sse(
+                """{"choices":[{"delta":{"content":"答"}}]}""",
+                """{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}""",
+                // 到此为止,服务端关闭
+            )),
+        )
+        try {
+            val events = chat(OpenAiCompatProvider(providerOf(srv.baseUrl), { "k" }))
+            assertEquals("答", events.filterIsInstance<ChatEvent.Delta>().joinToString("") { it.text })
+            assertTrue(events.none { it is ChatEvent.Error })          // 不得误报中断
+            val done = events.filterIsInstance<ChatEvent.Done>().first()
+            assertEquals("stop", done.finishReason)
+            assertTrue(events.any { it is ChatEvent.Usage && it.promptTokens == 8 && it.completionTokens == 3 })
+        } finally { srv.close() }
+    }
+
+    @Test
+    fun `finish_reason后usage-only帧再关流-usage不丢`() {
+        val srv = MiniHttp(
+            Resp("200 OK", sse(
+                """{"choices":[{"delta":{"content":"好"}}]}""",
+                """{"choices":[{"delta":{},"finish_reason":"stop"}]}""",
+                """{"choices":[],"usage":{"prompt_tokens":99,"completion_tokens":9}}""",
+                // 无 [DONE] 关流
+            )),
+        )
+        try {
+            val events = chat(OpenAiCompatProvider(providerOf(srv.baseUrl), { "k" }))
+            assertTrue(events.none { it is ChatEvent.Error })
+            assertTrue(events.any { it is ChatEvent.Usage && it.promptTokens == 99 })
+            assertTrue(events.filterIsInstance<ChatEvent.Done>().isNotEmpty())
+        } finally { srv.close() }
+    }
+
+    @Test
+    fun `content_filter收尾-标失败文本保留`() {
+        val srv = MiniHttp(
+            Resp("200 OK", sse(
+                """{"choices":[{"delta":{"content":"部分"}}]}""",
+                """{"choices":[{"delta":{},"finish_reason":"content_filter"}]}""",
+            )),
+        )
+        try {
+            val events = chat(OpenAiCompatProvider(providerOf(srv.baseUrl), { "k" })
+            )
+            val err = events.filterIsInstance<ChatEvent.Error>().firstOrNull()?.error
+            assertTrue(err is AgentError.Other && err.detail.contains("content_filter"))
+            assertTrue(events.none { it is ChatEvent.Done })
+        } finally { srv.close() }
+    }
+
+    @Test
     fun `思考帧流过-先思考后作答-断流含思考不自动重试`() {
         // a) 正常:reasoning_content 流 → Thinking;content → Delta
         val srv = MiniHttp(

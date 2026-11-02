@@ -22,6 +22,7 @@ class AnthropicProvider(
     private val defaultMaxTokens: Int get() = DEFAULT_MAX_TOKENS
 
     private var stashedInputTokens = 0   // message_start 带 input,message_delta 带 output,拼合
+    private var stashedStopReason: String? = null
 
     internal override fun endpoint(path: String, sse: Boolean): String {
         val base = profile.baseUrl.trimEnd('/')
@@ -117,10 +118,14 @@ class AnthropicProvider(
                 emptyList()
             }
             "message_delta" -> {
+                // stop_reason(end_turn/stop_sequence/max_tokens/tool_use)权威完成信号
+                obj["delta"]?.jsonObject?.get("stop_reason")?.let { sr ->
+                    if (sr !is kotlinx.serialization.json.JsonNull) stashedStopReason = sr.jsonPrimitive.content
+                }
                 val out = obj["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
                 if (stashedInputTokens > 0 || out > 0) listOf(ChatEvent.Usage(stashedInputTokens, out)) else emptyList()
             }
-            "message_stop" -> listOf(ChatEvent.Done("end_turn"))
+            "message_stop" -> listOf(ChatEvent.Done(stashedStopReason ?: "end_turn"))
             "error" -> {
                 val err = obj["error"]?.jsonObject
                 val type = err?.get("type")?.jsonPrimitive?.content ?: "api_error"

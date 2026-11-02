@@ -96,7 +96,18 @@ abstract class BaseHttpProvider(
             val parser = SseParser()
             var gotAnyDelta = false
             var pendingUsage: ChatEvent.Usage? = null
-            var sawDone = false   // 服务端显式终止帧([DONE]/message_stop)
+            // 完成判定(pi-ai hasFinishReason 同款):finish_reason 是权威完成信号,
+            // [DONE] 与流关闭只是终止符 —— MiMo 等发完 finish_reason 即关流是合法收尾
+            var finishReason: String? = null
+            var finishError: AgentError? = null
+            fun noteFinish(reason: String) {
+                finishReason = reason
+                // mapStopReason(pi-ai 同款):content_filter/network_error/未知 → 错误
+                finishError = when (reason) {
+                    "stop", "end", "", "length", "tool_calls", "function_call", "end_turn", "stop_sequence", "tool_use", "max_tokens" -> null
+                    else -> AgentError.Other("Provider finish_reason: $reason")
+                }
+            }
             BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { reader ->
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -104,11 +115,13 @@ abstract class BaseHttpProvider(
                     for (payload in parser.feed(line + "\n")) events.addAll(parseFrame(payload))
                     for (ev in events) {
                         when (ev) {
+                            is ChatEvent.Finish -> noteFinish(ev.reason)   // 只记,继续吃后续帧(usage-only 帧常在 finish 后)
                             is ChatEvent.Delta -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }
                             is ChatEvent.Thinking -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }   // 思考也是已计费内容(§11 不重复计费)
                             is ChatEvent.Usage -> pendingUsage = ev
                             is ChatEvent.Done -> {
-                                sawDone = true
+                                // [DONE]/message_stop = 流终止符;宽容差异(较 pi-ai 严判略松):
+                                // 它本身也视作完成,兼容只发 [DONE] 不发 finish_reason 的懒中转
                                 emit(ev)
                                 pendingUsage?.let { emit(it) }
                                 return@flow
@@ -122,12 +135,28 @@ abstract class BaseHttpProvider(
                     }
                 }
                 for (payload in parser.finish()) {
-                    for (ev in parseFrame(payload)) emit(ev)
+                    for (ev in parseFrame(payload)) {
+                        when (ev) {
+                            is ChatEvent.Finish -> noteFinish(ev.reason)
+                            is ChatEvent.Done -> { emit(ev); pendingUsage?.let { emit(it) }; return@flow }
+                            is ChatEvent.Usage -> pendingUsage = ev
+                            is ChatEvent.Error -> { emit(if (gotAnyDelta) ChatEvent.Error(AgentError.StreamBroken) else ev); return@flow }
+                            else -> emit(ev)
+                        }
+                    }
                 }
             }
-            // 流结束但无显式终止帧:已有内容 = 中途断流(半截保留,§11 StreamBroken,
-            // 不得伪标完成);无内容 = 空响应 —— 是可重试错误,不落空气泡(harness EMPTY_RESPONSE)
-            emit(ChatEvent.Error(if (gotAnyDelta) AgentError.StreamBroken else AgentError.EmptyResponse))
+            // 流关闭:完成与否只看 finish_reason(pi-ai 语义,真机 MiMo 实证:无 [DONE] 但有 finish_reason)
+            val fin = finishError
+            when {
+                fin != null -> emit(ChatEvent.Error(fin))                       // content_filter 等:文本保留,标失败
+                finishReason != null -> {
+                    emit(ChatEvent.Done(finishReason))                          // 合法收尾
+                    pendingUsage?.let { emit(it) }
+                }
+                gotAnyDelta -> emit(ChatEvent.Error(AgentError.StreamBroken))   // 真·中途断流
+                else -> emit(ChatEvent.Error(AgentError.EmptyResponse))         // 空响应可重试,不落空气泡
+            }
         } catch (t: Throwable) {
             val cancelled = t is java.io.IOException && wasCancelled(conn)
             emit(ChatEvent.Error(if (cancelled) AgentError.Cancelled else ErrorMapping.fromException(t)))

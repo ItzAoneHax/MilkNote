@@ -648,6 +648,7 @@ class AgentController(
                 try {
                     provider.chat(req).collect { ev ->
                         when (ev) {
+                            is ChatEvent.Finish -> {}   // 完成信号仅记录;Done 在 [DONE] 或流关闭时发
                             is ChatEvent.Thinking -> {
                                 gotDelta = true   // 思考也是已计费内容:不进自动重试(§11)
                                 thinking.append(ev.text)
