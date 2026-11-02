@@ -171,6 +171,36 @@ class AgentControllerTest {
     }
 
     @Test
+    fun `模型行编辑与整表替换(harness 选择列表数据面)`() = runTest {
+        val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {
+            listOf(ChatEvent.Done(null))
+        }
+        val c = e.controller
+        val pid = c.state.value.activeProfileId!!
+        val first = c.state.value.profiles.first().models.first().id
+
+        // 行编辑:勾「图片」= 视觉声明(来源 DECLARED);思考档位/容量改写
+        c.updateModel(pid, first, vision = true, thinkingLevels = listOf(ReasoningEffort.OFF, ReasoningEffort.HIGH), contextWindowK = 256, maxTokensK = 32)
+        val edited = c.state.value.profiles.first().models.first()
+        assertTrue(edited.vision)
+        assertEquals(VisionSource.DECLARED.name, edited.visionSource)
+        assertEquals(listOf("OFF", "HIGH"), edited.thinkingLevels)
+        assertEquals(256, edited.contextWindowK)
+        assertEquals(32, edited.maxTokensK)
+
+        // 整表替换(拉取勾选器应用):保留已配置行声明,并入新行;activeModel 失效回退
+        val kept = edited
+        val fresh = ModelInfo(id = "new-vlm", vision = true)
+        c.setModels(pid, listOf(kept, fresh))
+        val p2 = c.state.value.profiles.first()
+        assertEquals(listOf(kept.id, fresh.id), p2.models.map { it.id })
+        assertEquals(kept.id, p2.activeModelId)   // 保留仍勾选的原默认
+        // 默认被取消勾选 → 回退首个视觉模型
+        c.setModels(pid, listOf(fresh))
+        assertEquals("new-vlm", c.state.value.profiles.first().activeModelId)
+    }
+
+    @Test
     fun `思考过程累积展示并随会话恢复`() = runTest {
         val e = env(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))) {
             listOf(

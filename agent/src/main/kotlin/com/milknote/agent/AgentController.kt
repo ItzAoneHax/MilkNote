@@ -176,6 +176,11 @@ class AgentController(
         saveBookAndRefresh(next)
     }
 
+    /** 整本替换(baseUrl 等就地编辑保存;仅设置页使用) */
+    fun replaceProfiles(book: AgentStore.ProfileBook) {
+        saveBookAndRefresh(book)
+    }
+
     fun setActiveProfile(profileId: String) {
         saveBookAndRefresh(currentBook().copy(activeProfileId = profileId))
     }
@@ -195,6 +200,49 @@ class AgentController(
                 if (p.models.any { it.id == modelId }) p
                 else p.copy(models = p.models + m, activeModelId = p.activeModelId.ifEmpty { modelId })
             }
+        }
+        saveBookAndRefresh(book.copy(profiles = updated))
+    }
+
+    /** 模型行编辑(harness ModelRow 同款:显示名/视觉声明/思考档位/容量) */
+    fun updateModel(
+        profileId: String,
+        modelId: String,
+        displayName: String? = null,
+        vision: Boolean? = null,
+        thinkingLevels: List<ReasoningEffort>? = null,
+        contextWindowK: Int? = null,
+        maxTokensK: Int? = null,
+    ) {
+        val book = currentBook()
+        val updated = book.profiles.map { p ->
+            if (p.id != profileId) p
+            else p.copy(models = p.models.map {
+                if (it.id != modelId) it
+                else it.copy(
+                    displayName = displayName ?: it.displayName,
+                    vision = vision ?: it.vision,
+                    // 视觉随输入类型声明走:勾「图片」= vision=true(来源 DECLARED)
+                    visionSource = if (vision == true) VisionSource.DECLARED.name else it.visionSource,
+                    thinkingLevels = thinkingLevels?.map { l -> l.name } ?: it.thinkingLevels,
+                    contextWindowK = contextWindowK ?: it.contextWindowK,
+                    maxTokensK = maxTokensK ?: it.maxTokensK,
+                )
+            })
+        }
+        saveBookAndRefresh(book.copy(profiles = updated))
+    }
+
+    /** 整表替换(fetch 勾选器应用/重置;harness picker 同款语义) */
+    fun setModels(profileId: String, models: List<ModelInfo>) {
+        val book = currentBook()
+        val updated = book.profiles.map { p ->
+            if (p.id != profileId) p
+            else p.copy(
+                models = models,
+                activeModelId = if (models.any { it.id == p.activeModelId }) p.activeModelId
+                else models.firstOrNull { it.vision }?.id ?: "",
+            )
         }
         saveBookAndRefresh(book.copy(profiles = updated))
     }

@@ -21,6 +21,10 @@ data class ModelInfo(
     val maxImages: Int = 8,
     /** 该模型可选思考档位(ReasoningEffort.name,递进序,OFF 在列=可显式关闭;空=仅 AUTO) */
     val thinkingLevels: List<String> = emptyList(),
+    /** 上下文窗口(千 tokens;0=未知,UI 显示 —;harness ModelRow 同款容量位) */
+    val contextWindowK: Int = 0,
+    /** 最大输出(千 tokens;0=未知) */
+    val maxTokensK: Int = 0,
     val priceInPerM: Double? = null,   // ¥/1M tokens(可空)
     val priceOutPerM: Double? = null,
 )

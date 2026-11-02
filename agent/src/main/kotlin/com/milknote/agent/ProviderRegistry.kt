@@ -17,11 +17,19 @@ data class ProviderPreset(
 
 object ProviderRegistry {
 
-    private fun m(id: String, maxImages: Int = 8, thinking: List<ReasoningEffort> = emptyList()) = ModelInfo(
+    private fun m(
+        id: String,
+        maxImages: Int = 8,
+        thinking: List<ReasoningEffort> = emptyList(),
+        ctxK: Int = 0,
+        outK: Int = 0,
+    ) = ModelInfo(
         id = id, displayName = id, vision = true,
         visionSource = VisionSource.PRESET.name, maxImages = maxImages,
         // 思考档位按 pi-ai 目录核验值声明(每家不同;§3.8);空=该模型不可调(仅 AUTO)
         thinkingLevels = thinking.map { it.name },
+        contextWindowK = ctxK,   // 千 tokens(§3.3/各家公开规格;0=未知)
+        maxTokensK = outK,
     )
 
     // DeepSeek V4.1-Flash:low/high/max(pi-ai DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP,medium=null)
@@ -49,62 +57,62 @@ object ProviderRegistry {
         ProviderPreset(
             id = "glm", title = "智谱 GLM",
             baseUrl = "https://open.bigmodel.cn/api/paas/v4",
-            models = listOf(m("glm-5.3-flash", thinking = GLM), m("glm-5.3-flashx", thinking = GLM)),
+            models = listOf(m("glm-5.3-flash", thinking = GLM, ctxK = 1000, outK = 128), m("glm-5.3-flashx", thinking = GLM, ctxK = 1000, outK = 128)),
             imageStyle = ImageStyle.RAW_BASE64,   // 智谱端点裸 base64(§3.5 已知差异)
             note = "GLM-5 系首个原生多模态;文本旗舰无视觉不预置",
         ),
         ProviderPreset(
             id = "deepseek", title = "DeepSeek",
             baseUrl = "https://api.deepseek.com/v1",
-            models = listOf(m("deepseek-flash", thinking = DS_FLASH)),
+            models = listOf(m("deepseek-flash", thinking = DS_FLASH, ctxK = 1000, outK = 128)),
             imageStyle = ImageStyle.DATA_URI,
             note = "官方唯一视觉模型;峰谷计费非高峰半价",
         ),
         ProviderPreset(
             id = "kimi", title = "Kimi(月之暗面)",
             baseUrl = "https://api.moonshot.cn/v1",
-            models = listOf(m("kimi-k3.1-pro", thinking = KIMI_K3), m("kimi-k3.1-pro-highspeed", thinking = KIMI_K3), m("kimi-k3", thinking = KIMI_K3)),
+            models = listOf(m("kimi-k3.1-pro", thinking = KIMI_K3, ctxK = 1000, outK = 131), m("kimi-k3.1-pro-highspeed", thinking = KIMI_K3, ctxK = 1000, outK = 131), m("kimi-k3", thinking = KIMI_K3, ctxK = 1000, outK = 131)),
             imageStyle = ImageStyle.DATA_URI,
             note = "K3 系原生视觉;图片仅接受 base64(本应用天然兼容)",
         ),
         ProviderPreset(
             id = "minimax", title = "MiniMax(国内)",
             baseUrl = "https://api.minimaxi.com/v1",
-            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX), m("MiniMax-M3", thinking = MINIMAX)),
+            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX, ctxK = 1000, outK = 64), m("MiniMax-M3", thinking = MINIMAX, ctxK = 1000, outK = 64)),
             imageStyle = ImageStyle.DATA_URI,
             note = "国内/国际账号与端点不互通",
         ),
         ProviderPreset(
             id = "minimax_intl", title = "MiniMax(国际)",
             baseUrl = "https://api.minimax.io/v1",
-            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX), m("MiniMax-M3", thinking = MINIMAX)),
+            models = listOf(m("MiniMax-M3.1-Flash", thinking = MINIMAX, ctxK = 1000, outK = 64), m("MiniMax-M3", thinking = MINIMAX, ctxK = 1000, outK = 64)),
             imageStyle = ImageStyle.DATA_URI,
             note = "国内/国际账号与端点不互通",
         ),
         ProviderPreset(
             id = "mimo", title = "MiMo(小米)",
             baseUrl = "https://api.xiaomimimo.com/v1",
-            models = listOf(m("mimo-v2.6-pro", thinking = MIMO), m("mimo-v2.6-flash", thinking = MIMO)),
+            models = listOf(m("mimo-v2.6-pro", thinking = MIMO, ctxK = 256, outK = 32), m("mimo-v2.6-flash", thinking = MIMO, ctxK = 256, outK = 32)),
             imageStyle = ImageStyle.DATA_URI,
             note = "V2.6 系全模态;具体视觉 id 以平台模型列表为准",
         ),
         ProviderPreset(
             id = "qwen", title = "通义 Qwen",
             baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            models = listOf(m("qwen3.8-max", maxImages = 10, thinking = QWEN), m("qwen3-vl-plus", thinking = QWEN), m("qwen3-vl-flash", thinking = QWEN)),
+            models = listOf(m("qwen3.8-max", maxImages = 10, thinking = QWEN, ctxK = 1000, outK = 64), m("qwen3-vl-plus", thinking = QWEN, ctxK = 128, outK = 32), m("qwen3-vl-flash", thinking = QWEN, ctxK = 128, outK = 32)),
             imageStyle = ImageStyle.DATA_URI,
             note = "新工作空间为专属域名形态,以百炼控制台为准",
         ),
         ProviderPreset(
             id = "openai", title = "OpenAI",
             baseUrl = "https://api.openai.com/v1",
-            models = listOf(m("gpt-6.1-terra", thinking = OPENAI_R)),
+            models = listOf(m("gpt-6.1-terra", thinking = OPENAI_R, ctxK = 400, outK = 128)),
             imageStyle = ImageStyle.DATA_URI,
         ),
         ProviderPreset(
             id = "anthropic", title = "Anthropic Claude",
             baseUrl = "https://api.anthropic.com/v1",
-            models = listOf(m("claude-opus-5-5", thinking = CLAUDE), m("claude-sonnet-5-5", thinking = CLAUDE), m("claude-fable-5-1", thinking = CLAUDE), m("claude-haiku-5-5", thinking = CLAUDE)),
+            models = listOf(m("claude-opus-5-5", thinking = CLAUDE, ctxK = 1000, outK = 64), m("claude-sonnet-5-5", thinking = CLAUDE, ctxK = 1000, outK = 64), m("claude-fable-5-1", thinking = CLAUDE, ctxK = 1000, outK = 64), m("claude-haiku-5-5", thinking = CLAUDE, ctxK = 1000, outK = 64)),
             imageStyle = ImageStyle.DATA_URI,
             note = "原生 /v1/messages(A2);Claude 系中转站选「自定义 + Anthropic 协议」",
             protocol = Protocol.ANTHROPIC,
@@ -118,7 +126,7 @@ object ProviderRegistry {
         ProviderPreset(
             id = "gemini", title = "Google Gemini",
             baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/",
-            models = listOf(m("gemini-4-argon", thinking = GEMINI), m("gemini-3.8-flash", thinking = GEMINI)),
+            models = listOf(m("gemini-4-argon", thinking = GEMINI, ctxK = 1000, outK = 64), m("gemini-3.8-flash", thinking = GEMINI, ctxK = 1000, outK = 64)),
             imageStyle = ImageStyle.DATA_URI,
         ),
         ProviderPreset(

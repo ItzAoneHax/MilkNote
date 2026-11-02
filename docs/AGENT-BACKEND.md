@@ -2,7 +2,7 @@
 
 > **定位**:`agent` 模块与 `feature:agent` UI 的后端实现规格 —— 框选截图采集、上下文组装、意图与提示词、Provider 抽象(用户自填 Key / 自选模型,**仅限视觉模型**)、流式对话、会话持久化、结果动作(插入批注层等)。对应 DESIGN-V0 §4「Agent 框选截图」与 §2.2 agent 层(K/L/M),M2 交付项的实现依据;⑤ Agent 抽屉 / ④ 框选 两屏 UI 已定稿(2026-10-31 视觉验收),本文定义其背后的全部后端行为。
 >
-> - 版本:A2(2026-11-02;A2.3 同日增补:§3.8 思考强度档位 —— 每家可选档不同,按模型声明(`ModelInfo.thinkingLevels`,pi-ai 目录核验值),UI 只显示真支持的档;分发五格式 + Anthropic budget,档位/`AUTO=不发`;A2.2 增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
+> - 版本:A2(2026-11-02;A2.4 同日增补:§12 设置页 Provider/模型列表界面重构 —— 选择列表模式迁移自 deepseek-harness ui-settings-models:Provider 卡=只写 API Key 主字段+折叠自定义区(harness ProviderEditor);模型目录=行式编辑器(展开区:显示名/输入类型复选即视觉声明/思考档位多选声明/上下文·最大输出容量位,harness ModelRow);端点拉取=候选勾选选择器(搜索+默认勾选已配置+应用整表替换且保留已调过的声明,harness fetch picker);协议显示产品名;A2.3 增补:§3.8 思考强度档位 —— 每家可选档不同,按模型声明(`ModelInfo.thinkingLevels`,pi-ai 目录核验值),UI 只显示真支持的档;分发五格式 + Anthropic budget,档位/`AUTO=不发`;A2.2 增补:思考过程全链路 —— Thinking 事件(OpenAI `reasoning_content`/`reasoning`/`reasoning_text` 取首个非空防中转站双字段重复;Anthropic `thinking_delta`)→ UiMessage.reasoning 落盘 → ⑤ 折叠胶囊默认收起展示,流式中显示「思考中…」;思考计入已计费内容(断流半截保留,不自动重试);A2.1 增补:对照 deepseek-harness / opencode 审计流式管线,§3.5/§11 落地 stream_options 自适应、max_tokens 策略、302 不跟随、Retry-After、EmptyResponse、帧间 180s;A2 变更:新增 §3.7 Anthropic Messages 原生协议 —— 部分模型/中转站仅有该格式,Protocol 随 profile 可选,原计划 M3 提前落地;A1 变更:§3.3 厂商注册表按各家官方文档全量核验重写,覆盖 9 家厂商 + 中转站)
 > - 状态:设计定稿 → M2 开发依据;「待验证」项见 §14
 > - 关联:[DESIGN-V0.md](./DESIGN-V0.md) §2.2 / §4 / §5.4 / §6 · [PEN-ADAPTATION.md](./PEN-ADAPTATION.md) §4.3(笔键长按=框选入口)
 
@@ -600,8 +600,11 @@ interface AnnotationSink {
 
 | 区块 | 内容 |
 |---|---|
-| Provider 列表 | profile 卡片(名称/baseUrl/尾 4 位 Key/模型数);新增(§3.3 注册表 12 选 1 或自定义);删除(确认;关联会话保留仅离线可读) |
-| 模型管理 | 每 profile 模型列表:增(手填 modelId+视觉声明复选框,§3.4)/删/设为默认;「拉取模型列表」尽力而为;价格 ¥/1M tok 可编辑 |
+| Provider 卡(A2.4) | 主字段=只写 API Key(掩码「•••• 已保存」+更换);折叠自定义区:baseUrl 就地编辑、协议产品名标签(OpenAI 兼容/Anthropic);激活点+缺 Key 徽标;设为当前/测试连接/删除 |
+| 模型目录(A2.4,harness ModelRow) | 折叠行:默认选择点 \| modelId(mono)+ 视觉/已声明徽标 + 思考档摘要 + 容量摘要(`1000k / out 128k`)\| › \| ✕;展开区:显示名 / **输入类型复选(文本/图片,勾图片=视觉声明 §3.4)** / **思考档位多选声明**(空=不可调,§3.8)/ 上下文·最大输出(k tok) |
+| 端点拉取(A2.4,harness fetch picker) | GET /models 候选勾选选择器:搜索过滤;**默认勾选已配置项**;应用=整表替换,已配置行保留用户调过的声明,新行按候选进表(视觉按 OpenRouter 元数据,其余标「需勾图片」);失败降级手填 |
+| 手填添加 | modelId 输入 + 「加入」(默认勾图片=声明视觉) |
+| 连接测试 | 1-token 纯文本请求,显示延迟 ms 与结果(仅鉴权可达性) |
 | 连接测试 | 1-token 纯文本请求,显示延迟 ms 与结果(仅鉴权可达性) |
 | 脱敏 | 开关(默认关)+ 自定义正则管理 + 「中文识别模型:已下载/未下载」 |
 | 用量 | 按模型/按月聚合 token 与估算费用 |
