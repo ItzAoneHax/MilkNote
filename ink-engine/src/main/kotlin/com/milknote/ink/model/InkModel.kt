@@ -36,6 +36,7 @@ data class Stroke(
     val color: Long,        // ARGB
     val baseWidthMm: Float, // 压感映射前基准宽
     val points: List<InkPoint>,
+    val zIndex: Long = 0L,  // 全局层序;旧数据 0 按历史层带排序
 )
 
 /**
@@ -52,6 +53,8 @@ data class ImageElement(
     val width: Float,           // 显示宽(px)
     val height: Float,          // 显示高(px)
     val createdAt: Long = 0L,
+    val rotationDeg: Float = 0f,
+    val zIndex: Long = 0L,
 )
 
 /** 当前笔设置(工具条状态) */
@@ -72,9 +75,10 @@ sealed interface InkOp {
     data class Add(val stroke: Stroke) : InkOp
     data class Remove(val stroke: Stroke, val index: Int) : InkOp
     data class AddCard(val card: AnnotationCard) : InkOp
-    data class RemoveCard(val card: AnnotationCard) : InkOp
+    data class RemoveCard(val card: AnnotationCard, val index: Int = -1) : InkOp
     data class AddImage(val image: ImageElement) : InkOp
     data class RemoveImage(val image: ImageElement, val index: Int) : InkOp
+    data class Reorder(val before: List<LayerState>, val after: List<LayerState>) : InkOp
     data class Batch(val ops: List<InkOp>) : InkOp
 }
 
@@ -91,6 +95,9 @@ data class AnnotationCard(
     val kind: Kind = Kind.TEXT,
     val text: String,           // markdown-lite 源文(TEXT)/ LaTeX 源码(LATEX)
     val createdAt: Long = 0L,
+    val rotationDeg: Float = 0f,
+    val scale: Float = 1f,      // 内容整体缩放;保留原宽度用于文本布局缓存
+    val zIndex: Long = 0L,
 ) {
     enum class Kind { TEXT, LATEX }
 }
@@ -165,6 +172,19 @@ class PageInkState {
         return InkOp.Batch(ops.reversed()) // 从后往前删,保留下标语义
     }
 
+    private fun applyLayers(states: List<LayerState>) {
+        val byRef = states.associateBy { it.ref }
+        strokes.replaceAll { s ->
+            byRef[ElementRef(ElementRef.Kind.STROKE, s.id)]?.let { s.copy(zIndex = it.zIndex) } ?: s
+        }
+        cards.replaceAll { c ->
+            byRef[ElementRef(ElementRef.Kind.CARD, c.id)]?.let { c.copy(zIndex = it.zIndex) } ?: c
+        }
+        images.replaceAll { i ->
+            byRef[ElementRef(ElementRef.Kind.IMAGE, i.id)]?.let { i.copy(zIndex = it.zIndex) } ?: i
+        }
+    }
+
     private fun doApply(op: InkOp) {
         when (op) {
             is InkOp.Add -> strokes.add(op.stroke)
@@ -173,24 +193,29 @@ class PageInkState {
             is InkOp.RemoveCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
             is InkOp.AddImage -> images.add(op.image)
             is InkOp.RemoveImage -> images.removeAt(images.indexOfFirst { it.id == op.image.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.Reorder -> applyLayers(op.after)
             is InkOp.Batch -> op.ops.forEach(::doApply)
         }
     }
 
     private fun undoApply(op: InkOp) {
         when (op) {
-            is InkOp.Add -> strokes.removeLastOrNull()
+            is InkOp.Add -> strokes.removeAt(strokes.indexOfFirst { it.id == op.stroke.id }.takeIf { it >= 0 } ?: return)
             is InkOp.Remove -> {
                 val idx = op.index.coerceIn(0, strokes.size)
                 strokes.add(idx, op.stroke)
             }
             is InkOp.AddCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
-            is InkOp.RemoveCard -> cards.add(op.card)
+            is InkOp.RemoveCard -> {
+                val idx = if (op.index < 0) cards.size else op.index.coerceIn(0, cards.size)
+                cards.add(idx, op.card)
+            }
             is InkOp.AddImage -> images.removeAt(images.indexOfFirst { it.id == op.image.id }.takeIf { it >= 0 } ?: return)
             is InkOp.RemoveImage -> {
                 val idx = op.index.coerceIn(0, images.size)
                 images.add(idx, op.image)                                // 原层位恢复
             }
+            is InkOp.Reorder -> applyLayers(op.before)
             is InkOp.Batch -> op.ops.reversed().forEach(::undoApply)
         }
     }

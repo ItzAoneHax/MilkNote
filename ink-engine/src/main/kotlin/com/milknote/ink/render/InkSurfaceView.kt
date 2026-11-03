@@ -22,11 +22,17 @@ import android.widget.FrameLayout
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import com.milknote.ink.input.InkAction
 import com.milknote.ink.input.InkController
+import com.milknote.ink.input.SelectionHandle
+import com.milknote.ink.model.ElementGeom
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.PageElement
 import com.milknote.ink.model.PressureGamma
 import com.milknote.ink.model.Stroke
+import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
+import com.milknote.ink.model.orderedElements
+import kotlin.math.hypot
 
 /**
  * 书写纸面(PEN-ADAPTATION 通路①挂点:「Compose 外层 AndroidView」)。
@@ -53,6 +59,10 @@ class InkSurfaceView @JvmOverloads constructor(
             field?.removeInvalidator(invalidator)
             field = value
             value?.addInvalidator(invalidator)
+            value?.cardHeightProvider = { card ->
+                AnnotationCardRenderer.cardHeight(card, card.id in expandedCards)
+            }
+            value?.pageBoundsProvider = { StrokeGeom.Box(0f, 0f, pageWidthPx, pageHeightPx) }
             committedKey = Long.MIN_VALUE
             postInvalidateOnAnimation()
         }
@@ -67,6 +77,9 @@ class InkSurfaceView @JvmOverloads constructor(
      * LASO(套索圈选)/ TEMP_ERASER(临时橡皮)/ null(正常书写)。
      */
     var holdActionProvider: (() -> InkAction?)? = null
+
+    /** 视口缩放/平移后同步 Compose 选区菜单位置。 */
+    var onViewportChanged: (() -> Unit)? = null
 
     /** 纸张模板:dot | line | grid | blank */
     var paperStyle: String = "dot"
@@ -159,6 +172,9 @@ class InkSurfaceView @JvmOverloads constructor(
     private var dragActive = false
     private var dragAnchorX = 0f
     private var dragAnchorY = 0f
+    private var transformActive: SelectionHandle? = null
+    private var transformStartDistance = 1f
+    private var transformStartAngle = 0f
 
     // 批注卡交互:拖动 + 点按展开/收起(展开态是显示层状态,不落库)
     private var cardDragActive = false
@@ -188,6 +204,7 @@ class InkSurfaceView @JvmOverloads constructor(
             zoom = newZoom
             panX = detector.focusX - focusPageX * zoom
             panY = detector.focusY - focusPageY * zoom
+            onViewportChanged?.invoke()
             invalidate()
             return true
         }
@@ -410,6 +427,7 @@ class InkSurfaceView @JvmOverloads constructor(
         panX = (viewportW - pageWidthPx * zoom) / 2f
         panY = 0f
         userAdjusted = false
+        onViewportChanged?.invoke()
         invalidate()
     }
 
@@ -467,12 +485,12 @@ class InkSurfaceView @JvmOverloads constructor(
                     beginInk(event, c, collectRaw(event))
                     return true
                 }
-                // 手指:见过笔 → 只导航;没见过笔 → 降级书写/圈选/拖动(§3.4)
-                if (stylusSeen || c == null) {
+                // 手指:控制柄/已选区/图片与文字点按优先;其他区域在连接笔后仅导航。
+                if (routeSpecialDown(event, c, collectRaw(event))) {
+                    return true
+                } else if (stylusSeen || c == null) {
                     lastPanX = event.x; lastPanY = event.y
                     scaleDetector.onTouchEvent(event)
-                } else if (routeSpecialDown(event, c, collectRaw(event))) {
-                    return true
                 } else {
                     fingerDrawing = true
                     beginInk(event, c, collectRaw(event), fixed = true)
@@ -498,10 +516,36 @@ class InkSurfaceView @JvmOverloads constructor(
                     imageDragActive = false
                     c?.cancelImageDrag()
                 }
-                if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive && !imageDragActive) scaleDetector.onTouchEvent(event)
+                if (dragActive && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                    dragActive = false
+                    c?.cancelSelectionDrag()
+                }
+                if (transformActive != null && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                    transformActive = null
+                    c?.cancelSelectionTransform()
+                }
+                if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive && !imageDragActive && transformActive == null) scaleDetector.onTouchEvent(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 when {
+                    transformActive != null && c != null -> {
+                        val t = c.selectionTransformSnapshot()
+                        if (t != null) {
+                            val px = pageX(event.x); val py = pageY(event.y)
+                            if (transformActive == SelectionHandle.ROTATE) {
+                                val angle = ElementGeom.angleDeg(t.pivotX, t.pivotY, px, py)
+                                c.moveSelectionTransform(1f, angle - transformStartAngle)
+                            } else {
+                                val distance = hypot(px - t.pivotX, py - t.pivotY)
+                                c.moveSelectionTransform(
+                                    distance / transformStartDistance.coerceAtLeast(1f),
+                                    0f,
+                                    10f * resources.displayMetrics.density / zoom,
+                                )
+                            }
+                        }
+                        return true
+                    }
                     cardDragActive && c != null -> {
                         c.moveCardDrag(pageX(event.x) - cardAnchorX, pageY(event.y) - cardAnchorY)
                         return true
@@ -516,7 +560,11 @@ class InkSurfaceView @JvmOverloads constructor(
                         return true
                     }
                     dragActive && c != null -> {
-                        c.moveSelectionDrag(pageX(event.x) - dragAnchorX, pageY(event.y) - dragAnchorY)
+                        c.moveSelectionDrag(
+                            pageX(event.x) - dragAnchorX,
+                            pageY(event.y) - dragAnchorY,
+                            10f * resources.displayMetrics.density / zoom,
+                        )
                         return true
                     }
                     isWriting() && c != null -> {
@@ -559,6 +607,7 @@ class InkSurfaceView @JvmOverloads constructor(
                             panY += event.y - lastPanY
                             lastPanX = event.x; lastPanY = event.y
                             userAdjusted = true
+                            onViewportChanged?.invoke()
                             invalidate()
                         }
                     }
@@ -567,6 +616,10 @@ class InkSurfaceView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 when {
+                    transformActive != null -> {
+                        transformActive = null
+                        c?.endSelectionTransform()
+                    }
                     cardDragActive -> {
                         cardDragActive = false
                         // 未移动的短按 = 展开/收起卡
@@ -610,6 +663,10 @@ class InkSurfaceView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                if (transformActive != null) {
+                    transformActive = null
+                    c?.cancelSelectionTransform()
+                }
                 if (isWriting()) {
                     c?.cancelStroke()
                     cancelFrontStroke()
@@ -639,45 +696,46 @@ class InkSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * 特殊落笔路由:⓪ 批注卡(最上层)→ ⓪.5 图片元素 → ① 点中选中集拖动 → ② 套索圈选。
-     * 图片命中在批注卡之后、选中集/套索之前,不影响书写与套索路径。
-     * 返回 true = 已消费(不再进入书写)。
+     * 控制柄 → 套索 → 已选区 → 手指单选。普通书写时笔在图片/文字上直接写字，
+     * 不再进入旧的独立拖动；手指点按图片/文字则选中并开启变换套件。
      */
     private fun routeSpecialDown(event: MotionEvent, c: InkController?, raw: List<InkPoint>): Boolean {
         if (c == null) return false
         val px = pageX(event.x); val py = pageY(event.y)
-        // ⓪ 批注卡:命中即拖动;短按无移动在 UP 时切换展开
-        val card = c.page.cards.lastOrNull { AnnotationCardRenderer.hit(it, px, py, it.id in expandedCards) }
-        if (card != null) {
-            c.beginCardDrag(card.id)
-            cardDragActive = true
-            cardDownId = card.id
-            cardDownAt = event.eventTime
-            cardAnchorX = px; cardAnchorY = py
+        val handle = c.hitSelectionHandle(px, py, 24f * resources.displayMetrics.density / zoom, 48f * resources.displayMetrics.density / zoom)
+        if (handle != null && c.beginSelectionTransform(handle)) {
+            transformActive = handle
+            val t = c.selectionTransformSnapshot()!!
+            transformStartDistance = hypot(px - t.pivotX, py - t.pivotY).coerceAtLeast(1f)
+            transformStartAngle = ElementGeom.angleDeg(t.pivotX, t.pivotY, px, py)
             return true
         }
-        // ⓪.5 图片元素:命中即拖动(后插入者在同位时优先;UP 未移动由 controller 判定无记录)
-        if (c.page.images.isNotEmpty()) {
-            val img = c.page.images.lastOrNull { ImageElementRenderer.hit(it, px, py) }
-            if (img != null) {
-                c.beginImageDrag(img.id)
-                imageDragActive = true
-                imageAnchorX = px; imageAnchorY = py
-                return true
+        val hold = holdActionProvider?.invoke()
+        if (c.lassoArmed || hold == InkAction.LASO) {
+            c.beginLasso(toPage(raw.first()))
+            lassoStrokeActive = true
+            return true
+        }
+        val tool = event.getToolType(0)
+        val stylus = tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
+        if (stylus) {
+            val onCard = c.page.cards.any { AnnotationCardRenderer.hit(it, px, py, it.id in expandedCards) }
+            val onImage = c.page.images.any { ImageElementRenderer.hit(it, px, py) }
+            if (onCard || onImage) {
+                c.clearSelection()
+                return false
             }
         }
-        // ① 选中集拖动(橡皮/手指同样可拖)
         if (c.hitSelection(px, py)) {
             c.beginSelectionDrag(px, py)
             dragActive = true
             dragAnchorX = px; dragAnchorY = py
             return true
         }
-        // ② 套索:模式已武装 或 主/副键按住书写改绑为套索
-        val hold = holdActionProvider?.invoke()
-        if (c.lassoArmed || hold == InkAction.LASO) {
-            c.beginLasso(toPage(raw.first()))
-            lassoStrokeActive = true
+        if (!stylus && c.selectElementAt(px, py) != null) {
+            c.beginSelectionDrag(px, py)
+            dragActive = true
+            dragAnchorX = px; dragAnchorY = py
             return true
         }
         return false
@@ -766,8 +824,14 @@ class InkSurfaceView @JvmOverloads constructor(
             paperFrameColor = 0x33E8E6E0
             cursorPaint.color = 0x66E8E6E0.toInt()
             lassoPaint.color = 0xFF7D92FF.toInt()
-            selectionBoxPaint.color = 0x807D92FF.toInt()
+            selectionBoxPaint.color = 0xA67D92FF.toInt()
             selectionHaloPaint.color = 0x247D92FF
+            selectionGuidePaint.color = 0xC27D92FF.toInt()
+            selectionUnderlayPaint.color = 0x8A1B1C20.toInt()
+            handleFillPaint.color = 0xFF26272D.toInt()
+            handleStrokePaint.color = 0xFF7D92FF.toInt()
+            handleHaloPaint.color = 0x187D92FF
+            handleDetailPaint.color = 0xB37D92FF.toInt()
         } else {
             paperColor = 0xFFFAF9F5.toInt()
             dotColor = 0xFFD8D4C8.toInt()
@@ -775,8 +839,14 @@ class InkSurfaceView @JvmOverloads constructor(
             paperFrameColor = 0x1423221E
             cursorPaint.color = 0x6623221E.toInt()
             lassoPaint.color = 0xFF3B5BEC.toInt()
-            selectionBoxPaint.color = 0x803B5BEC.toInt()
+            selectionBoxPaint.color = 0xA63B5BEC.toInt()
             selectionHaloPaint.color = 0x243B5BEC
+            selectionGuidePaint.color = 0xB83B5BEC.toInt()
+            selectionUnderlayPaint.color = 0xB8FAF9F5.toInt()
+            handleFillPaint.color = 0xFFFFFCF7.toInt()
+            handleStrokePaint.color = 0xFF3B5BEC.toInt()
+            handleHaloPaint.color = 0x103B5BEC
+            handleDetailPaint.color = 0x993B5BEC.toInt().toInt()
         }
     }
 
@@ -805,6 +875,29 @@ class InkSurfaceView @JvmOverloads constructor(
     }
     private val selectionHaloPaint = Paint().apply {
         color = 0x243B5BEC; style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val selectionUnderlayPaint = Paint().apply {
+        color = 0xB8FAF9F5.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+    }
+    private val handleFillPaint = Paint().apply {
+        color = 0xFFFFFCF7.toInt(); style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val handleStrokePaint = Paint().apply {
+        color = 0xFF3B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val handleShadowPaint = Paint().apply {
+        color = 0x1423221E; style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val handleHaloPaint = Paint().apply {
+        color = 0x103B5BEC; style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val handleDetailPaint = Paint().apply {
+        color = 0x993B5BEC.toInt(); style = Paint.Style.FILL; isAntiAlias = true
+    }
+    private val selectionGuidePaint = Paint().apply {
+        color = 0xB83B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -849,16 +942,19 @@ class InkSurfaceView @JvmOverloads constructor(
             }
         }
 
-        // 批注卡层(墨迹之上;AGENT-BACKEND §9 结果贴回)
+        // 旧独立卡片拖动仍由预览承载；普通卡片与图片/笔迹一起在 committed 中按全局层序绘制。
         if (c != null) {
             val (dragId, dragOff) = c.cardDragOffset() ?: (null to (0f to 0f))
-            for (card in c.page.cards) {
-                val (dx, dy) = if (card.id == dragId) dragOff else (0f to 0f)
-                AnnotationCardRenderer.draw(canvas, card, darkTheme, card.id in expandedCards, dx, dy)
+            val card = c.page.cards.firstOrNull { it.id == dragId }
+            if (card != null) {
+                AnnotationCardRenderer.draw(canvas, card, darkTheme, card.id in expandedCards, dragOff.first, dragOff.second)
             }
         }
 
-        if (c != null) drawSelection(canvas, c)
+        if (c != null) {
+            drawSelection(canvas, c)
+            drawSelectionGuides(canvas, c)
+        }
 
         // 活动笔迹:Canvas 路径每帧重绘;前置缓冲路径由 GL 层绘制(跳过,避免重影)
         val activeOnFront = frontActive && c?.drawing == true
@@ -890,25 +986,47 @@ class InkSurfaceView @JvmOverloads constructor(
     private fun renderKey(c: InkController): Long =
         c.renderStamp * 4L + c.tool.pressureGamma.ordinal
 
-    /** 选中集:halo + 原墨(带拖动偏移)+ 虚线包围盒;圈选轨迹实时虚线 */
+    /** 选中元素统一应用组变换；控制柄在相同坐标系绘制，半径按视口和缩放补偿。 */
     private fun drawSelection(canvas: Canvas, c: InkController) {
-        val sel = c.selectionSnapshot()
-        val (dx, dy) = c.selectionDragOffset()
-        if (sel != null) {
-            for (s in c.selectedStrokes()) {
-                val moved = if (dx != 0f || dy != 0f) {
-                    s.copy(points = s.points.map { it.copy(x = it.x + dx, y = it.y + dy) })
-                } else s
-                val path = StrokeRenderer.buildPath(moved, mmToPx, c.tool.pressureGamma)
-                canvas.drawPath(path, selectionHaloPaint)
-                canvas.drawPath(path, paintFor(moved.color, moved.tool))
+        val t = c.selectionTransformSnapshot()
+        if (t != null) {
+            canvas.save()
+            canvas.translate(t.dx, t.dy)
+            canvas.rotate(t.rotationDeg, t.pivotX, t.pivotY)
+            canvas.scale(t.scale, t.scale, t.pivotX, t.pivotY)
+            for (element in c.page.orderedElements()) {
+                if (!c.isSelected(element.ref)) continue
+                drawElement(canvas, element, c, halo = true)
             }
-            sel.box?.let { b ->
-                val pad = 10f
-                selectionBoxPaint.strokeWidth = 1.5f / zoom
-                selectionBoxPaint.pathEffect = DashPathEffect(floatArrayOf(10f / zoom, 8f / zoom), 0f)
-                canvas.drawRect(b.l + dx - pad, b.t + dy - pad, b.r + dx + pad, b.b + dy + pad, selectionBoxPaint)
+            val b = t.box
+            val pad = 10f
+            val visualScale = zoom * t.scale
+            val density = resources.displayMetrics.density
+            val left = b.l - pad; val top = b.t - pad
+            val right = b.r + pad; val bottom = b.b + pad
+            selectionUnderlayPaint.strokeWidth = 3f * density / visualScale
+            canvas.drawRect(left, top, right, bottom, selectionUnderlayPaint)
+            selectionBoxPaint.strokeWidth = 1.1f * density / visualScale
+            selectionBoxPaint.pathEffect = DashPathEffect(floatArrayOf(8f / visualScale, 6f / visualScale), 0f)
+            canvas.drawRect(left, top, right, bottom, selectionBoxPaint)
+
+            val rotateX = (left + right) / 2f
+            val rotateY = top - 48f * density / visualScale
+            selectionBoxPaint.pathEffect = null
+            selectionUnderlayPaint.strokeWidth = 3f * density / visualScale
+            canvas.drawLine(rotateX, top, rotateX, rotateY, selectionUnderlayPaint)
+            selectionBoxPaint.strokeWidth = 1.1f * density / visualScale
+            canvas.drawLine(rotateX, top, rotateX, rotateY, selectionBoxPaint)
+
+            handleStrokePaint.strokeWidth = 1.5f * density / visualScale
+            val cornerRadius = 6.5f * density / visualScale
+            listOf(left to top, right to top, right to bottom, left to bottom).forEach { (x, y) ->
+                drawTransformHandle(canvas, x, y, cornerRadius, visualScale)
             }
+            drawTransformHandle(
+                canvas, rotateX, rotateY, 9f * density / visualScale, visualScale, rotation = true,
+            )
+            canvas.restore()
         }
         val loop = c.lassoLoopSnapshot()
         if (loop.isNotEmpty()) {
@@ -923,21 +1041,89 @@ class InkSurfaceView @JvmOverloads constructor(
         }
     }
 
+    private fun drawSelectionGuides(canvas: Canvas, c: InkController) {
+        val guides = c.selectionGuidesSnapshot()
+        if (guides.isEmpty()) return
+        val visualScale = zoom
+        val density = resources.displayMetrics.density
+        selectionGuidePaint.strokeWidth = 1.15f * density / visualScale
+        selectionGuidePaint.pathEffect = DashPathEffect(
+            floatArrayOf(7f * density / visualScale, 5f * density / visualScale), 0f,
+        )
+        guides.forEach { guide ->
+            if (guide.vertical) {
+                canvas.drawLine(guide.position, guide.start, guide.position, guide.end, selectionGuidePaint)
+            } else {
+                canvas.drawLine(guide.start, guide.position, guide.end, guide.position, selectionGuidePaint)
+            }
+        }
+        selectionGuidePaint.pathEffect = null
+    }
+
+    private fun drawTransformHandle(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        radius: Float,
+        visualScale: Float,
+        rotation: Boolean = false,
+    ) {
+        val density = resources.displayMetrics.density
+        canvas.drawCircle(x, y, radius + 3f * density / visualScale, handleHaloPaint)
+        canvas.drawCircle(x, y + 1.2f * density / visualScale, radius + 0.8f * density / visualScale, handleShadowPaint)
+        canvas.drawCircle(x, y, radius, handleFillPaint)
+        canvas.drawCircle(x, y, radius, handleStrokePaint)
+        if (rotation) {
+            drawRotationGlyph(canvas, x, y, radius * 0.48f, visualScale)
+        } else {
+            canvas.drawCircle(x, y, 1.1f * density / visualScale, handleDetailPaint)
+        }
+    }
+
+    /** 旋转钮内部的环形箭头；与选框共用当前页坐标和视觉缩放补偿。 */
+    private fun drawRotationGlyph(canvas: Canvas, x: Float, y: Float, radius: Float, visualScale: Float) {
+        val density = resources.displayMetrics.density
+        handleStrokePaint.strokeWidth = 1.35f * density / visualScale
+        canvas.drawArc(RectF(x - radius, y - radius, x + radius, y + radius), -60f, 285f, false, handleStrokePaint)
+        val end = Math.toRadians(225.0)
+        val ex = x + radius * kotlin.math.cos(end).toFloat()
+        val ey = y + radius * kotlin.math.sin(end).toFloat()
+        val wing = 2.6f * density / visualScale
+        for (angle in listOf(20.0, 170.0)) {
+            val rad = Math.toRadians(angle)
+            canvas.drawLine(
+                ex, ey,
+                ex + wing * kotlin.math.cos(rad).toFloat(),
+                ey + wing * kotlin.math.sin(rad).toFloat(),
+                handleStrokePaint,
+            )
+        }
+    }
+
+    private fun drawElement(canvas: Canvas, element: PageElement, c: InkController, halo: Boolean = false) {
+        when (element) {
+            is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, imageDir)
+            is PageElement.Ink -> {
+                val path = StrokeRenderer.buildPath(element.value, mmToPx, c.tool.pressureGamma)
+                if (halo) canvas.drawPath(path, selectionHaloPaint)
+                canvas.drawPath(path, paintFor(element.value.color, element.value.tool))
+            }
+            is PageElement.Card -> AnnotationCardRenderer.draw(
+                canvas, element.value, darkTheme, element.value.id in expandedCards,
+            )
+        }
+    }
+
     private fun rebuildCommitted(c: InkController, key: Long) {
         val p = Picture()
         val canvas = p.beginRecording(pageWidthPx.toInt(), pageHeightPx.toInt())
-        // 图片层(笔迹之下;AGENT 贴图/用户插图同一层);拖动中的图片摘除,由预览单独带偏移画
-        if (c.page.images.isNotEmpty()) {
-            val imgDragId = c.draggingImageId()
-            for (img in c.page.images) {
-                if (img.id == imgDragId) continue
-                ImageElementRenderer.draw(canvas, img, imageDir)
-            }
-        }
-        val excluded = c.excludedFromCache()
-        for (s in c.page.strokes) {
-            if (s.id in excluded) continue
-            canvas.drawPath(StrokeRenderer.buildPath(s, mmToPx, c.tool.pressureGamma), paintFor(s.color, s.tool))
+        val imgDragId = c.draggingImageId()
+        val cardDragId = c.cardDragOffset()?.first
+        for (element in c.page.orderedElements()) {
+            if (c.isSelected(element.ref)) continue
+            if (element is PageElement.Image && element.value.id == imgDragId) continue
+            if (element is PageElement.Card && element.value.id == cardDragId) continue
+            drawElement(canvas, element, c)
         }
         p.endRecording()
         committed = p
@@ -969,14 +1155,15 @@ class InkSurfaceView @JvmOverloads constructor(
         }
         val c = controller
         if (c != null) {
-            for (img in c.page.images) {
-                ImageElementRenderer.draw(canvas, img, imageDir)
-            }
-            for (s in c.page.strokes) {
-                canvas.drawPath(StrokeRenderer.buildPath(s, mmToPx, c.tool.pressureGamma), paintFor(s.color, s.tool))
-            }
-            for (card in c.page.cards) {
-                AnnotationCardRenderer.draw(canvas, card, darkTheme, expanded = true)
+            for (element in c.page.orderedElements()) {
+                when (element) {
+                    is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, imageDir)
+                    is PageElement.Ink -> canvas.drawPath(
+                        StrokeRenderer.buildPath(element.value, mmToPx, c.tool.pressureGamma),
+                        paintFor(element.value.color, element.value.tool),
+                    )
+                    is PageElement.Card -> AnnotationCardRenderer.draw(canvas, element.value, darkTheme, expanded = true)
+                }
             }
         }
         return bmp

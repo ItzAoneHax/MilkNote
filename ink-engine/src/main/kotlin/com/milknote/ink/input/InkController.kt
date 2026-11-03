@@ -1,14 +1,23 @@
 package com.milknote.ink.input
 
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.ElementGeom
+import com.milknote.ink.model.ElementRef
 import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkOp
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.LassoGeom
+import com.milknote.ink.model.LayerState
+import com.milknote.ink.model.PageElement
 import com.milknote.ink.model.PageInkState
 import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
+import com.milknote.ink.model.nextZIndex
+import com.milknote.ink.model.orderedElements
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 import java.util.UUID
 
 /** 落盘回调:笔迹新增 / 笔迹删除(tombstone)/ 批注卡、图片增删,由 note-domain 转成追加/整表重写 */
@@ -19,10 +28,32 @@ sealed interface InkCommit {
     data class CardRemoved(val cardId: String) : InkCommit
     data class ImageAdded(val image: ImageElement) : InkCommit
     data class ImageRemoved(val imageId: String) : InkCommit
+    data object LayersChanged : InkCommit
 }
 
-/** 选中集快照(UI 显示用;box 为所选笔迹并集包围盒,页坐标) */
-data class SelectionSnapshot(val count: Int, val box: StrokeGeom.Box?)
+/** 选中集快照(UI 显示用;box 为当前预览的轴对齐包围盒,页坐标) */
+data class SelectionSnapshot(
+    val count: Int,
+    val box: StrokeGeom.Box?,
+    val canMoveUp: Boolean = false,
+    val canMoveDown: Boolean = false,
+    val snapEnabled: Boolean = true,
+)
+
+enum class SelectionHandle { TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT, ROTATE }
+
+data class SelectionTransformSnapshot(
+    val box: StrokeGeom.Box,
+    val dx: Float,
+    val dy: Float,
+    val scale: Float,
+    val rotationDeg: Float,
+    val pivotX: Float,
+    val pivotY: Float,
+)
+
+/** 吸附参考线（页坐标）；vertical=true 表示 x=position 的竖线。 */
+data class SelectionGuide(val vertical: Boolean, val position: Float, val start: Float, val end: Float)
 
 /**
  * 书写采集状态机:事件点 → 活动笔迹 → 提交/擦除 → 撤销重做 + 套索选择。
@@ -59,29 +90,49 @@ class InkController {
 
     val drawing: Boolean get() = activePoints != null
 
-    // ---- 套索选择(PEN-ADAPTATION §4.4:主键单击默认动作;圈选→拖动/删除,进撤销栈)----
+    // ---- 混合套索选择 + 变换(笔迹/图片/卡片同一选择集、同一撤销栈)----
 
     /** 已进入套索模式(等待下一笔圈选);由 UI(笔键触发/工具栏)置位,一圈后自动退出 */
     @Volatile var lassoArmed: Boolean = false
         private set
 
-    /** 圈选中的闭合路径(页坐标;书写中非空) */
     private var lassoLoop: MutableList<InkPoint>? = null
-
-    private var selectionIds: LinkedHashSet<String>? = null
+    private var selectionRefs: LinkedHashSet<ElementRef>? = null
     private var selectionBox: StrokeGeom.Box? = null
-    private var selectionStamp = 0L   // 选中集版本(渲染缓存失效用)
+    private var selectionStamp = 0L
         private set
 
-    // 拖动预览偏移(页坐标;抬起才落 Batch op)
+    /** 卡片高度由 Android 文本布局提供;纯 JVM 测试可注入固定值。 */
+    var cardHeightProvider: (AnnotationCard) -> Float = { 0f }
+
+    /** 页面边界由视图提供，用于移动/缩放贴边吸附。 */
+    var pageBoundsProvider: () -> StrokeGeom.Box? = { null }
+
+    private val selectionGuides = mutableListOf<SelectionGuide>()
+    var selectionSnapEnabled = true
+        private set
+
+    fun toggleSelectionSnap(): Boolean {
+        selectionSnapEnabled = !selectionSnapEnabled
+        if (!selectionSnapEnabled) selectionGuides.clear()
+        notifyInvalidate()
+        return selectionSnapEnabled
+    }
+
+    fun selectionGuidesSnapshot(): List<SelectionGuide> = selectionGuides.toList()
+
     private var dragDx = 0f
     private var dragDy = 0f
     private var dragStarted = false
+    private var transformStarted: SelectionHandle? = null
+    private var transformScale = 1f
+    private var transformRotationDeg = 0f
+    private var transformPivotX = 0f
+    private var transformPivotY = 0f
 
     fun armLasso() { clearSelection(); lassoArmed = true; notifyInvalidate() }
     fun disarmLasso() { lassoArmed = false; notifyInvalidate() }
 
-    /** 圈选开始(视图在套索模式/按住修饰下落笔时调用) */
     fun beginLasso(first: InkPoint) {
         clearSelection()
         lassoLoop = mutableListOf(first)
@@ -93,123 +144,433 @@ class InkController {
         notifyInvalidate()
     }
 
-    /** 圈选结束:全部点落在路径内的笔迹被选中;返回是否选中了笔迹 */
+    /** 完全包围即选中；图片/卡片按旋转后的四角判定。 */
     fun endLasso(): Boolean {
         val loop = lassoLoop
         lassoLoop = null
         lassoArmed = false
-        val ids = LinkedHashSet<String>()
-        var box: StrokeGeom.Box? = null
+        val refs = LinkedHashSet<ElementRef>()
         if (loop != null) {
-            for (s in page.strokes) {
-                if (LassoGeom.captures(loop, s)) {
-                    ids.add(s.id)
-                    val b = StrokeGeom.bounds(s)
-                    box = box?.let { StrokeGeom.Box(minOf(it.l, b.l), minOf(it.t, b.t), maxOf(it.r, b.r), maxOf(it.b, b.b)) } ?: b
+            for (element in page.orderedElements()) {
+                val captured = when (element) {
+                    is PageElement.Ink -> LassoGeom.captures(loop, element.value)
+                    is PageElement.Image -> ElementGeom.rotatedCorners(
+                        element.value.x, element.value.y, element.value.width, element.value.height, element.value.rotationDeg,
+                    ).all { LassoGeom.contains(loop, it.x, it.y) }
+                    is PageElement.Card -> ElementGeom.rotatedCorners(
+                        element.value.x, element.value.y,
+                        element.value.width * element.value.scale,
+                        cardHeightProvider(element.value) * element.value.scale,
+                        element.value.rotationDeg,
+                    ).all { LassoGeom.contains(loop, it.x, it.y) }
                 }
+                if (captured) refs.add(element.ref)
             }
         }
-        selectionIds = ids.ifEmpty { null }
-        selectionBox = if (selectionIds != null) box else null
+        selectionRefs = refs.ifEmpty { null }
+        selectionBox = boundsForSelection(refs)
         selectionStamp++
         notifyInvalidate()
-        return selectionIds != null
+        return selectionRefs != null
     }
 
     fun lassoLoopSnapshot(): List<InkPoint> = lassoLoop?.toList() ?: emptyList()
 
-    /** 放弃进行中的圈选(第二指落下/事件取消);武装状态保持,可重新圈 */
     fun cancelLasso() {
         lassoLoop = null
         notifyInvalidate()
     }
 
-    fun selectionSnapshot(): SelectionSnapshot? =
-        selectionIds?.let { SelectionSnapshot(it.size, selectionBox) }
-
-    /** 渲染用:选中笔迹(拖动预览偏移由视图另行应用) */
-    fun selectedStrokes(): List<Stroke> {
-        val ids = selectionIds ?: return emptyList()
-        return page.strokes.filter { ids.contains(it.id) }
+    /** 手指点按图片/文字卡：按全局层序取最上层目标并单选。 */
+    fun selectElementAt(x: Float, y: Float): ElementRef? {
+        val target = page.orderedElements().asReversed().firstOrNull { element ->
+            when (element) {
+                is PageElement.Image -> ElementGeom.contains(element.value, x, y)
+                is PageElement.Card -> ElementGeom.contains(
+                    element.value, cardHeightProvider(element.value), x, y,
+                )
+                is PageElement.Ink -> false
+            }
+        } ?: return null
+        clearSelection()
+        lassoArmed = false
+        selectionRefs = linkedSetOf(target.ref)
+        selectionBox = boundsForSelection(selectionRefs!!)
+        selectionStamp++
+        notifyInvalidate()
+        return target.ref
     }
 
-    /** 渲染缓存排除集(选中笔迹单独画,带偏移与高亮) */
-    fun excludedFromCache(): Set<String> = selectionIds ?: emptySet()
+    fun isSelected(ref: ElementRef): Boolean = selectionRefs?.contains(ref) == true
+
+    private fun boundsForSelection(refs: Set<ElementRef>): StrokeGeom.Box? {
+        var result: StrokeGeom.Box? = null
+        for (element in page.orderedElements()) {
+            if (element.ref !in refs) continue
+            val b = when (element) {
+                is PageElement.Ink -> StrokeGeom.bounds(element.value)
+                is PageElement.Image -> ElementGeom.bounds(element.value)
+                is PageElement.Card -> ElementGeom.bounds(element.value, cardHeightProvider(element.value))
+            }
+            result = result?.let {
+                StrokeGeom.Box(minOf(it.l, b.l), minOf(it.t, b.t), maxOf(it.r, b.r), maxOf(it.b, b.b))
+            } ?: b
+        }
+        return result
+    }
+
+    private fun previewTransform() = ElementGeom.Transform(
+        dx = dragDx, dy = dragDy, scale = transformScale, rotationDeg = transformRotationDeg,
+        pivotX = transformPivotX, pivotY = transformPivotY,
+    )
+
+    private fun displayBox(): StrokeGeom.Box? {
+        val b = selectionBox ?: return null
+        val t = previewTransform()
+        return ElementGeom.bounds(
+            listOf(b.l to b.t, b.r to b.t, b.r to b.b, b.l to b.b).map { (x, y) -> t.map(x, y) }
+        )
+    }
+
+    fun selectionSnapshot(): SelectionSnapshot? = selectionRefs?.let {
+        SelectionSnapshot(
+            it.size, displayBox(), canReorderSelection(true), canReorderSelection(false), selectionSnapEnabled,
+        )
+    }
+
+    fun selectionTransformSnapshot(): SelectionTransformSnapshot? {
+        val b = selectionBox ?: return null
+        if (selectionRefs == null) return null
+        return SelectionTransformSnapshot(
+            b, dragDx, dragDy, transformScale, transformRotationDeg, transformPivotX, transformPivotY,
+        )
+    }
+
+    fun selectedStrokes(): List<Stroke> {
+        val refs = selectionRefs ?: return emptyList()
+        return page.strokes.filter { ElementRef(ElementRef.Kind.STROKE, it.id) in refs }
+    }
+
+    fun excludedFromCache(): Set<String> = selectionRefs
+        ?.filter { it.kind == ElementRef.Kind.STROKE }?.map { it.id }?.toSet() ?: emptySet()
 
     fun selectionDragOffset(): Pair<Float, Float> = dragDx to dragDy
 
-    /** 命中选中包围盒(页坐标,pad 为命中容差) */
-    fun hitSelection(x: Float, y: Float, pad: Float = 12f): Boolean {
-        val ids = selectionIds ?: return false
-        if (ids.isEmpty()) return false
-        return selectionBox?.expand(pad)?.contains(x, y) == true
+    fun hitSelection(x: Float, y: Float, pad: Float = 12f): Boolean =
+        selectionRefs?.isNotEmpty() == true && displayBox()?.expand(pad)?.contains(x, y) == true
+
+    /** 控制柄位置随预览变换；rotationOffset 为页坐标，视图按 zoom 补偿。 */
+    fun selectionHandlePoint(handle: SelectionHandle, rotationOffset: Float = 48f): ElementGeom.Point? {
+        val b = selectionBox ?: return null
+        val p = when (handle) {
+            SelectionHandle.TOP_LEFT -> b.l to b.t
+            SelectionHandle.TOP_RIGHT -> b.r to b.t
+            SelectionHandle.BOTTOM_RIGHT -> b.r to b.b
+            SelectionHandle.BOTTOM_LEFT -> b.l to b.b
+            SelectionHandle.ROTATE -> (b.l + b.r) / 2f to b.t - rotationOffset
+        }
+        return previewTransform().map(p.first, p.second)
+    }
+
+    fun hitSelectionHandle(x: Float, y: Float, pad: Float, rotationOffset: Float = 48f): SelectionHandle? {
+        if (selectionRefs == null) return null
+        return SelectionHandle.entries.firstOrNull {
+            val p = selectionHandlePoint(it, rotationOffset) ?: return@firstOrNull false
+            hypot(x - p.x, y - p.y) <= pad
+        }
+    }
+
+    private data class AxisTarget(val value: Float, val start: Float, val end: Float)
+    private data class DragSnap(val target: AxisTarget, val delta: Float, val distance: Float)
+    private data class ScaleSnap(
+        val scale: Float,
+        val target: AxisTarget,
+        val vertical: Boolean,
+        val distance: Float,
+    )
+
+    private fun alignmentTargets(): Pair<List<AxisTarget>, List<AxisTarget>> {
+        val refs = selectionRefs ?: return emptyList<AxisTarget>() to emptyList()
+        val boxes = page.orderedElements().filter { it.ref !in refs }.map { element ->
+            when (element) {
+                is PageElement.Ink -> StrokeGeom.bounds(element.value)
+                is PageElement.Image -> ElementGeom.bounds(element.value)
+                is PageElement.Card -> ElementGeom.bounds(element.value, cardHeightProvider(element.value))
+            }
+        }
+        val allBoxes = boxes + listOfNotNull(pageBoundsProvider())
+        return allBoxes.map { AxisTarget(it.l, it.t, it.b) } +
+            allBoxes.map { AxisTarget((it.l + it.r) / 2f, it.t, it.b) } +
+            allBoxes.map { AxisTarget(it.r, it.t, it.b) } to
+            allBoxes.map { AxisTarget(it.t, it.l, it.r) } +
+            allBoxes.map { AxisTarget((it.t + it.b) / 2f, it.l, it.r) } +
+            allBoxes.map { AxisTarget(it.b, it.l, it.r) }
+    }
+
+    private fun translated(box: StrokeGeom.Box, dx: Float, dy: Float) =
+        StrokeGeom.Box(box.l + dx, box.t + dy, box.r + dx, box.b + dy)
+
+    private fun bestDragSnap(
+        box: StrokeGeom.Box,
+        targets: List<AxisTarget>,
+        tolerance: Float,
+        vertical: Boolean,
+    ): DragSnap? {
+        val edges = if (vertical) {
+            listOf(box.l, (box.l + box.r) / 2f, box.r)
+        } else {
+            listOf(box.t, (box.t + box.b) / 2f, box.b)
+        }
+        return targets.flatMap { target ->
+            edges.map { edge ->
+                val delta = target.value - edge
+                DragSnap(target, delta, abs(delta))
+            }
+        }.filter { it.distance > 0.001f && it.distance <= tolerance }.minByOrNull { it.distance }
+    }
+
+    private fun showGuide(target: AxisTarget, box: StrokeGeom.Box, vertical: Boolean) {
+        selectionGuides.add(
+            if (vertical) SelectionGuide(
+                true, target.value, minOf(target.start, box.t), maxOf(target.end, box.b),
+            ) else SelectionGuide(
+                false, target.value, minOf(target.start, box.l), maxOf(target.end, box.r),
+            )
+        )
+    }
+
+    private fun snapDrag(dx: Float, dy: Float, tolerance: Float) {
+        val base = selectionBox ?: return
+        val raw = translated(base, dx, dy)
+        val (verticalTargets, horizontalTargets) = alignmentTargets()
+        selectionGuides.clear()
+        val snapX = bestDragSnap(raw, verticalTargets, tolerance, vertical = true)
+        val snapY = bestDragSnap(raw, horizontalTargets, tolerance, vertical = false)
+        dragDx = dx + (snapX?.delta ?: 0f)
+        dragDy = dy + (snapY?.delta ?: 0f)
+        val snapped = translated(base, dragDx, dragDy)
+        snapX?.let { showGuide(it.target, snapped, vertical = true) }
+        snapY?.let { showGuide(it.target, snapped, vertical = false) }
+    }
+
+    private fun snapScale(rawScale: Float, tolerance: Float): Float {
+        val base = selectionBox ?: return rawScale
+        val handle = transformStarted ?: return rawScale
+        val (movingX, movingY) = when (handle) {
+            SelectionHandle.TOP_LEFT -> base.l to base.t
+            SelectionHandle.TOP_RIGHT -> base.r to base.t
+            SelectionHandle.BOTTOM_RIGHT -> base.r to base.b
+            SelectionHandle.BOTTOM_LEFT -> base.l to base.b
+            SelectionHandle.ROTATE -> return rawScale
+        }
+        val currentX = transformPivotX + (movingX - transformPivotX) * rawScale
+        val currentY = transformPivotY + (movingY - transformPivotY) * rawScale
+        val (verticalTargets, horizontalTargets) = alignmentTargets()
+        val candidates = mutableListOf<ScaleSnap>()
+        verticalTargets.forEach { target ->
+            val denominator = movingX - transformPivotX
+            if (abs(denominator) > 0.001f) {
+                val candidate = (target.value - transformPivotX) / denominator
+                val distance = abs(target.value - currentX)
+                if (candidate in 0.05f..40f && distance > 0.001f && distance <= tolerance) {
+                    candidates.add(ScaleSnap(candidate, target, true, distance))
+                }
+            }
+        }
+        horizontalTargets.forEach { target ->
+            val denominator = movingY - transformPivotY
+            if (abs(denominator) > 0.001f) {
+                val candidate = (target.value - transformPivotY) / denominator
+                val distance = abs(target.value - currentY)
+                if (candidate in 0.05f..40f && distance > 0.001f && distance <= tolerance) {
+                    candidates.add(ScaleSnap(candidate, target, false, distance))
+                }
+            }
+        }
+        val best = candidates.minByOrNull { it.distance } ?: return rawScale
+        selectionGuides.clear()
+        transformScale = best.scale
+        showGuide(best.target, displayBox() ?: base, best.vertical)
+        return best.scale
+    }
+
+    private fun snapRotation(angle: Float): Float {
+        val normalized = (angle % 360f + 360f) % 360f
+        val nearest = (normalized / 45f).roundToInt() * 45
+        val delta = (normalized - nearest + 540f) % 360f - 180f
+        return if (abs(delta) <= 6f) angle - delta else angle
     }
 
     fun beginSelectionDrag(x: Float, y: Float) {
-        dragDx = 0f; dragDy = 0f
-        dragStarted = selectionIds != null
+        resetPreview()
+        dragStarted = selectionRefs != null
     }
 
-    fun moveSelectionDrag(dx: Float, dy: Float) {
+    fun moveSelectionDrag(dx: Float, dy: Float, snapTolerance: Float = 12f) {
         if (!dragStarted) return
-        dragDx = dx; dragDy = dy
+        if (selectionSnapEnabled) {
+            snapDrag(dx, dy, snapTolerance)
+        } else {
+            selectionGuides.clear()
+            dragDx = dx; dragDy = dy
+        }
         notifyInvalidate()
     }
 
-    /** 拖动结束:位移 >1px 落 Batch(Remove 旧 + Add 平移新),进撤销栈;返回是否落盘 */
     fun endSelectionDrag(): Boolean {
         if (!dragStarted) return false
         dragStarted = false
-        val moved = kotlin.math.abs(dragDx) > 1f || kotlin.math.abs(dragDy) > 1f
-        val ids = selectionIds
-        val dx = dragDx; val dy = dragDy
+        if (abs(dragDx) <= 1f && abs(dragDy) <= 1f) {
+            resetPreview(); notifyInvalidate(); return false
+        }
+        return commitSelectionTransform()
+    }
+
+    fun beginSelectionTransform(handle: SelectionHandle): Boolean {
+        val b = selectionBox ?: return false
+        if (selectionRefs == null) return false
+        resetPreview()
+        transformStarted = handle
+        when (handle) {
+            SelectionHandle.TOP_LEFT -> { transformPivotX = b.r; transformPivotY = b.b }
+            SelectionHandle.TOP_RIGHT -> { transformPivotX = b.l; transformPivotY = b.b }
+            SelectionHandle.BOTTOM_RIGHT -> { transformPivotX = b.l; transformPivotY = b.t }
+            SelectionHandle.BOTTOM_LEFT -> { transformPivotX = b.r; transformPivotY = b.t }
+            SelectionHandle.ROTATE -> { transformPivotX = (b.l + b.r) / 2f; transformPivotY = (b.t + b.b) / 2f }
+        }
+        return true
+    }
+
+    fun moveSelectionTransform(scale: Float, rotationDeg: Float, snapTolerance: Float = 12f) {
+        val handle = transformStarted ?: return
+        selectionGuides.clear()
+        if (handle == SelectionHandle.ROTATE) {
+            transformRotationDeg = if (selectionSnapEnabled) snapRotation(rotationDeg) else rotationDeg
+        } else {
+            val rawScale = scale.coerceIn(0.05f, 40f)
+            transformScale = if (selectionSnapEnabled) snapScale(rawScale, snapTolerance) else rawScale
+        }
+        notifyInvalidate()
+    }
+
+    fun endSelectionTransform(): Boolean {
+        if (transformStarted == null) return false
+        transformStarted = null
+        if (abs(transformScale - 1f) < 0.001f && abs(transformRotationDeg) < 0.1f) {
+            resetPreview(); notifyInvalidate(); return false
+        }
+        return commitSelectionTransform()
+    }
+
+    fun cancelSelectionTransform() {
+        transformStarted = null
+        resetPreview()
+        notifyInvalidate()
+    }
+
+    fun cancelSelectionDrag() = cancelSelectionTransform()
+
+    private fun resetPreview() {
+        dragStarted = false
         dragDx = 0f; dragDy = 0f
-        if (!moved || ids == null) { notifyInvalidate(); return false }
+        transformScale = 1f; transformRotationDeg = 0f
+        transformPivotX = 0f; transformPivotY = 0f
+        selectionGuides.clear()
+    }
+
+    private fun transformedStroke(s: Stroke, t: ElementGeom.Transform): Stroke {
+        val convertShape = (s.tool == InkTool.RECT || s.tool == InkTool.OVAL) && abs(t.rotationDeg) > 0.01f
+        val source = if (convertShape) StrokeGeom.polyline(s) else s.points
+        return s.copy(
+            id = UUID.randomUUID().toString(),
+            tool = if (convertShape) InkTool.PEN else s.tool,
+            baseWidthMm = s.baseWidthMm * t.scale,
+            points = source.map { p ->
+                val mapped = t.map(p.x, p.y)
+                p.copy(
+                    x = mapped.x, y = mapped.y,
+                    pressure = if (convertShape) 1f else p.pressure,
+                )
+            },
+        )
+    }
+
+    private fun transformedImage(image: ImageElement, t: ElementGeom.Transform): ImageElement {
+        val center = t.map(image.x + image.width / 2f, image.y + image.height / 2f)
+        val width = image.width * t.scale
+        val height = image.height * t.scale
+        return image.copy(
+            x = center.x - width / 2f, y = center.y - height / 2f,
+            width = width, height = height,
+            rotationDeg = (image.rotationDeg + t.rotationDeg) % 360f,
+        )
+    }
+
+    private fun transformedCard(card: AnnotationCard, t: ElementGeom.Transform): AnnotationCard {
+        val baseH = cardHeightProvider(card)
+        val center = t.map(
+            card.x + card.width * card.scale / 2f,
+            card.y + baseH * card.scale / 2f,
+        )
+        val scale = card.scale * t.scale
+        return card.copy(
+            x = center.x - card.width * scale / 2f,
+            y = center.y - baseH * scale / 2f,
+            scale = scale,
+            rotationDeg = (card.rotationDeg + t.rotationDeg) % 360f,
+        )
+    }
+
+    /** 移动/缩放/旋转统一提交为一个可逆 Batch；笔迹换新 id，其余元素保留 id。 */
+    private fun commitSelectionTransform(): Boolean {
+        val refs = selectionRefs ?: return false
+        val t = previewTransform()
         val removes = mutableListOf<InkOp>()
         val adds = mutableListOf<InkOp>()
-        val it = page.strokes.listIterator()
-        while (it.hasNext()) {
-            val s = it.next()
-            if (ids.contains(s.id)) {
-                removes.add(InkOp.Remove(s, it.previousIndex()))
-                adds.add(
-                    InkOp.Add(
-                        s.copy(
-                            id = UUID.randomUUID().toString(),
-                            points = s.points.map { p -> p.copy(x = p.x + dx, y = p.y + dy) },
-                        )
-                    )
-                )
+        val newStrokeIds = mutableMapOf<String, String>()
+        page.strokes.withIndex().filter { ElementRef(ElementRef.Kind.STROKE, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { indexed ->
+                removes.add(InkOp.Remove(indexed.value, indexed.index))
             }
+        page.strokes.filter { ElementRef(ElementRef.Kind.STROKE, it.id) in refs }.forEach { s ->
+            val transformed = transformedStroke(s, t)
+            newStrokeIds[s.id] = transformed.id
+            adds.add(InkOp.Add(transformed))
         }
-        if (removes.isEmpty()) { notifyInvalidate(); return false }
-        val batch = InkOp.Batch(removes.reversed() + adds) // 先移除(从后往前保下标)再追加
+        page.images.withIndex().filter { ElementRef(ElementRef.Kind.IMAGE, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveImage(it.value, it.index)) }
+        page.images.filter { ElementRef(ElementRef.Kind.IMAGE, it.id) in refs }
+            .forEach { adds.add(InkOp.AddImage(transformedImage(it, t))) }
+        page.cards.withIndex().filter { ElementRef(ElementRef.Kind.CARD, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveCard(it.value, it.index)) }
+        page.cards.filter { ElementRef(ElementRef.Kind.CARD, it.id) in refs }
+            .forEach { adds.add(InkOp.AddCard(transformedCard(it, t))) }
+        if (removes.isEmpty()) { resetPreview(); notifyInvalidate(); return false }
+        val batch = InkOp.Batch(removes + adds)
         page.apply(batch)
-        selectionIds = adds.filterIsInstance<InkOp.Add>().map { it.stroke.id }.toCollection(LinkedHashSet())
-        selectionBox = selectionBox?.let { StrokeGeom.Box(it.l + dx, it.t + dy, it.r + dx, it.b + dy) }
+        selectionRefs = refs.map { ref ->
+            if (ref.kind == ElementRef.Kind.STROKE) ref.copy(id = newStrokeIds[ref.id] ?: ref.id) else ref
+        }.toCollection(LinkedHashSet())
+        resetPreview()
+        selectionBox = boundsForSelection(selectionRefs!!)
         selectionStamp++
         emitForward(batch)
         notifyInvalidate()
         return true
     }
 
-    fun cancelSelectionDrag() {
-        dragStarted = false
-        dragDx = 0f; dragDy = 0f
-        notifyInvalidate()
-    }
-
-    /** 删除选中笔迹(Batch Remove,可撤销) */
+    /** 删除混合选中集，一次撤销步。 */
     fun deleteSelection(): Boolean {
-        val ids = selectionIds ?: return false
+        val refs = selectionRefs ?: return false
         val ops = mutableListOf<InkOp>()
-        val it = page.strokes.listIterator()
-        while (it.hasNext()) {
-            val s = it.next()
-            if (ids.contains(s.id)) ops.add(InkOp.Remove(s, it.previousIndex()))
-        }
+        page.strokes.withIndex().filter { ElementRef(ElementRef.Kind.STROKE, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { ops.add(InkOp.Remove(it.value, it.index)) }
+        page.images.withIndex().filter { ElementRef(ElementRef.Kind.IMAGE, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { ops.add(InkOp.RemoveImage(it.value, it.index)) }
+        page.cards.withIndex().filter { ElementRef(ElementRef.Kind.CARD, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { ops.add(InkOp.RemoveCard(it.value, it.index)) }
         if (ops.isEmpty()) { clearSelection(); return false }
-        val batch = InkOp.Batch(ops.reversed())
+        val batch = InkOp.Batch(ops)
         clearSelection()
         page.apply(batch)
         emitForward(batch)
@@ -217,12 +578,46 @@ class InkController {
         return true
     }
 
+    private fun reorderedSelection(up: Boolean): Pair<List<LayerState>, List<LayerState>>? {
+        val refs = selectionRefs ?: return null
+        val ordered = page.orderedElements().map { it.ref }.toMutableList()
+        val before = page.orderedElements().map { LayerState(it.ref, it.zIndex) }
+        var changed = false
+        if (up) {
+            for (i in ordered.size - 2 downTo 0) {
+                if (ordered[i] in refs && ordered[i + 1] !in refs) {
+                    java.util.Collections.swap(ordered, i, i + 1); changed = true
+                }
+            }
+        } else {
+            for (i in 1 until ordered.size) {
+                if (ordered[i] in refs && ordered[i - 1] !in refs) {
+                    java.util.Collections.swap(ordered, i, i - 1); changed = true
+                }
+            }
+        }
+        if (!changed) return null
+        return before to ordered.mapIndexed { i, ref -> LayerState(ref, i + 1L) }
+    }
+
+    fun canReorderSelection(up: Boolean): Boolean = reorderedSelection(up) != null
+
+    fun reorderSelection(up: Boolean): Boolean {
+        val (before, after) = reorderedSelection(up) ?: return false
+        val op = InkOp.Reorder(before, after)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+        return true
+    }
+
     fun clearSelection() {
-        if (selectionIds == null && selectionBox == null && !dragStarted) return
-        selectionIds = null
+        if (selectionRefs == null && selectionBox == null && !dragStarted && transformStarted == null) return
+        selectionRefs = null
         selectionBox = null
-        dragStarted = false
-        dragDx = 0f; dragDy = 0f
+        selectionSnapEnabled = true
+        transformStarted = null
+        resetPreview()
         selectionStamp++
         notifyInvalidate()
     }
@@ -296,6 +691,7 @@ class InkController {
             color = t.color,
             baseWidthMm = t.baseWidthMm,
             points = pts.toList(),
+            zIndex = page.nextZIndex(),
         )
         when (t.tool) {
             InkTool.ERASER -> {
@@ -371,7 +767,7 @@ class InkController {
         val card = page.cards.firstOrNull { it.id == id }
         if (card == null || (dx * dx + dy * dy) < 1f) { notifyInvalidate(); return false }
         val moved = card.copy(x = card.x + dx, y = card.y + dy)
-        val batch = InkOp.Batch(listOf(InkOp.RemoveCard(card), InkOp.AddCard(moved)))
+        val batch = InkOp.Batch(listOf(InkOp.RemoveCard(card, page.cards.indexOfFirst { it.id == card.id }), InkOp.AddCard(moved)))
         page.apply(batch)
         emitForward(batch)
         notifyInvalidate()
@@ -386,15 +782,16 @@ class InkController {
     }
 
     fun addAnnotationCard(card: AnnotationCard) {
-        val op = InkOp.AddCard(card)
+        val op = InkOp.AddCard(card.copy(zIndex = page.nextZIndex()))
         page.apply(op)
         emitForward(op)
         notifyInvalidate()
     }
 
     fun deleteAnnotationCard(cardId: String): Boolean {
-        val card = page.cards.firstOrNull { it.id == cardId } ?: return false
-        val op = InkOp.RemoveCard(card)
+        val index = page.cards.indexOfFirst { it.id == cardId }
+        if (index < 0) return false
+        val op = InkOp.RemoveCard(page.cards[index], index)
         page.apply(op)
         emitForward(op)
         notifyInvalidate()
@@ -407,7 +804,7 @@ class InkController {
 
     /** 插入图片元素(进撤销栈;落盘经 onCommit → saveImages 整表重写) */
     fun addImageElement(image: ImageElement) {
-        val op = InkOp.AddImage(image)
+        val op = InkOp.AddImage(image.copy(zIndex = page.nextZIndex()))
         page.apply(op)
         emitForward(op)
         notifyInvalidate()
@@ -498,7 +895,8 @@ class InkController {
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
         is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
         is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
-        is InkOp.Batch -> op.ops.forEach(::emitInverse)
+        is InkOp.Reorder -> onCommit?.invoke(InkCommit.LayersChanged)
+        is InkOp.Batch -> op.ops.reversed().forEach(::emitInverse)
     }
 
     private fun emitForward(op: InkOp) = when (op) {
@@ -508,6 +906,7 @@ class InkController {
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
         is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
         is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
+        is InkOp.Reorder -> onCommit?.invoke(InkCommit.LayersChanged)
         is InkOp.Batch -> op.ops.forEach(::emitForward)
     }
 

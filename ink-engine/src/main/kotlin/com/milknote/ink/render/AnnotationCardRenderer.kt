@@ -131,10 +131,8 @@ object AnnotationCardRenderer {
     fun cardWidthDefault(pageWidthPx: Float): Float = (pageWidthPx * 0.36f).coerceIn(320f, 560f)
 
     /** 命中测试(页坐标,含拖动偏移) */
-    fun hit(card: AnnotationCard, x: Float, y: Float, expanded: Boolean): Boolean {
-        val h = cardHeight(card, expanded)
-        return x >= card.x && x <= card.x + card.width && y >= card.y && y <= card.y + h
-    }
+    fun hit(card: AnnotationCard, x: Float, y: Float, expanded: Boolean): Boolean =
+        com.milknote.ink.model.ElementGeom.contains(card, cardHeight(card, expanded), x, y)
 
     private val bgPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
     private val borderPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.STROKE; strokeWidth = 1.5f }
@@ -142,9 +140,13 @@ object AnnotationCardRenderer {
     private val rect = RectF()
 
     fun draw(canvas: Canvas, card: AnnotationCard, dark: Boolean, expanded: Boolean, dx: Float = 0f, dy: Float = 0f) {
-        val x = card.x + dx
-        val y = card.y + dy
-        val h = cardHeight(card, expanded)
+        val baseH = cardHeight(card, expanded)
+        val displayW = card.width * card.scale
+        val displayH = baseH * card.scale
+        val cx = card.x + dx + displayW / 2f
+        val cy = card.y + dy + displayH / 2f
+        val x = cx - card.width / 2f
+        val y = cy - baseH / 2f
 
         if (dark) {
             bgPaint.color = 0xFF26272D.toInt()
@@ -156,17 +158,19 @@ object AnnotationCardRenderer {
             accentPaint.color = 0xFF3B5BEC.toInt()
         }
 
-        rect.set(x, y, x + card.width, y + h)
+        canvas.save()
+        canvas.rotate(card.rotationDeg, cx, cy)
+        canvas.scale(card.scale, card.scale, cx, cy)
+        rect.set(x, y, x + card.width, y + baseH)
         canvas.drawRoundRect(rect, RADIUS_PX, RADIUS_PX, bgPaint)
         canvas.drawRoundRect(rect, RADIUS_PX, RADIUS_PX, borderPaint)
 
         // 左缘 accent 条(圆角卡内,独立小圆角矩形)
-        rect.set(x + 0f, y + 6f, x + ACCENT_W_PX, y + h - 6f)
+        rect.set(x, y + 6f, x + ACCENT_W_PX, y + baseH - 6f)
         canvas.drawRoundRect(rect, ACCENT_W_PX / 2f, ACCENT_W_PX / 2f, accentPaint)
 
         val l = layout(card, expanded)
         (l.paint as TextPaint).color = if (dark) 0xFFE8E6E0.toInt() else 0xFF23221E.toInt()
-        canvas.save()
         canvas.translate(x + PAD_H_PX + ACCENT_W_PX, y + PAD_V_PX)
         l.draw(canvas)
         canvas.restore()

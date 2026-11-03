@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -44,9 +47,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkSlider
+import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.theme.InkBlackArgb
+import com.milknote.app.ui.theme.InkDark
+import com.milknote.app.ui.theme.LocalMilkDark
 import com.milknote.ink.model.InkTool
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -71,18 +81,20 @@ internal fun PenSettingsDialog(
         Column(
             Modifier
                 .width(430.dp)
-                .softShadow(14.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(24.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 RealPenIcon(tool, current.color, modifier = Modifier.size(44.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                MilkIconButton(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "关闭笔设置",
+                    onClick = onDismiss,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                )
             }
             Spacer(Modifier.height(16.dp))
             StrokePreview(tool, current.color, current.baseWidthMm)
@@ -97,7 +109,7 @@ internal fun PenSettingsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Slider(
+            MilkSlider(
                 value = current.baseWidthMm,
                 onValueChange = onWidth,
                 valueRange = 0.2f..3f,
@@ -108,15 +120,15 @@ internal fun PenSettingsDialog(
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .background(if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                            .border(1.dp, if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
                             .clickable { onWidth(mm) }
                             .padding(horizontal = 14.dp, vertical = 7.dp),
                     ) {
                         Text(
                             "$mm mm",
                             fontSize = MaterialTheme.typography.labelMedium.fontSize,
-                            color = if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -144,7 +156,7 @@ internal fun PenSettingsDialog(
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("完成") }
+                MilkButton(label = "完成", onClick = onDismiss)
             }
         }
     }
@@ -161,6 +173,7 @@ private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float) {
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f), RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center,
     ) {
+        val previewColor = if (LocalMilkDark.current && color == InkBlackArgb) InkDark else Color(color.toInt())
         Canvas(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 22.dp)) {
             val path = Path().apply {
                 moveTo(0f, size.height * 0.68f)
@@ -169,7 +182,7 @@ private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float) {
             }
             drawPath(
                 path = path,
-                color = Color(color.toInt()).let { it.copy(alpha = it.alpha * if (tool == InkTool.HIGHLIGHTER) 0.45f else 1f) },
+                color = previewColor.let { it.copy(alpha = it.alpha * if (tool == InkTool.HIGHLIGHTER) 0.45f else 1f) },
                 style = Stroke(
                     width = (widthMm * if (tool == InkTool.HIGHLIGHTER) 4f else 1f).dp.toPx().coerceAtLeast(2f),
                     cap = StrokeCap.Round,
@@ -209,36 +222,32 @@ internal fun ColorSettingsDialog(
         Column(
             Modifier
                 .width(480.dp)
-                .softShadow(18.dp, RoundedCornerShape(28.dp))
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF242424))
-                .border(1.dp, Color(0xFF3B3B3B), RoundedCornerShape(28.dp))
-                .paintedShadow(RoundedCornerShape(28.dp))
+                .milkDialogSurface()
                 .padding(24.dp),
         ) {
             Box(Modifier.fillMaxWidth()) {
                 Text(
                     "颜色",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.align(Alignment.Center),
                 )
-                Box(
-                    Modifier
+                MilkIconButton(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "关闭颜色设置",
+                    onClick = onDismiss,
+                    modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF3A3A3A))
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) { Text("×", color = Color.White, fontSize = 22.sp) }
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Spacer(Modifier.height(18.dp))
             Row(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF383838))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
                     .padding(4.dp),
             ) {
                 ColorPickerTab.entries.forEach { item ->
@@ -247,14 +256,15 @@ internal fun ColorSettingsDialog(
                         Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(13.dp))
-                            .background(if (selected) Color(0xFF626262) else Color.Transparent)
+                            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent, RoundedCornerShape(13.dp))
                             .clickable { tab = item }
                             .padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             if (item == ColorPickerTab.GRID) "网格取色" else "滑块取色",
-                            color = if (selected) Color.White else Color(0xFFD0D0D0),
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelLarge,
                         )
                     }
@@ -262,7 +272,7 @@ internal fun ColorSettingsDialog(
             }
             Spacer(Modifier.height(18.dp))
             if (tab == ColorPickerTab.GRID) {
-                Text("色相", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Text("色相", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(10.dp))
                 ColorGrid(current = current, onSelect = { updateColor(it) })
             } else {
@@ -298,33 +308,19 @@ internal fun ColorSettingsDialog(
             }
             Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("不透明度", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Text("不透明度", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.weight(1f))
-                Text("${(opacity * 100).roundToInt()}%", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Text("${(opacity * 100).roundToInt()}%", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
             }
             Spacer(Modifier.height(8.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF151515))
-                    .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(current.toInt()).copy(alpha = 1f)))),
-            ) {
-                Slider(
-                    value = opacity,
-                    onValueChange = {
-                        opacity = it
-                        updateColor(current)
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.Transparent,
-                        inactiveTrackColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            MilkSlider(
+                value = opacity,
+                onValueChange = {
+                    opacity = it
+                    updateColor(current)
+                },
+                trackBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color(current.toInt()).copy(alpha = 1f))),
+            )
             Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -332,7 +328,7 @@ internal fun ColorSettingsDialog(
                         .size(58.dp)
                         .clip(RoundedCornerShape(13.dp))
                         .background(Color(current.toInt()))
-                        .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(13.dp)),
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp)),
                 )
                 Spacer(Modifier.width(18.dp))
                 Box(
@@ -340,8 +336,12 @@ internal fun ColorSettingsDialog(
                         .size(25.dp)
                         .clip(CircleShape)
                         .background(Color(initialColor.toInt()))
-                        .border(1.dp, Color(0x66FFFFFF), CircleShape),
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
                 )
+            }
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                MilkButton(label = "完成", onClick = onDismiss)
             }
         }
     }
@@ -384,7 +384,7 @@ private fun ColorGridCell(
     Box(
         modifier
             .background(Color(argb.toInt()))
-            .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent)
+            .border(if (selected) 2.dp else 0.dp, if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent)
             .clickable { onSelect(argb) },
     )
 }
@@ -396,26 +396,13 @@ private fun GradientColorSlider(
     value: Float,
     onChange: (Float) -> Unit,
 ) {
-    Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
+    Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
     Spacer(Modifier.height(6.dp))
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(brush),
-    ) {
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color.Transparent,
-                inactiveTrackColor = Color.Transparent,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+    MilkSlider(
+        value = value,
+        onValueChange = onChange,
+        trackBrush = brush,
+    )
 }
 
 private fun argbToHsv(color: Long): FloatArray {

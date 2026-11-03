@@ -37,6 +37,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkSlider
+import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softShadow
@@ -49,12 +53,7 @@ internal fun TextBoxDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
         Column(
             Modifier
                 .width(460.dp)
-                .softShadow(14.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(24.dp),
         ) {
             Text("插入文字框", style = MaterialTheme.typography.titleMedium)
@@ -83,9 +82,9 @@ internal fun TextBoxDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
             }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("取消") }
-                Spacer(Modifier.width(6.dp))
-                TextButton(enabled = text.isNotBlank(), onClick = { onCreate(text.trim()) }) { Text("插入") }
+                MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+                Spacer(Modifier.width(8.dp))
+                MilkButton(label = "插入", enabled = text.isNotBlank(), onClick = { onCreate(text.trim()) })
             }
         }
     }
@@ -108,12 +107,7 @@ internal fun ShapeSettingsDialog(
         Column(
             Modifier
                 .width(430.dp)
-                .softShadow(14.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(24.dp),
         ) {
             Text("图形绘制", style = MaterialTheme.typography.titleMedium)
@@ -139,7 +133,7 @@ internal fun ShapeSettingsDialog(
                 Spacer(Modifier.weight(1f))
                 Text("%.2f mm".format(width), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
             }
-            Slider(value = width, onValueChange = { width = it }, valueRange = 0.2f..3f)
+            MilkSlider(value = width, onValueChange = { width = it }, valueRange = 0.2f..3f)
             Spacer(Modifier.height(8.dp))
             Text("颜色", style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(8.dp))
@@ -155,9 +149,9 @@ internal fun ShapeSettingsDialog(
             }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("取消") }
-                Spacer(Modifier.width(6.dp))
-                TextButton(onClick = { onStart(ShapeConfig(tool, color, width)) }) { Text("开始绘制") }
+                MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+                Spacer(Modifier.width(8.dp))
+                MilkButton(label = "开始绘制", onClick = { onStart(ShapeConfig(tool, color, width)) })
             }
         }
     }

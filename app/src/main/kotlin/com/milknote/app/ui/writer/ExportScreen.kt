@@ -48,10 +48,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.settings.Hairline
+import com.milknote.app.ui.settings.SettingsCard
+import com.milknote.app.ui.settings.SettingsPageHeader
+import com.milknote.app.ui.settings.SettingsSectionHeader
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.PillShape
 
@@ -121,36 +126,21 @@ fun ExportScreen(
                     .padding(horizontal = 32.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                // 页头(设置页 SettingsPageHeader 式)
-                Column(Modifier.padding(bottom = 8.dp)) {
-                    Text("导出", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (nb == null) "未打开笔记本" else "「${nb.name}」 · ${state.pages.size} 页",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                SettingsPageHeader(
+                    title = "导出",
+                    subtitle = if (nb == null) "未打开笔记本" else "「${nb.name}」 · ${state.pages.size} 页",
+                )
 
                 // 信息卡:笔记本名称 / 当前页 / 总页数
-                ExportCard {
+                SettingsCard {
                     InfoRow("笔记本", nb?.name ?: "—")
-                    CardHairline()
+                    Hairline()
                     InfoRow("当前页", state.currentPageId, mono = true)
-                    CardHairline()
+                    Hairline()
                     InfoRow("总页数", "${state.pages.size} 页", mono = true)
                 }
 
-                // 分区标题(设置页 SettingsSectionHeader 式)
-                Column(Modifier.padding(bottom = 8.dp)) {
-                    Text("导出格式", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "均含批注卡;导出与缩略图恒为浅色纸",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                SettingsSectionHeader("导出格式", "均含批注卡;导出与缩略图恒为浅色纸")
 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ExportFormatCard(
@@ -222,32 +212,6 @@ private fun ExportTopBar(notebookName: String, onBack: () -> Unit) {
     }
 }
 
-/** 导出卡:设置卡配方(surface 底 + 16dp 圆角 + hairline 边框 + 软阴影 + 顶缘内高光) */
-@Composable
-private fun ExportCard(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .softShadow(3.dp, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-            .innerHighlight(),
-    ) { content() }
-}
-
-/** 卡内行间 hairline(对齐行文字缩进,同设置页) */
-@Composable
-private fun CardHairline() {
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline,
-        modifier = Modifier.padding(start = 16.dp),
-    )
-}
-
 /** 信息行:左灰标签 / 右值(页码·数字按字体纪律走 mono) */
 @Composable
 private fun InfoRow(label: String, value: String, mono: Boolean = false) {
@@ -281,13 +245,14 @@ private fun ExportFormatCard(
     locked: Boolean,
     onAction: () -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 84.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    SettingsCard {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 84.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         Box(
             Modifier
                 .size(40.dp)
@@ -316,32 +281,14 @@ private fun ExportFormatCard(
             enabled = !locked,
             onClick = onAction,
         )
+        }
     }
 }
 
 /** 强调色胶囊 CTA(同书写页 Agent 钮配方):导出中转小 spinner 并阻止重复触发 */
 @Composable
 private fun AccentAction(label: String, busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .alpha(if (enabled || busy) 1f else 0.45f)
-            .softShadow(5.dp, PillShape)
-            .clip(PillShape)
-            .background(accentBrush())
-            .softClickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(13.dp),
-                strokeWidth = 2.dp,
-                color = Color.White,
-            )
-            Spacer(Modifier.width(7.dp))
-        }
-        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
-    }
+    MilkButton(label = label, busy = busy, enabled = enabled, onClick = onClick)
 }
 
 /** 结果状态行:✓ 淡蓝(已导出…) / ✗ 淡红(保存失败/没有页面),就地展示不弹窗 */

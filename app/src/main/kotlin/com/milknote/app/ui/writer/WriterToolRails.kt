@@ -42,6 +42,7 @@ internal fun WriterLeftRail(
             .width(64.dp)
             .fillMaxHeight()
             .railEdge(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), MaterialTheme.colorScheme.outline, right = true)
+            .padding(top = WriterTopBarHeight)
             .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

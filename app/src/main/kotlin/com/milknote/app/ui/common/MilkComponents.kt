@@ -15,12 +15,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,16 +34,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.MonoMeta
 
-/** 笔电量胶囊(DESIGN-V0 §3.3):🪶 82%;<20% 琥珀;未知 --%(长按手势由调用方包一层) */
+/** 笔电量胶囊:线性笔图标 + 单行百分比;<20% 琥珀;未知 --% */
 @Composable
 fun PenBatteryCapsule(
     level: Int,
@@ -54,12 +62,19 @@ fun PenBatteryCapsule(
             .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("🪶", fontSize = 11.sp)
+        Icon(
+            Icons.Outlined.Edit,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = color,
+        )
         Spacer(Modifier.width(4.dp))
         Text(
             text = if (level < 0) "--%" else "$level%",
             style = MonoMeta,
             color = color,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
@@ -200,10 +215,37 @@ fun CommandKeyCapsule(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
             .clickable(onClick = onClick)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("⌘K", style = MonoMeta, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** 通用线性图标按钮:48dp 命中、18dp 图标，供弹窗与设置行复用。 */
+@Composable
+fun MilkIconButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+            tint = if (enabled) tint else tint.copy(alpha = 0.38f),
+        )
     }
 }
 

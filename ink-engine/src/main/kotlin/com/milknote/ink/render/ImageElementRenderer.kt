@@ -53,7 +53,11 @@ object ImageElementRenderer {
     /** 绘制(页坐标系;dx/dy 为拖动预览偏移;位图缺失画占位细框,导出/截图不空白报错) */
     fun draw(canvas: Canvas, image: ImageElement, imageDir: File?, dx: Float = 0f, dy: Float = 0f) {
         val bmp = bitmap(image, imageDir)
-        rect.set(image.x + dx, image.y + dy, image.x + dx + image.width, image.y + dy + image.height)
+        val x = image.x + dx
+        val y = image.y + dy
+        rect.set(x, y, x + image.width, y + image.height)
+        canvas.save()
+        canvas.rotate(image.rotationDeg, x + image.width / 2f, y + image.height / 2f)
         if (bmp == null) {
             placeholderPaint.color = 0x143B5BEC
             canvas.drawRect(rect, placeholderPaint)
@@ -62,14 +66,15 @@ object ImageElementRenderer {
             placeholderPaint.strokeWidth = 1.5f
             canvas.drawRect(rect, placeholderPaint)
             placeholderPaint.style = Paint.Style.FILL
-            return
+        } else {
+            canvas.drawBitmap(bmp, null, rect, paint)
         }
-        canvas.drawBitmap(bmp, null, rect, paint)
+        canvas.restore()
     }
 
-    /** 命中测试(页坐标;拖动/删除交互用) */
+    /** 命中测试(页坐标;逆旋转到元素局部坐标) */
     fun hit(image: ImageElement, x: Float, y: Float): Boolean =
-        x >= image.x && x <= image.x + image.width && y >= image.y && y <= image.y + image.height
+        com.milknote.ink.model.ElementGeom.contains(image, x, y)
 
     /** 全量失效(切换笔记本/图片文件重写后调用) */
     fun clearCache() = cache.clear()

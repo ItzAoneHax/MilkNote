@@ -10,18 +10,27 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.milknote.agent.ModelInfo
 import com.milknote.agent.Protocol
 import com.milknote.agent.ProviderProfile
@@ -46,6 +57,11 @@ import com.milknote.agent.ProviderRegistry
 import com.milknote.agent.ReasoningEffort
 import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.milkDialogSurface
+import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
@@ -194,7 +210,7 @@ private fun ProviderCard(
     ) {
         // ---- 标题行:激活点 | 名称 | 协议标签 | 缺 Key | 模型数 | ▸/▾ ----
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggleExpand).padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().clickable(onClick = onToggleExpand).padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -215,7 +231,11 @@ private fun ProviderCard(
             Spacer(Modifier.weight(1f))
             MonoMetaLine("${profile.models.size} 模型")
             Spacer(Modifier.width(8.dp))
-            Text(if (expanded) "▾" else "▸", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MilkIconButton(
+                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.KeyboardArrowRight,
+                contentDescription = if (expanded) "收起 Provider" else "展开 Provider",
+                onClick = onToggleExpand,
+            )
         }
 
         if (expanded) {
@@ -568,17 +588,21 @@ private fun ModelRow(
     Column(Modifier.fillMaxWidth().animateContentSize(tween(200))) {
         // ---- 折叠行:默认点 | id(mono)+ 徽章 | 容量 | ▸ | 删 ----
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).padding(horizontal = 10.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).defaultMinSize(minHeight = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                Modifier
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = model.vision, onClick = onSelectDefault)
-                    .background(if (isDefault) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                    .border(1.dp, if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
-            )
+                Modifier.size(48.dp).clickable(enabled = model.vision, onClick = onSelectDefault),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(if (isDefault) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                        .border(1.dp, if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
+                )
+            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -598,10 +622,16 @@ private fun ModelRow(
                 }
             }
             MonoMetaLine(capacityLine(model))
-            Spacer(Modifier.width(6.dp))
-            Text(if (expanded) "▾" else "▸", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onToggle).padding(4.dp))
-            Spacer(Modifier.width(2.dp))
-            Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onRemove).padding(4.dp))
+            MilkIconButton(
+                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.KeyboardArrowRight,
+                contentDescription = if (expanded) "收起模型设置" else "展开模型设置",
+                onClick = onToggle,
+            )
+            MilkIconButton(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "删除模型",
+                onClick = onRemove,
+            )
         }
 
         // ---- 展开区:显示名 / 输入类型 / 思考档位声明 / 容量(harness ModelRow 高级区) ----
@@ -710,15 +740,36 @@ private fun AddProviderDialog(
     var key by remember { mutableStateOf("") }
     var anthropic by remember { mutableStateOf(false) }
 
-    DialogCard(title = "新增 Provider") {
-        // 预设网格
+    DialogCard(
+        title = "新增 Provider",
+        onDismiss = onCancel,
+        actions = {
+            MilkButton(
+                label = "取消",
+                onClick = onCancel,
+                variant = MilkButtonVariant.SECONDARY,
+            )
+            Spacer(Modifier.width(10.dp))
+            MilkButton(
+                label = "保存",
+                enabled = baseUrl.isNotBlank(),
+                onClick = {
+                    onConfirm(
+                        if (presetId == "custom") null else presetId,
+                        title, baseUrl, key,
+                        if (anthropic) Protocol.ANTHROPIC else Protocol.OPENAI_COMPATIBLE,
+                    )
+                },
+            )
+        },
+    ) {
         Column {
             ProviderRegistry.presets.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { preset ->
                         val sel = preset.id == presetId
                         val chipBg by animateColorAsState(
-                            if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                            if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                             tween(200), label = "presetChipBg",
                         )
@@ -735,6 +786,7 @@ private fun AddProviderDialog(
                                     if (preset.id == "custom") { title = ""; baseUrl = "" }
                                     else { title = preset.title; baseUrl = preset.baseUrl; anthropic = preset.protocol == Protocol.ANTHROPIC }
                                 }
+                                .defaultMinSize(minHeight = 48.dp)
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         )
                     }
@@ -742,7 +794,6 @@ private fun AddProviderDialog(
                 Spacer(Modifier.height(6.dp))
             }
         }
-        // 协议(自定义可选 Anthropic;预设跟随)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("协议", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(10.dp))
@@ -755,49 +806,6 @@ private fun AddProviderDialog(
         SettingsInputField(value = title, onValueChange = { title = it }, label = "名称", mono = false, compact = true)
         SettingsInputField(value = baseUrl, onValueChange = { baseUrl = it }, label = "baseUrl", mono = true, compact = true)
         SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key(仅存本机)", mono = true, mask = true, compact = true)
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // A-26:取消出口(与保存同级、≥48dp 命中)
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(onClick = onCancel)
-                    .defaultMinSize(minHeight = 48.dp)
-                    .padding(horizontal = 18.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "取消",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                )
-            }
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .then(
-                        if (baseUrl.isNotBlank()) Modifier.background(MaterialTheme.colorScheme.primary)
-                        else Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-                    )
-                    .clickable(enabled = baseUrl.isNotBlank()) {
-                        onConfirm(
-                            if (presetId == "custom") null else presetId,
-                            title, baseUrl, key,
-                            if (anthropic) Protocol.ANTHROPIC else Protocol.OPENAI_COMPATIBLE,
-                        )
-                    }
-                    .defaultMinSize(minHeight = 48.dp)
-                    .padding(horizontal = 18.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "保存",
-                    color = if (baseUrl.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                )
-            }
-        }
     }
 }
 
@@ -815,12 +823,7 @@ private fun ConfirmDialog(
             Modifier
                 .widthIn(max = 440.dp)   // 先限宽再 fill
                 .fillMaxWidth()
-                .softShadow(12.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(24.dp),
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
@@ -883,23 +886,31 @@ private object ThinkingDispatchUI {
 }
 
 @Composable
-internal fun DialogCard(title: String, content: @Composable () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .softShadow(12.dp, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-            .innerHighlight()
-            .paintedShadow(RoundedCornerShape(16.dp))
-            .padding(16.dp),
-    ) {
-        Column {
+internal fun DialogCard(
+    title: String,
+    onDismiss: () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier
+                .widthIn(max = 600.dp)
+                .fillMaxWidth()
+                .imePadding()
+                .heightIn(max = 620.dp)
+                .milkDialogSurface()
+                .padding(24.dp),
+        ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
-            content()
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                content()
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                actions()
+            }
         }
     }
 }

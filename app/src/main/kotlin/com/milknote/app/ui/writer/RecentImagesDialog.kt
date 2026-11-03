@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
@@ -148,12 +153,7 @@ internal fun RecentImagesDialog(
                 .widthIn(max = maxWidth)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight)
-                .softShadow(18.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(20.dp),
         ) {
             RecentImagesHeader(itemCount = items?.size, onDismiss = onDismiss)
@@ -227,20 +227,12 @@ private fun RecentImagesHeader(itemCount: Int?, onDismiss: () -> Unit) {
             )
         }
         Spacer(Modifier.weight(1f))
-        Box(
-            Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                .softClickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "×",
-                fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        MilkIconButton(
+            imageVector = Icons.Outlined.Close,
+            contentDescription = "关闭最近图片",
+            onClick = onDismiss,
+            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), CircleShape),
+        )
     }
 }
 
@@ -285,20 +277,11 @@ private fun PermissionRationaleBody(
         )
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(accentBrush())
-                    .softClickable(onClick = if (permanentlyDenied) onOpenSettings else onRetry)
-                    .padding(horizontal = 20.dp, vertical = 9.dp),
-            ) {
-                Text(
-                    if (permanentlyDenied) "去系统设置" else "重新授权",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                )
-            }
-            TextButton(onClick = onDismiss) { Text("取消") }
+            MilkButton(
+                label = if (permanentlyDenied) "去系统设置" else "重新授权",
+                onClick = if (permanentlyDenied) onOpenSettings else onRetry,
+            )
+            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
         }
         Spacer(Modifier.height(6.dp))
     }

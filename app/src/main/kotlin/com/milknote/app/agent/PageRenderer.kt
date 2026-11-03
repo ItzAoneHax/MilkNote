@@ -8,7 +8,9 @@ import com.milknote.agent.PageRef
 import com.milknote.agent.Rect4
 import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.PageElement
 import com.milknote.ink.model.Stroke
+import com.milknote.ink.model.orderedElements
 import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.ink.render.ImageElementRenderer
 import com.milknote.ink.render.PaperRenderer
@@ -74,20 +76,19 @@ object PageRenderer {
         val paperPaint = Paint().apply { color = 0xFFFAF9F5.toInt() }
         canvas.drawRect(0f, 0f, pageW, pageH, paperPaint)   // 显式矩形(禁 drawColor)
         PaperRenderer.draw(canvas, data.paper, pageW, pageH, 0xFFD8D4C8.toInt())
-        if (data.images.isNotEmpty()) {
-            val dir = data.imageDir?.let { java.io.File(it) }
-            for (img in data.images) {
-                ImageElementRenderer.draw(canvas, img, dir)
-            }
-        }
+        val dir = data.imageDir?.let { java.io.File(it) }
         val paint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
-        for (s in data.strokes) {
-            paint.color = s.color.toInt()
-            paint.alpha = if (s.tool == InkTool.HIGHLIGHTER) (255 * 0.45f).toInt() else 255
-            canvas.drawPath(StrokeRenderer.buildPath(s, MM_TO_PX, com.milknote.ink.model.PressureGamma.STANDARD), paint)
-        }
-        for (card in data.cards) {
-            AnnotationCardRenderer.draw(canvas, card, dark = false, expanded = true)
+        for (element in orderedElements(data.strokes, data.cards, data.images)) {
+            when (element) {
+                is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, dir)
+                is PageElement.Ink -> {
+                    val s = element.value
+                    paint.color = s.color.toInt()
+                    paint.alpha = if (s.tool == InkTool.HIGHLIGHTER) (255 * 0.45f).toInt() else 255
+                    canvas.drawPath(StrokeRenderer.buildPath(s, MM_TO_PX, com.milknote.ink.model.PressureGamma.STANDARD), paint)
+                }
+                is PageElement.Card -> AnnotationCardRenderer.draw(canvas, element.value, dark = false, expanded = true)
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import com.milknote.app.agent.AppAnnotationSink
 import com.milknote.app.agent.AppSnipSource
 import com.milknote.app.ui.settings.AppSettingsStore
+import com.milknote.app.ui.settings.UpdateController
 import com.milknote.agent.AgentController
 import com.milknote.agent.AgentStore
 import com.milknote.agent.KeyVault
@@ -47,6 +48,9 @@ object ServiceLocator {
     val penBattery: PenBatteryMonitor by lazy { PenBatteryMonitor(appContext, appScope) }
 
     val appSettings: AppSettingsStore by lazy { AppSettingsStore(appContext) }
+
+    /** 应用内更新:状态与任务进程级持有,设置页切页/返回不丢失进度 */
+    val appUpdater: UpdateController by lazy { UpdateController(appContext, appScope) }
 
     /** Agent(M2):渲染源经 AgentBridge 由 WriterViewModel 注册 */
     val agentSnipSource: AppSnipSource by lazy { AppSnipSource(render = ::renderAgentPage) }

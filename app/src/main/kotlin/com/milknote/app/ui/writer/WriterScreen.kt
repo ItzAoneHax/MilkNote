@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,19 +32,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CropFree
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.ViewSidebar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -62,9 +79,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -73,11 +95,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.agent.SnipOverlay
-import com.milknote.app.ui.common.CommandKeyCapsule
-import com.milknote.app.ui.common.MonoText
-import com.milknote.app.ui.common.PenBatteryCapsule
-import com.milknote.app.ui.common.accentBrush
-import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
@@ -88,7 +105,9 @@ import com.milknote.ink.input.InkAction
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.render.InkSurfaceView
 
-/** ③ 书写页:顶栏 / 侧栏(页面缩略) / 纸面画布 / 底部状态条(DESIGN-V0 §5.3–5.4) */
+internal val WriterTopBarHeight = 72.dp
+
+/** ③ 书写页:顶栏 / 侧栏(页面缩略) / 纸面画布(DESIGN-V0 §5.3–5.4) */
 @Composable
 fun WriterScreen(
     vm: WriterViewModel,
@@ -103,7 +122,6 @@ fun WriterScreen(
     val thumbs by vm.thumbs.collectAsState()
     val battery by ServiceLocator.penBattery.level.collectAsState()
     val batterySource by ServiceLocator.penBattery.sourceName.collectAsState()
-    val penCaps by ServiceLocator.penPort.capabilities.collectAsState()
     val penConnected = batterySource != null || battery >= 0   // GATT 已连笔 → 手指不写
     // Agent 顶栏按钮状态(A-16):只订阅派生布尔流,流式 token 不触发书写页重组
     val agentDrawerOpen by remember {
@@ -117,7 +135,6 @@ fun WriterScreen(
     }.collectAsState(false)
     // 专注模式(F-07):chrome 以「同尺寸背景占位」退出,纸张 bounds/坐标严格不变
     var focusMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var statusBarHeight by remember { mutableStateOf(0.dp) }
     var toast by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -164,7 +181,6 @@ fun WriterScreen(
 
     // 画布引用(④ 框选遮罩需要视口↔页坐标变换)
     val surfaceRef = remember { mutableStateOf<InkSurfaceView?>(null) }
-    var sidebarVisible by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
     var motionIndex by remember { mutableStateOf<Int?>(null) }
     var detailTool by remember { mutableStateOf<InkTool?>(null) }
     var detailColor by remember { mutableStateOf<Int?>(null) }
@@ -183,49 +199,21 @@ fun WriterScreen(
             .background(MaterialTheme.colorScheme.background)   // 背景先铺满(含状态栏区域)
             .windowInsetsPadding(WindowInsets.safeDrawing),     // 内容再避开 insets
     ) {
-        // 专注模式:顶栏换成同高背景占位(纸张不动;F-07 红线:不缩放/不移动纸面)
-        if (focusMode) {
-            Box(Modifier.fillMaxWidth().height(56.dp).background(MaterialTheme.colorScheme.background))
-        } else {
-        WriterTopBar(
-            state = state,
-            vm = vm,
-            battery = battery,
-            onBack = onBack,
-            onOpenDiagnostics = onOpenDiagnostics,
-            onAgent = {
-                // 打开=开抽屉,已打开=真收起(A-16:按钮语义与行为一致)
-                if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
-            },
-            onOpenPalette = onOpenPalette,
-            sidebarVisible = sidebarVisible,
-            onToggleSidebar = { sidebarVisible = !sidebarVisible },
-            motionIndex = motionIndex,
-            onMotion = onMotion,
-            onPenDetail = { detailTool = it },
-            onText = { showTextEditor = true },
-            onShapes = { showShapeSettings = true },
-            onImages = { showRecentImages = true },
-            onExport = onOpenExport,
-            onEnterFocus = { focusMode = true },
-            agentOpen = agentDrawerOpen,
-            agentBusy = agentBusy,
-        )
-        }
-
+        // 画布延伸至顶部,工具岛仅作为覆盖层悬浮;隐藏 chrome 不会改变纸面 bounds。
+        Box(Modifier.fillMaxWidth().weight(1f)) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .fillMaxHeight(),
         ) {
             // 专注模式:侧栏/竖轨换成同宽背景占位,画布 bounds 不变
             if (focusMode) {
-                if (sidebarVisible) {
+                if (state.sidebarVisible) {
                     Spacer(Modifier.width(148.dp).fillMaxHeight().background(MaterialTheme.colorScheme.background))
                 }
                 Spacer(Modifier.width(64.dp).fillMaxHeight().background(MaterialTheme.colorScheme.background))
             } else {
-                androidx.compose.animation.AnimatedVisibility(visible = sidebarVisible) {
+                androidx.compose.animation.AnimatedVisibility(visible = state.sidebarVisible) {
                     PageSidebar(
                         state = state,
                         thumbs = thumbs,
@@ -246,8 +234,7 @@ fun WriterScreen(
             )
             }
             // ---- 纸面画布 ----
-            // ---- 纸面画布 ----
-            Box(
+            BoxWithConstraints(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -284,21 +271,30 @@ fun WriterScreen(
                         onSend = vm::snipSend,
                     )
                 }
-                // ⑤ Agent 抽屉(画布区右缘浮层:顶栏下、底部状态条上,DESIGN-V0 §5.4)
+                // ⑤ Agent 抽屉(画布区右缘浮层,DESIGN-V0 §5.4)
                 AgentDrawerHost(
                     onOpenSettings = onOpenSettings,
                     onSnip = vm::enterSnip,
                     onExplainPage = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.EXPLAIN) },
                     onSummarizeChapter = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.SUMMARIZE) },
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(top = WriterTopBarHeight),
                 )
-                // 选中操作条:套索圈选后出现(拖动 = 移动笔迹,进撤销栈);滑入+软阴影
+                // 混合选区操作条:锚定当前选框,空间不足时自动换到下方。
                 SelectionBar(
-                    visible = state.selectionCount > 0,
-                    count = state.selectionCount,
+                    visible = state.selectionCount > 0 && state.snip.phase == SnipPhase.IDLE,
+                    box = state.selectionBox,
+                    surface = surfaceRef.value,
+                    availableWidthPx = constraints.maxWidth,
+                    availableHeightPx = constraints.maxHeight,
+                    canMoveUp = state.selectionCanMoveUp,
+                    canMoveDown = state.selectionCanMoveDown,
+                    snapEnabled = state.selectionSnapEnabled,
+                    onToggleSnap = vm::toggleSelectionSnap,
+                    onMoveUp = { vm.reorderSelection(true) },
+                    onMoveDown = { vm.reorderSelection(false) },
+                    onSend = vm::sendSelectionToAgent,
                     onDelete = vm::deleteSelection,
                     onClear = vm::clearSelection,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
                 )
                 // 轻提示 toast:底部滑入
                 var lastToast by remember { mutableStateOf("") }
@@ -311,20 +307,32 @@ fun WriterScreen(
             }
         }
 
-        // 状态条:专注模式换同高背景占位(高度取实测值,画布 bounds 不变)
-        if (focusMode) {
-            Box(Modifier.fillMaxWidth().height(statusBarHeight).background(MaterialTheme.colorScheme.background))
-        } else {
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { px ->
-                        statusBarHeight = with(density) { px.height.toDp() }
-                    },
-            ) {
-                StatusBar(state, penConnected = penConnected, battery = battery, batterySource = batterySource, penSeen = penCaps != null)
-            }
+        if (!focusMode) {
+            WriterTopBar(
+                state = state,
+                vm = vm,
+                battery = battery,
+                onBack = onBack,
+                onOpenDiagnostics = onOpenDiagnostics,
+                onAgent = {
+                    if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
+                },
+                onOpenPalette = onOpenPalette,
+                sidebarVisible = state.sidebarVisible,
+                onToggleSidebar = vm::toggleSidebar,
+                motionIndex = motionIndex,
+                onMotion = onMotion,
+                onPenDetail = { detailTool = it },
+                onText = { showTextEditor = true },
+                onShapes = { showShapeSettings = true },
+                onImages = { showRecentImages = true },
+                onExport = onOpenExport,
+                onCustomize = { onOpenSettings("writing") },
+                onEnterFocus = { focusMode = true },
+                agentOpen = agentDrawerOpen,
+                agentBusy = agentBusy,
+            )
+        }
         }
     }
 
@@ -404,8 +412,7 @@ fun WriterScreen(
     }
 }
 
-/** 顶栏:面包屑 | 撤销重做·工具·墨色粗细 居中 | 笔电 ⌘K [Agent] */
-@OptIn(ExperimentalFoundationApi::class)
+/** 顶栏:浅色悬浮导航岛 / 原笔具与粗细书写岛 / 创作·状态·Agent。 */
 @Composable
 private fun WriterTopBar(
     state: WriterUiState,
@@ -424,218 +431,330 @@ private fun WriterTopBar(
     onShapes: () -> Unit,
     onImages: () -> Unit,
     onExport: () -> Unit,
+    onCustomize: () -> Unit,
     onEnterFocus: () -> Unit = {},
     agentOpen: Boolean = false,
     agentBusy: Boolean = false,
 ) {
-    // ④ 框选时工具组整体禁用(半透明、不可点;DESIGN-V0 §5.3)
     val snipActive = state.snip.phase != SnipPhase.IDLE
-    Row(
+    var moreMenuOpen by remember { mutableStateOf(false) }
+
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带(§5.1):与纸面明确分界
-            .innerHighlight(strength = 0.3f)                        // 顶缘内高光
-            .edgeHairline(MaterialTheme.colorScheme.outline, bottom = true)
-            .height(56.dp)
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .height(WriterTopBarHeight)
+            .padding(horizontal = 16.dp),
     ) {
-        // 面包屑
-        Row(Modifier.clickable(onClick = onBack), verticalAlignment = Alignment.CenterVertically) {
-            Text("‹", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(6.dp))
-            Text("牛奶笔记", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-            Spacer(Modifier.width(6.dp))
-            Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                state.notebook?.name ?: "", fontSize = 13.sp,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        DividerDot()
-
-        // 工具组:写实笔形显示各笔墨色;首点选择,再点已选笔进入详细设定
-        Spacer(Modifier.width(18.dp))
-        val modeActive = state.lassoArmed || state.selectionCount > 0
-        writingTools.forEachIndexed { index, tool ->
-            val active = !modeActive && !state.toolSettings.eraserTemporary && state.tool.tool == tool
-            val label = when (tool) {
-                InkTool.PEN -> "钢笔"
-                InkTool.BALL -> "圆珠笔"
-                InkTool.HIGHLIGHTER -> "荧光笔"
-                else -> ""
+        val showNotebookName = maxWidth >= 1080.dp
+        val leftWidth = 113.dp + (if (showNotebookName) 192.dp else 0.dp)
+        val pinCapacity = (state.toolbarPins.size downTo 0).firstOrNull { count ->
+            val rightWidth = 108.dp + 52.dp * count
+            393.dp + maxOf(leftWidth, rightWidth) * 2 <= maxWidth
+        } ?: 0
+        val visibleActions = state.toolbarPins.take(pinCapacity)
+        val rightWidth = 108.dp + 52.dp * pinCapacity
+        val balance = rightWidth - leftWidth
+        val menuActions = WriterToolbarAction.entries.filter { it !in visibleActions }
+        val performAction: (WriterToolbarAction) -> Unit = { action ->
+            when (action) {
+                WriterToolbarAction.LASSO -> vm.toggleLasso()
+                WriterToolbarAction.TEXT -> onText()
+                WriterToolbarAction.SHAPES -> onShapes()
+                WriterToolbarAction.IMAGE -> onImages()
+                WriterToolbarAction.FOCUS -> onEnterFocus()
+                WriterToolbarAction.NEW_PAGE -> vm.newPage()
+                WriterToolbarAction.EXPORT -> onExport()
+                WriterToolbarAction.COMMAND -> onOpenPalette()
+                WriterToolbarAction.DIAGNOSTICS -> onOpenDiagnostics()
             }
-            PenToolButton(
-                tool = tool,
-                label = label,
-                color = state.toolSettings.configs.getValue(tool).color,
-                active = active,
-                enabled = !snipActive,
-                squeezed = motionIndex != null && kotlin.math.abs(motionIndex - index) == 1,
-                onHoverChanged = { onMotion(index, it) },
-                onClick = { if (active) onPenDetail(tool) else vm.setTool(tool) },
-            )
         }
-        PenToolButton(
-            tool = InkTool.ERASER,
-            label = "橡皮",
-            color = 0xFFFFFFFF,
-            active = !modeActive && state.toolSettings.eraserTemporary,
-            enabled = !snipActive,
-            squeezed = motionIndex != null && kotlin.math.abs(motionIndex - 3) == 1,
-            onHoverChanged = { onMotion(3, it) },
-            onClick = { vm.toggleEraser() },
-        )
-
-        Spacer(Modifier.width(10.dp))
-        DividerDot()
-        Spacer(Modifier.width(8.dp))
-
-            // 粗细(底色 200ms 过渡;48dp 命中 + 框选时 38% 视觉禁用,A-09/A-14)
-            listOf(0.4f, 0.7f, 1.2f).forEach { mm ->
-                val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
-                val wBg by animateColorAsState(
-                    if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
-                    tween(200), label = "widthBg",
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            WriterToolIsland(Modifier.height(48.dp)) {
+                IconToggleButton(
+                    icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回书架", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    enabled = true, onClick = onBack,
                 )
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clickable(enabled = !snipActive) { vm.setWidth(mm) },
-                    contentAlignment = Alignment.Center,
-                ) {
+                Spacer(Modifier.width(4.dp))
+                WriterTopBarDivider()
+                Spacer(Modifier.width(4.dp))
+                IconToggleButton(
+                    icon = { Icon(Icons.Outlined.ViewSidebar, if (sidebarVisible) "收起页面侧栏" else "展开页面侧栏", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    enabled = true, onClick = onToggleSidebar,
+                )
+                // 本名收进左侧导航岛,返回/侧栏/本名同处一个悬浮元素。
+                if (showNotebookName) {
+                    Spacer(Modifier.width(4.dp))
+                    WriterTopBarDivider()
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        state.notebook?.name ?: "",
+                        modifier = Modifier.widthIn(max = 168.dp).padding(end = 10.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (balance > 0.dp) Spacer(Modifier.width(balance))
+
+            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.weight(1f))
+
+            // 原笔具组件与交互不变,只增加悬浮托盘;粗细仍保持三个直接入口。
+            WriterToolIsland(Modifier.height(60.dp), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
+                val modeActive = state.lassoArmed || state.selectionCount > 0
+                writingTools.forEachIndexed { index, tool ->
+                    val active = !modeActive && !state.toolSettings.eraserTemporary && state.tool.tool == tool
+                    val label = when (tool) {
+                        InkTool.PEN -> "钢笔"
+                        InkTool.BALL -> "圆珠笔"
+                        InkTool.HIGHLIGHTER -> "荧光笔"
+                        else -> ""
+                    }
+                    PenToolButton(
+                        tool = tool,
+                        label = label,
+                        color = state.toolSettings.configs.getValue(tool).color,
+                        active = active,
+                        enabled = !snipActive,
+                        squeezed = motionIndex != null && kotlin.math.abs(motionIndex - index) == 1,
+                        onHoverChanged = { onMotion(index, it) },
+                        onClick = { if (active) onPenDetail(tool) else vm.setTool(tool) },
+                    )
+                }
+                PenToolButton(
+                    tool = InkTool.ERASER,
+                    label = "橡皮",
+                    color = if (com.milknote.app.ui.theme.LocalMilkDark.current) 0xFFFFFFFF else 0xFF626262,
+                    active = !modeActive && state.toolSettings.eraserTemporary,
+                    enabled = !snipActive,
+                    squeezed = motionIndex != null && kotlin.math.abs(motionIndex - 3) == 1,
+                    onHoverChanged = { onMotion(3, it) },
+                    onClick = { vm.toggleEraser() },
+                )
+                Spacer(Modifier.width(4.dp))
+                WriterTopBarDivider()
+                Spacer(Modifier.width(4.dp))
+                listOf(0.4f, 0.7f, 1.2f).forEachIndexed { index, mm ->
+                    val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
+                    val wBg by animateColorAsState(
+                        if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
+                        tween(200), label = "widthBg",
+                    )
                     Box(
                         Modifier
-                            .clip(CircleShape)
-                            .background(wBg)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                            .padding(horizontal = 9.dp, vertical = 5.dp)
-                            .alpha(if (snipActive) 0.38f else 1f),
+                            .size(48.dp)
+                            .clickable(enabled = !snipActive) { vm.setWidth(mm) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
                             Modifier
-                                .size(width = if (mm > 0.9f) 14.dp else if (mm > 0.5f) 10.dp else 7.dp, height = (mm * 4).dp.coerceAtLeast(2.dp))
-                                .background(if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground, CircleShape),
-                        )
+                                .clip(CircleShape)
+                                .background(wBg)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                .padding(horizontal = 9.dp, vertical = 5.dp)
+                                .alpha(if (snipActive) 0.38f else 1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(width = if (mm > 0.9f) 14.dp else if (mm > 0.5f) 10.dp else 7.dp, height = (mm * 4).dp.coerceAtLeast(2.dp))
+                                    .background(if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground, CircleShape),
+                            )
+                        }
+                    }
+                    if (index < 2) Spacer(Modifier.width(4.dp))
+                }
+            }
+            if (balance < 0.dp) Spacer(Modifier.width(-balance))
+
+            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.weight(1f))
+
+            WriterToolIsland(Modifier.height(48.dp)) {
+                visibleActions.forEach { action ->
+                    WriterToolbarActionButton(
+                        action = action,
+                        state = state,
+                        battery = battery,
+                        snipActive = snipActive,
+                        onClick = { performAction(action) },
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Box {
+                    IconToggleButton(
+                        icon = { Icon(Icons.Outlined.MoreHoriz, "更多功能", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        enabled = true, onClick = { moreMenuOpen = true },
+                    )
+                    DropdownMenu(
+                        expanded = moreMenuOpen,
+                        onDismissRequest = { moreMenuOpen = false },
+                        modifier = Modifier.width(208.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 8.dp,
+                    ) {
+                        menuActions.forEach { action ->
+                            WriterTopMenuItem(
+                                label = action.label,
+                                icon = action.icon(),
+                                trailingText = when (action) {
+                                    WriterToolbarAction.COMMAND -> "⌘K"
+                                    WriterToolbarAction.DIAGNOSTICS -> if (battery < 0) "--%" else "$battery%"
+                                    else -> null
+                                },
+                                enabled = action.isEnabled(snipActive),
+                            ) {
+                                moreMenuOpen = false
+                                performAction(action)
+                            }
+                        }
+                        WriterTopMenuItem("自定义工具栏", Icons.Outlined.Settings) {
+                            moreMenuOpen = false
+                            onCustomize()
+                        }
                     }
                 }
-                Spacer(Modifier.width(7.dp))
-            }
-
-        Spacer(Modifier.weight(1f))
-
-        // 文档功能列表:粗细右侧、笔电量左侧;不再占用独立画布区域
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.ViewSidebar, if (sidebarVisible) "收起书架" else "展开书架", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = true, onClick = onToggleSidebar,
-        )
-        Spacer(Modifier.width(8.dp))
-        // 专注模式入口(F-07):显式 48dp 按钮,不用双击纸面;框选中禁用(避免模式叠加)
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.CropFree, "专注模式", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, onClick = onEnterFocus,
-        )
-        Spacer(Modifier.width(8.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.Gesture, "框选", modifier = Modifier.size(18.dp), tint = if (state.lassoArmed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, active = state.lassoArmed, onClick = vm::toggleLasso,
-        )
-        Spacer(Modifier.width(8.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.Title, "文字框", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, onClick = onText,
-        )
-        Spacer(Modifier.width(8.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.Category, "图形绘制", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, onClick = onShapes,
-        )
-        Spacer(Modifier.width(8.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.Image, "插入图片", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, onClick = onImages,
-        )
-        Spacer(Modifier.width(8.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.Outlined.FileDownload, "导出", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = !snipActive, onClick = onExport,
-        )
-
-        Spacer(Modifier.width(14.dp))
-        // 笔状态胶囊:单击直达诊断(A-16;原空 onClick + 仅长按入口已废);48dp 命中
-        Box(
-            Modifier
-                .size(48.dp)
-                .clickable(onClick = onOpenDiagnostics),
-            contentAlignment = Alignment.Center,
-        ) {
-            PenBatteryCapsule(level = battery)
-        }
-        Spacer(Modifier.width(14.dp))
-        CommandKeyCapsule(onClick = onOpenPalette)
-        Spacer(Modifier.width(14.dp))
-
-        // Agent(M2 接框选;蓝色纪律:仅 Agent 与激活态用强调色;轻投影+按压)
-        // A-16:打开=淡蓝底「收起」;后台流式=蓝点提示
-        if (agentOpen) {
-            Row(
-                Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
-                    .softClickable(onClick = onAgent)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (agentBusy) {
-                    Box(Modifier.size(6.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text("收起", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-            }
-        } else {
-            Row(
-                Modifier
-                    .softShadow(6.dp, CircleShape)
-                    .clip(CircleShape)
-                    .background(accentBrush())
-                    .softClickable(onClick = onAgent)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (agentBusy) {
-                    Box(Modifier.size(6.dp).background(Color.White, CircleShape))
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text("Agent", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(4.dp))
+                IconToggleButton(
+                    icon = { Icon(Icons.Outlined.AutoAwesome, if (agentOpen) "收起 Agent" else "打开 Agent", modifier = Modifier.size(20.dp), tint = if (agentOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
+                    enabled = true,
+                    active = agentOpen,
+                    onClick = onAgent,
+                    badge = agentBusy,
+                )
             }
         }
     }
 }
 
-/** 选中操作条:顶部滑入 + 软阴影深胶囊;减弱动效=纯淡化(红线三.11) */
+private fun WriterToolbarAction.icon(): ImageVector = when (this) {
+    WriterToolbarAction.LASSO -> Icons.Outlined.Gesture
+    WriterToolbarAction.TEXT -> Icons.Outlined.Title
+    WriterToolbarAction.SHAPES -> Icons.Outlined.Category
+    WriterToolbarAction.IMAGE -> Icons.Outlined.Image
+    WriterToolbarAction.FOCUS -> Icons.Outlined.CropFree
+    WriterToolbarAction.NEW_PAGE -> Icons.Outlined.Add
+    WriterToolbarAction.EXPORT -> Icons.Outlined.FileDownload
+    WriterToolbarAction.COMMAND -> Icons.Outlined.Search
+    WriterToolbarAction.DIAGNOSTICS -> Icons.Outlined.Edit
+}
+
+private fun WriterToolbarAction.isEnabled(snipActive: Boolean): Boolean =
+    this == WriterToolbarAction.COMMAND || this == WriterToolbarAction.DIAGNOSTICS || !snipActive
+
+@Composable
+private fun WriterToolbarActionButton(
+    action: WriterToolbarAction,
+    state: WriterUiState,
+    battery: Int,
+    snipActive: Boolean,
+    onClick: () -> Unit,
+) {
+    val active = action == WriterToolbarAction.LASSO && state.lassoArmed
+    val tint = when {
+        action == WriterToolbarAction.DIAGNOSTICS && battery in 0..19 -> com.milknote.app.ui.theme.LocalMilkWarning.current
+        active -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    IconToggleButton(
+        icon = { Icon(action.icon(), action.label, modifier = Modifier.size(19.dp), tint = tint) },
+        enabled = action.isEnabled(snipActive),
+        active = active,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun WriterToolIsland(
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier
+            .softShadow(4.dp, shape)
+            .clip(shape)
+            .background(containerColor)
+            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) { content() }
+}
+
+@Composable
+private fun WriterTopBarDivider() {
+    Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline))
+}
+
+@Composable
+private fun WriterTopMenuItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    trailingText: String? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+        leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp)) },
+        trailingIcon = if (trailingText == null) null else {
+            { Text(trailingText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
+        enabled = enabled,
+        onClick = onClick,
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+    )
+}
+
+/** 选区悬浮菜单:48dp 图标钮 + 深胶囊;上方优先、下方回退、横向边界钳制。 */
 @Composable
 private fun SelectionBar(
     visible: Boolean,
-    count: Int,
+    box: com.milknote.ink.model.StrokeGeom.Box?,
+    surface: InkSurfaceView?,
+    availableWidthPx: Int,
+    availableHeightPx: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    snapEnabled: Boolean,
+    onToggleSnap: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onSend: () -> Unit,
     onDelete: () -> Unit,
     onClear: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
+    val density = LocalDensity.current
+    var menuSize by remember { mutableStateOf(IntSize.Zero) }
+    var position by remember { mutableStateOf(IntOffset.Zero) }
+    if (visible && box != null && surface != null) {
+        val (l, t) = surface.pageToView(box.l, box.t)
+        val (r, b) = surface.pageToView(box.r, box.b)
+        val gap = with(density) { 12.dp.roundToPx() }
+        val edge = with(density) { 8.dp.roundToPx() }
+        val topSafe = with(density) { (WriterTopBarHeight + 8.dp).roundToPx() }
+        val x = ((l + r) / 2f - menuSize.width / 2f).toInt()
+            .coerceIn(edge, (availableWidthPx - menuSize.width - edge).coerceAtLeast(edge))
+        val rotationClearance = with(density) { 64.dp.roundToPx() }
+        val above = t.toInt() - menuSize.height - gap - rotationClearance
+        val below = b.toInt() + gap
+        val y = (if (above >= topSafe) above else below)
+            .coerceIn(edge, (availableHeightPx - menuSize.height - edge).coerceAtLeast(edge))
+        position = IntOffset(x, y)
+    }
     AnimatedVisibility(
         visible = visible,
-        modifier = modifier,
+        modifier = Modifier
+            .offset { position }
+            .onSizeChanged { menuSize = it },
         enter = if (reduced) fadeIn(tween(60))
-        else fadeIn(tween(200)) + slideInVertically(tween(220)) { -it },
-        exit = if (reduced) fadeOut(tween(60))
-        else fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it },
+        else fadeIn(tween(160)) + slideInVertically(tween(180)) { -it / 3 },
+        exit = if (reduced) fadeOut(tween(60)) else fadeOut(tween(140)),
     ) {
         Row(
             Modifier
@@ -643,32 +762,40 @@ private fun SelectionBar(
                 .softShadow(8.dp, PillShape)
                 .background(Color(0xF023221E))
                 .paintedShadow(PillShape, edge = 6.dp)
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "已选 $count 笔 · 拖动移动",
-                color = Color(0xFFE8E6E0),
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 12.dp),
+            val tint = Color(0xFFE8E6E0)
+            IconToggleButton(
+                icon = { Icon(Icons.Outlined.KeyboardArrowUp, "上移一层", tint = tint) },
+                enabled = canMoveUp, onClick = onMoveUp,
             )
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .background(Color(0x33D2483C))
-                    .clickable(onClick = onDelete)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-            ) {
-                Text("删除", color = Color(0xFFE06558), fontSize = 12.sp)
-            }
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .clickable(onClick = onClear)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-            ) {
-                Text("✕", color = Color(0xFF9B978D), fontSize = 13.sp)
-            }
+            IconToggleButton(
+                icon = { Icon(Icons.Outlined.KeyboardArrowDown, "下移一层", tint = tint) },
+                enabled = canMoveDown, onClick = onMoveDown,
+            )
+            IconToggleButton(
+                icon = {
+                    Icon(
+                        Icons.Outlined.MyLocation,
+                        if (snapEnabled) "关闭吸附" else "开启吸附",
+                        tint = if (snapEnabled) Color(0xFF9DAFFF) else Color(0xFF9B978D),
+                    )
+                },
+                enabled = true, active = snapEnabled, onClick = onToggleSnap,
+            )
+            IconToggleButton(
+                icon = { Icon(Icons.Outlined.AutoAwesome, "发送给 Agent", tint = Color(0xFF9DAFFF)) },
+                enabled = true, onClick = onSend,
+            )
+            IconToggleButton(
+                icon = { Icon(Icons.Outlined.Delete, "删除选中元素", tint = Color(0xFFE06558)) },
+                enabled = true, onClick = onDelete,
+            )
+            IconToggleButton(
+                icon = { Icon(Icons.Outlined.Close, "取消选择", tint = tint) },
+                enabled = true, onClick = onClear,
+            )
         }
     }
 }
@@ -724,14 +851,15 @@ private fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Bool
     if (bottom) drawRect(color, topLeft = Offset(0f, size.height - t), size = Size(size.width, t))
 }
 
-@Composable
-private fun DividerDot() {
-    Box(Modifier.size(4.dp).background(MaterialTheme.colorScheme.outline, CircleShape))
-}
-
 /** 顶栏图标钮:48dp 命中(A-09),图标保持 18dp;单击语义——不注册空双击/长按(A-34) */
 @Composable
-private fun IconToggleButton(icon: @Composable () -> Unit, enabled: Boolean, active: Boolean = false, onClick: () -> Unit) {
+private fun IconToggleButton(
+    icon: @Composable () -> Unit,
+    enabled: Boolean,
+    active: Boolean = false,
+    onClick: () -> Unit,
+    badge: Boolean = false,
+) {
     Box(
         Modifier
             .size(48.dp)
@@ -740,7 +868,18 @@ private fun IconToggleButton(icon: @Composable () -> Unit, enabled: Boolean, act
             .alpha(if (enabled) 1f else 0.38f)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { icon() }
+    ) {
+        icon()
+        if (badge) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 7.dp, end = 7.dp)
+                    .size(6.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+            )
+        }
+    }
 }
 
 /** 侧栏:‹ 书架 + 本章页面缩略图(DESIGN-V0 §5.3:只放页面缩略,不放笔记本列表) */
@@ -761,6 +900,7 @@ private fun PageSidebar(
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.75f), right = true)
+            .padding(top = WriterTopBarHeight)
             .padding(horizontal = 10.dp, vertical = 10.dp),
     ) {
         Row(
@@ -852,6 +992,7 @@ private fun PaperCanvas(
             InkSurfaceView(ctx).apply {
                 surfaceRef.value = this
                 inputInterceptor = ServiceLocator.penPort::onDispatchTouchEvent
+                onViewportChanged = vm::refreshSelectionOverlay
                 // 按住+书写修饰(PEN-ADAPTATION §4.3):落笔瞬间同步查询
                 // 「主/副键按住」触发器 → 映射动作 → 套索圈选/临时橡皮
                 holdActionProvider = {
@@ -878,50 +1019,6 @@ private fun PaperCanvas(
         },
         modifier = Modifier.fillMaxSize(),
     )
-}
-
-/** 底部状态条(③:真实笔状态 + 手势提示 + 页码;按模式切换文案) */
-@Composable
-private fun StatusBar(
-    state: WriterUiState,
-    penConnected: Boolean,
-    battery: Int,
-    batterySource: String?,
-    penSeen: Boolean,
-) {
-    // A-10:反映真实能力而非「就绪」假设;无笔时明确手指可写
-    val penStatus = when {
-        batterySource != null && battery >= 0 -> "笔 已连接 · $battery%"
-        batterySource != null -> "笔 已连接 · 电量 --%"
-        battery >= 0 -> "笔 已连接 · $battery%"
-        penSeen -> "笔已识别 · 蓝牙未连接"
-        else -> "未检测到笔 · 手指可写"
-    }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)   // chrome 色带:与画布明确分界
-            .edgeHairline(MaterialTheme.colorScheme.outline, top = true)
-            .padding(horizontal = 20.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(penStatus, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(14.dp))
-        val hint = when {
-            state.snip.phase != SnipPhase.IDLE -> "书写已暂停 · 截图模式"
-            state.selectionCount > 0 -> "套索:拖动移动 · ✕ 退出"
-            state.lassoArmed -> "套索:圈选笔迹(圈住即选中)"
-            else -> "双击笔键=笔⇄橡皮 · 长按=框选 · 手指=导航"
-        }
-        Text(hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
-        Spacer(Modifier.weight(1f))
-        if (state.frontBufferEnabled) {
-            // 灰阶元数据:蓝只留给 Agent 与激活态(蓝色纪律)
-            MonoText("front-buffer", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f))
-            Spacer(Modifier.width(10.dp))
-        }
-        MonoText("${state.currentPageId} / ${state.pages.size} 页", color = MaterialTheme.colorScheme.onSurface)
-    }
 }
 
 /** 顶栏 Agent / ⌥A:直接开 ⑤ 抽屉(当前页上下文,无选区;AGENT-BACKEND §8.3) */

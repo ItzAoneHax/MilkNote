@@ -48,12 +48,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.CoverPalette
+import com.milknote.app.ui.theme.PillShape
 import com.milknote.notes.model.PAGE_ORIENTATIONS
 import com.milknote.notes.model.PAGE_SIZES_MM
 import com.milknote.notes.model.PAPER_KINDS
@@ -88,12 +92,7 @@ fun NewNotebookDialog(
                 .fillMaxWidth()
                 .imePadding()
                 .heightIn(max = 620.dp)
-                .softShadow(14.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                .innerHighlight()
-                .paintedShadow(RoundedCornerShape(20.dp))
+                .milkDialogSurface()
                 .padding(horizontal = 28.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -174,8 +173,6 @@ fun NewNotebookDialog(
                         OptionChip(
                             label = id,
                             selected = pageSize == id,
-                            selectedBg = MaterialTheme.colorScheme.onBackground,
-                            selectedFg = MaterialTheme.colorScheme.background,
                         ) { pageSize = id }
                     }
                     Spacer(Modifier.width(8.dp))
@@ -183,8 +180,6 @@ fun NewNotebookDialog(
                         OptionChip(
                             label = label,
                             selected = orientation == id,
-                            selectedBg = MaterialTheme.colorScheme.primary,
-                            selectedFg = MaterialTheme.colorScheme.onPrimary,
                         ) { orientation = id }
                     }
                 }
@@ -197,8 +192,6 @@ fun NewNotebookDialog(
                         OptionChip(
                             label = label,
                             selected = paper == id,
-                            selectedBg = MaterialTheme.colorScheme.onBackground,
-                            selectedFg = MaterialTheme.colorScheme.background,
                         ) { paper = id }
                     }
                 }
@@ -211,8 +204,6 @@ fun NewNotebookDialog(
                         OptionChip(
                             label = tag,
                             selected = purpose == tag,
-                            selectedBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            selectedFg = MaterialTheme.colorScheme.primary,
                         ) { purpose = tag }
                     }
                 }
@@ -225,57 +216,38 @@ fun NewNotebookDialog(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss)
-                        .defaultMinSize(minHeight = 48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "取消",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 18.dp),
-                    )
-                }
+                MilkButton(
+                    label = "取消",
+                    onClick = onDismiss,
+                    variant = MilkButtonVariant.SECONDARY,
+                )
                 Spacer(Modifier.width(8.dp))
-                Row(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(accentBrush())
-                        .softClickable { submit() }
-                        .defaultMinSize(minHeight = 48.dp)
-                        .padding(horizontal = 28.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("创建", color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.width(8.dp))
-                    Text("↵", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
-                }
+                MilkButton(label = "创建 ↵", onClick = { submit() })
             }
         }
     }
 }
 
-/** 表单选项 chip:48dp 命中(视觉文字不变大),选中底色/前景 200ms 过渡 */
+/** 表单选项 chip:48dp 命中;所有分组共用 activeSoft 蓝底、蓝字与蓝色描边。 */
 @Composable
 private fun OptionChip(
     label: String,
     selected: Boolean,
-    selectedBg: Color,
-    selectedFg: Color,
     onClick: () -> Unit,
 ) {
     val bg by animateColorAsState(
-        if (selected) selectedBg else MaterialTheme.colorScheme.surface,
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
         tween(200), label = "optionChipBg",
+    )
+    val borderColor by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline,
+        tween(200), label = "optionChipBorder",
     )
     Box(
         Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(PillShape)
             .background(bg)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
+            .border(1.dp, borderColor, PillShape)
             .clickable(onClick = onClick)
             .defaultMinSize(minHeight = 48.dp),
         contentAlignment = Alignment.Center,
@@ -283,7 +255,7 @@ private fun OptionChip(
         Text(
             label,
             fontSize = 13.sp,
-            color = if (selected) selectedFg else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 14.dp),
         )
     }

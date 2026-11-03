@@ -5,6 +5,9 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.milknote.app.ui.writer.WriterToolbarAction
+import com.milknote.app.ui.writer.decodeWriterToolbarPins
+import com.milknote.app.ui.writer.encodeWriterToolbarPins
 import com.milknote.ink.model.PressureGamma
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -23,6 +26,8 @@ data class AppSettings(
     val btPermissionAsked: Boolean = false, // 蓝牙权限只自动弹一次
     val themeMode: ThemeMode = ThemeMode.FOLLOW,
     val updateServer: String = "",         // 局域网更新服务地址(./gradlew :app:serveUpdates)
+    val writerToolbarPins: List<WriterToolbarAction> = WriterToolbarAction.defaultPins,
+    val writerSidebarVisible: Boolean = true,
 )
 
 /**
@@ -42,11 +47,21 @@ class AppSettingsStore(context: Context) {
             themeMode = prefs[KEY_THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.FOLLOW,
             updateServer = prefs[KEY_UPDATE_SERVER] ?: "",
+            writerToolbarPins = decodeWriterToolbarPins(prefs[KEY_WRITER_TOOLBAR_PINS]),
+            writerSidebarVisible = prefs[KEY_WRITER_SIDEBAR_VISIBLE] ?: true,
         )
     }
 
     suspend fun setUpdateServer(addr: String) {
         store.edit { it[KEY_UPDATE_SERVER] = addr }
+    }
+
+    suspend fun setWriterToolbarPins(pins: List<WriterToolbarAction>) {
+        store.edit { it[KEY_WRITER_TOOLBAR_PINS] = encodeWriterToolbarPins(pins) }
+    }
+
+    suspend fun setWriterSidebarVisible(visible: Boolean) {
+        store.edit { it[KEY_WRITER_SIDEBAR_VISIBLE] = visible }
     }
 
     suspend fun setFrontBufferInk(enabled: Boolean) {
@@ -71,5 +86,7 @@ class AppSettingsStore(context: Context) {
         val KEY_BT_ASKED = booleanPreferencesKey("bt_permission_asked")
         val KEY_THEME = stringPreferencesKey("theme_mode")
         val KEY_UPDATE_SERVER = stringPreferencesKey("update_server")
+        val KEY_WRITER_TOOLBAR_PINS = stringPreferencesKey("writer_toolbar_pins")
+        val KEY_WRITER_SIDEBAR_VISIBLE = booleanPreferencesKey("writer_sidebar_visible")
     }
 }

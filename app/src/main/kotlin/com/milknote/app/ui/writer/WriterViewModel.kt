@@ -21,6 +21,7 @@ import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.notes.model.NotebookMeta
@@ -46,8 +47,14 @@ data class WriterUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val lassoArmed: Boolean = false,          // 套索模式(等待圈选)
-    val selectionCount: Int = 0,              // 选中笔迹数(>0 显示操作条)
+    val selectionCount: Int = 0,              // 混合选中元素数(>0 显示变换菜单)
+    val selectionBox: StrokeGeom.Box? = null, // 当前选区(页坐标,含预览)
+    val selectionCanMoveUp: Boolean = false,
+    val selectionCanMoveDown: Boolean = false,
+    val selectionSnapEnabled: Boolean = true,
     val frontBufferEnabled: Boolean = false,  // 前置缓冲出墨(设置)
+    val toolbarPins: List<WriterToolbarAction> = WriterToolbarAction.defaultPins,
+    val sidebarVisible: Boolean = true,
     val snip: SnipUiState = SnipUiState(),    // ④ 框选模式(AGENT-BACKEND §4.2)
 ) {
     val tool: ToolConfig get() = toolSettings.current
@@ -94,10 +101,20 @@ class WriterViewModel : ViewModel() {
                 frontBufferFlag = s.frontBufferInk
                 val settings = _state.value.toolSettings.withPressureGamma(s.pressureGamma)
                 applyToolSettings(settings)
-                _state.value = _state.value.copy(frontBufferEnabled = s.frontBufferInk)
+                _state.value = _state.value.copy(
+                    frontBufferEnabled = s.frontBufferInk,
+                    toolbarPins = s.writerToolbarPins,
+                    sidebarVisible = s.writerSidebarVisible,
+                )
             }
         }
         registerAgentBridge()
+    }
+
+    fun toggleSidebar() {
+        val visible = !_state.value.sidebarVisible
+        _state.value = _state.value.copy(sidebarVisible = visible)
+        viewModelScope.launch { ServiceLocator.appSettings.setWriterSidebarVisible(visible) }
     }
 
     // ---- Agent 桥(渲染源 / 批注落点 / 整章页序;AGENT-BACKEND §2.1 装配) ----
@@ -281,6 +298,26 @@ class WriterViewModel : ViewModel() {
 
     fun clearSelection() = controller.clearSelection()
 
+    fun refreshSelectionOverlay() = syncToolbarState()
+
+    fun reorderSelection(up: Boolean) = controller.reorderSelection(up)
+
+    fun toggleSelectionSnap() = controller.toggleSelectionSnap()
+
+    /** 将混合选区的当前包围盒作为图片附件，沿用默认讲解意图直接发送。 */
+    fun sendSelectionToAgent() {
+        val box = controller.selectionSnapshot()?.box?.expand(12f) ?: return
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        viewModelScope.launch {
+            val agent = ServiceLocator.agentController
+            agent.bindPage(PageRef(nb.id, pageId))
+            val name = agent.addSnip(Rect4(box.l, box.t, box.r, box.b))
+            if (name == null) toast("发送失败:选区渲染不可用")
+            else agent.sendWithIntent(Intents.Id.EXPLAIN)
+        }
+    }
+
     // ---- ④ 框选截图(AGENT-BACKEND §4.2) ----
 
     /** 进入框选模式(冻结画布):套索/选中态先退出,避免多模式并存 */
@@ -378,6 +415,7 @@ class WriterViewModel : ViewModel() {
             currentPageId = cur,
             toolSettings = _state.value.toolSettings,
             frontBufferEnabled = frontBufferFlag,
+            toolbarPins = _state.value.toolbarPins,
         )
         controller.loadStrokes(repo.loadPage(nbId, cur), repo.loadAnnotations(nbId, cur), repo.loadImages(nbId, cur))
         bindAgent(nb.id, cur)
@@ -442,6 +480,11 @@ class WriterViewModel : ViewModel() {
                 repo.saveAnnotations(notebookId, page, controller.annotationCards())
             is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
                 repo.saveImages(notebookId, page, controller.images())
+            is InkCommit.LayersChanged -> {
+                repo.appendLayerStates(notebookId, page, controller.page.strokes.toList())
+                repo.saveAnnotations(notebookId, page, controller.annotationCards())
+                repo.saveImages(notebookId, page, controller.images())
+            }
         }
         scheduleFlush()
     }
@@ -457,11 +500,16 @@ class WriterViewModel : ViewModel() {
     }
 
     private fun syncToolbarState() {
+        val selection = controller.selectionSnapshot()
         _state.value = _state.value.copy(
             canUndo = controller.page.canUndo,
             canRedo = controller.page.canRedo,
             lassoArmed = controller.lassoArmed,
-            selectionCount = controller.selectionSnapshot()?.count ?: 0,
+            selectionCount = selection?.count ?: 0,
+            selectionBox = selection?.box,
+            selectionCanMoveUp = selection?.canMoveUp ?: false,
+            selectionCanMoveDown = selection?.canMoveDown ?: false,
+            selectionSnapEnabled = selection?.snapEnabled ?: true,
         )
     }
 

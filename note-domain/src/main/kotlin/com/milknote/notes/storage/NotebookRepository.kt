@@ -138,6 +138,7 @@ class NotebookRepository(
             // 批注卡/图片不走 pb 追加流:由调用方走 saveAnnotations / saveImages 整表重写(JSON sidecar)
             is InkCommit.CardAdded, is InkCommit.CardRemoved -> return
             is InkCommit.ImageAdded, is InkCommit.ImageRemoved -> return
+            is InkCommit.LayersChanged -> return
             is InkCommit.Added, is InkCommit.Tombstoned -> {}
         }
         writeQueue.trySend {
@@ -148,7 +149,19 @@ class NotebookRepository(
                     is InkCommit.Tombstoned -> ProtoInk.writeRecord(out, ProtoInk.tombstoneOf(commit.strokeId))
                     is InkCommit.CardAdded, is InkCommit.CardRemoved -> {}
                     is InkCommit.ImageAdded, is InkCommit.ImageRemoved -> {}   // 上方已 return,不可达
+                    is InkCommit.LayersChanged -> {}
                 }
+            }
+            f.setLastModified(System.currentTimeMillis())
+        }
+    }
+
+    /** 调层后刷新全部笔迹的 zIndex；读取时按 zIndex 排序，不依赖追加位置。 */
+    fun appendLayerStates(notebookId: String, pageId: String, strokes: List<Stroke>) {
+        writeQueue.trySend {
+            val f = pageFile(notebookId, pageId)
+            FileOutputStream(f, true).use { out ->
+                strokes.forEach { ProtoInk.writeRecord(out, ProtoInk.recordOf(it)) }
             }
             f.setLastModified(System.currentTimeMillis())
         }

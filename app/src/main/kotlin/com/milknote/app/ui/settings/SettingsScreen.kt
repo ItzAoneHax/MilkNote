@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.theme.LocalMilkWarning
+import com.milknote.app.ui.writer.WriterToolbarAction
+import com.milknote.app.ui.writer.moveWriterToolbarPin
+import com.milknote.app.ui.writer.setWriterToolbarPin
 import com.milknote.app.ui.theme.Mono
 import com.milknote.device.pen.PenAction
 import com.milknote.device.pen.PenTrigger
@@ -108,7 +115,12 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
             ) {
                 when (page) {
                     "appearance" -> AppearancePage(appSettings = appSettings, setThemeMode = { scope.launch { settings.setThemeMode(it) } })
-                    "writing" -> WritingPage(appSettings = appSettings, setPressure = { scope.launch { settings.setPressureGamma(it) } }, setFrontBuffer = { scope.launch { settings.setFrontBufferInk(it) } })
+                    "writing" -> WritingPage(
+                        appSettings = appSettings,
+                        setPressure = { scope.launch { settings.setPressureGamma(it) } },
+                        setFrontBuffer = { scope.launch { settings.setFrontBufferInk(it) } },
+                        setToolbarPins = { scope.launch { settings.setWriterToolbarPins(it) } },
+                    )
                     "pen" -> PenPage(mapping = mapping, caps = caps, battery = battery, batterySource = batterySource, permLauncher = permLauncher)
                     "agent" -> {
                         SettingsPageHeader(
@@ -150,8 +162,50 @@ private fun WritingPage(
     appSettings: AppSettings,
     setPressure: (PressureGamma) -> Unit,
     setFrontBuffer: (Boolean) -> Unit,
+    setToolbarPins: (List<WriterToolbarAction>) -> Unit,
 ) {
-    SettingsPageHeader("书写", "压感与出墨路径;更改即时生效")
+    SettingsPageHeader("书写", "工具栏、压感与出墨路径;更改即时生效")
+
+    SettingsSectionHeader("顶部工具栏", "选择固定功能并调整顺序;空间不足时末尾功能自动进入更多")
+    SettingsCard {
+        val orderedActions = appSettings.writerToolbarPins +
+            WriterToolbarAction.entries.filter { it !in appSettings.writerToolbarPins }
+        orderedActions.forEachIndexed { index, action ->
+            if (index > 0) Hairline()
+            val pins = appSettings.writerToolbarPins
+            val pinIndex = pins.indexOf(action)
+            val pinned = pinIndex >= 0
+            SettingsRow(
+                title = action.label,
+                subtitle = if (pinned) "已固定 · 第 ${pinIndex + 1} 位" else "在更多菜单中",
+                onClick = { setToolbarPins(setWriterToolbarPin(pins, action, !pinned)) },
+                trailing = {
+                    if (pinned) {
+                        MilkIconButton(
+                            Icons.Outlined.ArrowUpward,
+                            "上移${action.label}",
+                            enabled = pinIndex > 0,
+                            onClick = { setToolbarPins(moveWriterToolbarPin(pins, action, -1)) },
+                        )
+                        MilkIconButton(
+                            Icons.Outlined.ArrowDownward,
+                            "下移${action.label}",
+                            enabled = pinIndex < pins.lastIndex,
+                            onClick = { setToolbarPins(moveWriterToolbarPin(pins, action, 1)) },
+                        )
+                    }
+                    MilkSwitch(
+                        checked = pinned,
+                        onChange = { setToolbarPins(setWriterToolbarPin(pins, action, it)) },
+                    )
+                },
+            )
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextAction("恢复默认工具栏", onClick = { setToolbarPins(WriterToolbarAction.defaultPins) })
+    }
+
     SettingsSectionHeader("压感曲线", "轻触 0.3mm → 重按 2.2mm")
     SettingsCard {
         SelectRow(
@@ -273,10 +327,11 @@ private fun supportedTriggers(buttonCount: Int?): List<PenTrigger> = buildList {
 @Composable
 private fun UpdatesPage(appSettings: AppSettings) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
     val settings = ServiceLocator.appSettings
+    val updater = ServiceLocator.appUpdater
+    // 状态/任务在进程级 UpdateController:切到其他设置页再回来,进度与结果仍在
+    val state by updater.state.collectAsState()
     var server by remember(appSettings.updateServer) { mutableStateOf(appSettings.updateServer) }
-    var state by remember { mutableStateOf<AppUpdater.State>(AppUpdater.State.Idle) }
 
     SettingsPageHeader("更新", "局域网更新:电脑运行更新服务后即可检查新版本")
 
@@ -334,32 +389,19 @@ private fun UpdatesPage(appSettings: AppSettings) {
                 is AppUpdater.State.Available -> {
                     val latest = s.latest
                     TextAction("下载", primary = true, onClick = {
-                        scope.launch {
-                            state = AppUpdater.State.Downloading(0)
-                            val f = AppUpdater.download(context, server, latest) { p ->
-                                state = AppUpdater.State.Downloading(p)
-                            }
-                            state = if (f != null) AppUpdater.State.ReadyToInstall(f)
-                            else AppUpdater.State.Failed("下载失败(服务开着吗?)")
-                        }
+                        updater.download(server, latest)
                     })
                 }
                 else -> {
                     TextAction("检查更新", primary = true, enabled = server.isNotBlank(), onClick = {
-                        scope.launch { settings.setUpdateServer(AppUpdater.normalizeServer(server)) }
-                        scope.launch {
-                            state = AppUpdater.State.Checking
-                            val latest = AppUpdater.check(server)
-                            state = when {
-                                latest == null -> AppUpdater.State.Failed("连不上更新服务")
-                                AppUpdater.isNewer(
-                                    latest,
-                                    com.milknote.app.BuildConfig.VERSION_NAME,
-                                    com.milknote.app.BuildConfig.BUILD_TIME,
-                                ) -> AppUpdater.State.Available(latest)
-                                else -> AppUpdater.State.UpToDate
-                            }
+                        ServiceLocator.appScope.launch {
+                            settings.setUpdateServer(AppUpdater.normalizeServer(server))
                         }
+                        updater.check(
+                            server,
+                            com.milknote.app.BuildConfig.VERSION_NAME,
+                            com.milknote.app.BuildConfig.BUILD_TIME,
+                        )
                     })
                 }
             }

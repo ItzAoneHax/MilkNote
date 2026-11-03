@@ -23,6 +23,7 @@ message Stroke {
   string color = 3;     // hex,如 #23221E
   float base_width = 4; // mm,压感映射前的基准宽
   repeated Point pts = 5;
+  int64 z_index = 6;    // 全局层序;缺省 0 兼容旧笔记
 }
 
 // 追加流里的一条记录:普通笔迹 or 删除墓碑(指向被删 stroke id)
