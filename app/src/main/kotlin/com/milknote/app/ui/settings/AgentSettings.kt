@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.agent.ModelInfo
@@ -46,6 +49,7 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
@@ -67,6 +71,9 @@ fun AgentSettingsSection() {
     var expandedProvider by remember { mutableStateOf<String?>(null) }
     var expandedModel by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // A-27:删除需确认(Provider 含端点/模型声明/调档结果;模型 ✕ 误触即丢)
+    data class DeleteReq(val providerId: String, val providerTitle: String, val modelId: String? = null)
+    var deleteReq by remember { mutableStateOf<DeleteReq?>(null) }
 
     Column {
         state.profiles.forEach { profile ->
@@ -96,10 +103,10 @@ fun AgentSettingsSection() {
                     }
                 },
                 onSetActive = { agent.setActiveProfile(profile.id) },
-                onDelete = { agent.removeProfile(profile.id) },
+                onDelete = { deleteReq = DeleteReq(profile.id, profile.title) },
                 onSelectModel = { agent.selectModel(profile.id, it) },
                 onAddModel = { agent.addModel(profile.id, it, declaredVision = true) },
-                onRemoveModel = { agent.removeModel(profile.id, it) },
+                onRemoveModel = { deleteReq = DeleteReq(profile.id, profile.title, it) },
                 onUpdateModel = { id, dn, vis, lv, ctx, out ->
                     agent.updateModel(profile.id, id, dn, vis, lv, ctx, out)
                 },
@@ -129,10 +136,31 @@ fun AgentSettingsSection() {
     }
 
     if (adding) {
-        AddProviderDialog { presetId, title, baseUrl, key, protocol ->
-            agent.addProfile(presetId ?: "custom", title, baseUrl, key, protocol)
-            adding = false
-        }
+        AddProviderDialog(
+            onCancel = { adding = false },   // A-26:误入新增必须有取消出口
+            onConfirm = { presetId, title, baseUrl, key, protocol ->
+                agent.addProfile(presetId ?: "custom", title, baseUrl, key, protocol)
+                adding = false
+            },
+        )
+    }
+
+    // 删除确认(A-27):Provider 整套配置 / 模型声明均不可静默丢失
+    deleteReq?.let { req ->
+        ConfirmDialog(
+            title = if (req.modelId == null) "删除 Provider「${req.providerTitle}」?" else "删除模型 ${req.modelId}?",
+            body = if (req.modelId == null)
+                "端点、已声明模型与思考档设置将一并删除;已保存的会话记录不受影响。"
+            else
+                "将从「${req.providerTitle}」的模型目录移除;正在进行的对话不受影响。",
+            confirmLabel = "删除",
+            onDismiss = { deleteReq = null },
+            onConfirm = {
+                if (req.modelId == null) agent.removeProfile(req.providerId)
+                else agent.removeModel(req.providerId, req.modelId)
+                deleteReq = null
+            },
+        )
     }
 }
 
@@ -673,6 +701,7 @@ private fun capacityLine(m: ModelInfo): String = buildString {
 
 @Composable
 private fun AddProviderDialog(
+    onCancel: () -> Unit,
     onConfirm: (presetId: String?, title: String, baseUrl: String, key: String, protocol: Protocol) -> Unit,
 ) {
     var presetId by remember { mutableStateOf(ProviderRegistry.presets.first().id) }
@@ -728,6 +757,22 @@ private fun AddProviderDialog(
         SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key(仅存本机)", mono = true, mask = true, compact = true)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // A-26:取消出口(与保存同级、≥48dp 命中)
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onCancel)
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "取消",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                )
+            }
             Box(
                 Modifier
                     .clip(CircleShape)
@@ -742,12 +787,69 @@ private fun AddProviderDialog(
                             if (anthropic) Protocol.ANTHROPIC else Protocol.OPENAI_COMPATIBLE,
                         )
                     }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     "保存",
                     color = if (baseUrl.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/** 危险操作确认(A-27):Milk 弹窗语言,440dp 上限 */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(max = 440.dp)   // 先限宽再 fill
+                .fillMaxWidth()
+                .softShadow(12.dp, RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
+                .innerHighlight()
+                .paintedShadow(RoundedCornerShape(20.dp))
+                .padding(24.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    "取消",
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .softClickable(onClick = onDismiss)
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 14.dp),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    confirmLabel,
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .softClickable(onClick = onConfirm)
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 14.dp),
+                    textAlign = TextAlign.Center,
                 )
             }
         }

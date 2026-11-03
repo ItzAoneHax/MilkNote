@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.HorizontalDivider
@@ -68,8 +70,9 @@ fun CommandPalette(
 
     Column(
         Modifier
+            .widthIn(max = 640.dp)   // A-25:640dp 上限;先限宽再 fill(顺序反了会通栏)
             .fillMaxWidth()
-            .padding(horizontal = 90.dp)
+            .padding(horizontal = 32.dp)
             .softShadow(14.dp, RoundedCornerShape(18.dp))
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surface)
@@ -141,8 +144,8 @@ fun CommandPalette(
                             item.action()
                             onDismiss()
                         }
-                        .softHover()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                        .heightIn(min = 52.dp)   // A-25:命令行 ≥52dp,整行点按
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(item.title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)

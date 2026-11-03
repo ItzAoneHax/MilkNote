@@ -47,7 +47,7 @@ import kotlinx.coroutines.launch
  * penRouter 改绑、gb_boosting 接管检测、AppUpdater 局域网更新;仅视觉重建。
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
     val scope = rememberCoroutineScope()
     val settings = ServiceLocator.appSettings
     val appSettings by settings.flow.collectAsState(initial = AppSettings())
@@ -57,7 +57,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     val battery by ServiceLocator.penBattery.level.collectAsState()
     val batterySource by ServiceLocator.penBattery.sourceName.collectAsState()
 
-    var page by rememberSaveable { mutableStateOf("appearance") }
+    // A-17:Agent「管理模型」直达 agent 页;key 随入口变化重初始化
+    var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -168,6 +169,7 @@ private fun WritingPage(
         SettingsRow(
             title = "前置缓冲出墨",
             subtitle = "实验性 · GL 前置缓冲,<10ms 出墨;关闭 = Canvas 路径",
+            onClick = { setFrontBuffer(!appSettings.frontBufferInk) },   // 整行可点(A-9);开关本体亦可点
             trailing = { MilkSwitch(checked = appSettings.frontBufferInk, onChange = setFrontBuffer) },
         )
     }

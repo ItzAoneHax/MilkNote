@@ -4,8 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -19,11 +22,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +39,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -64,7 +70,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -77,61 +85,222 @@ import com.milknote.agent.AgentMessage
 import com.milknote.agent.AgentUiState
 import com.milknote.agent.Intents
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.theme.LocalMilkMotion
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
-import com.milknote.app.ui.common.softHover
 import com.milknote.app.ui.common.softShadow
 
-/** ⑤ Agent 抽屉:右缘滑入 360dp 浮层(DESIGN-V0 §5.4;AGENT-BACKEND §8) */
+/**
+ * ⑤ Agent 抽屉:右缘 360dp 浮层(DESIGN-V0 §5.4;AGENT-BACKEND §8)。
+ * R2 触控复审:左缘 48dp 命中带 320–480dp 连续调宽、头部右滑关闭(手势只属于抽屉,
+ * 不侵入纸面);拖动直写位置,抬起弹簧继承速度(A-35/WWDC24);减弱动效=淡化/即时。
+ */
 @Composable
 fun AgentDrawerHost(
-    onOpenSettings: () -> Unit,
+    onOpenSettings: (page: String) -> Unit,
+    onSnip: () -> Unit,
+    onExplainPage: () -> Unit,
+    onSummarizeChapter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val agent = ServiceLocator.agentController
     val state by agent.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val reduced = LocalMilkMotion.current
+    val density = LocalDensity.current
+
+    // ---- 宽度状态:默认 360dp,可拖 320–480dp(A-35) ----
+    val minW = with(density) { 320.dp.toPx() }
+    val maxW = with(density) { 480.dp.toPx() }
+    val widthAnim = remember { Animatable(with(density) { 360.dp.toPx() }) }
+    // ---- 头部右滑关闭位移(px);判定关闭后随速度滑出,收抽屉时不再播退出动画 ----
+    val offsetAnim = remember { Animatable(0f) }
+    var swipedClosePending by remember { mutableStateOf(false) }
+
+    val widthDragState = rememberDraggableState { delta ->
+        // 拖动中直接更新宽度,无动画(红线三.7)。抽屉右锚定:左缘向左拖(delta<0)=加宽
+        scope.launch { widthAnim.snapTo((widthAnim.value - delta).coerceIn(minW, maxW)) }
+    }
+    val headerDragState = rememberDraggableState { delta ->
+        scope.launch { offsetAnim.snapTo((offsetAnim.value + delta).coerceIn(0f, widthAnim.value)) }
+    }
 
     AnimatedVisibility(
         visible = state.drawerOpen,
-        enter = slideInHorizontally(tween(220)) { it } + fadeIn(tween(160)),
-        exit = slideOutHorizontally(tween(200)) { it } + fadeOut(tween(140)),
+        enter = if (reduced) fadeIn(tween(60))
+        else slideInHorizontally(tween(220)) { it } + fadeIn(tween(160)),
+        exit = if (swipedClosePending) ExitTransition.None   // 滑关:已随手指离屏,不播退出动画(避免二次位移)
+        else if (reduced) fadeOut(tween(60))
+        else slideOutHorizontally(tween(200)) { it } + fadeOut(tween(140)),
         modifier = modifier,
     ) {
-        AgentDrawer(state = state, onOpenSettings = onOpenSettings)
+        Box(Modifier.fillMaxHeight()) {
+            AgentDrawer(
+                state = state,
+                widthPx = widthAnim.value,
+                dragOffsetPx = offsetAnim.value,
+                onOpenSettings = onOpenSettings,
+                onSnip = onSnip,
+                onExplainPage = onExplainPage,
+                onSummarizeChapter = onSummarizeChapter,
+                headerDragModifier = Modifier.draggable(
+                    orientation = Orientation.Horizontal,
+                    state = headerDragState,
+                    onDragStopped = { velocity ->
+                        val closeByDistance = offsetAnim.value > widthAnim.value * 0.4f
+                        val closeByVelocity = velocity > with(density) { 1200.dp.toPx() }
+                        if (closeByDistance || closeByVelocity) {
+                            scope.launch {
+                                if (reduced) offsetAnim.snapTo(widthAnim.value)
+                                else offsetAnim.animateTo(
+                                    widthAnim.value,
+                                    spring(dampingRatio = 1f, stiffness = 550f),
+                                    initialVelocity = velocity,
+                                )
+                                swipedClosePending = true
+                                agent.closeDrawer()
+                                offsetAnim.snapTo(0f)   // 已不可见,复位不影响视觉
+                                swipedClosePending = false
+                            }
+                        } else {
+                            scope.launch {
+                                if (reduced) offsetAnim.snapTo(0f)
+                                else offsetAnim.animateTo(0f, spring(dampingRatio = 1f, stiffness = 550f), initialVelocity = velocity)
+                            }
+                        }
+                    },
+                ),
+            )
+            // 左缘 48dp 透明命中带:拖动调宽(手势归属抽屉,不碰纸面)
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .width(48.dp)
+                    .fillMaxHeight()
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = widthDragState,
+                        onDragStopped = { velocity ->
+                            val settle = sequenceOf(minW, with(density) { 360.dp.toPx() }, maxW)
+                                .minBy { kotlin.math.abs(it - widthAnim.value) }
+                            scope.launch {
+                                if (reduced) widthAnim.snapTo(settle)
+                                else widthAnim.animateTo(settle, spring(dampingRatio = 1f, stiffness = 500f), initialVelocity = velocity)
+                            }
+                        },
+                    ),
+            )
+        }
     }
-
 }
 
 @Composable
-private fun AgentDrawer(state: AgentUiState, onOpenSettings: () -> Unit) {
-    val agent = ServiceLocator.agentController
+private fun AgentDrawer(
+    state: AgentUiState,
+    widthPx: Float,
+    dragOffsetPx: Float,
+    onOpenSettings: (page: String) -> Unit,
+    onSnip: () -> Unit,
+    onExplainPage: () -> Unit,
+    onSummarizeChapter: () -> Unit,
+    headerDragModifier: Modifier = Modifier,
+) {
     // 宿主在书写页画布区(顶栏下/底部状态条上,DESIGN-V0 §5.4);容器已吃 safeDrawing
     // (含 IME)inset,此处不再重复 padding,否则顶进状态栏/盖住底条(真机实证)
+    val density = LocalDensity.current
     Column(
         Modifier
-            .width(360.dp)
+            .width(with(density) { widthPx.toDp() })
             .fillMaxHeight()
+            .graphicsLayer { translationX = dragOffsetPx }
             .softShadow(12.dp, RectangleShape)
             .background(MaterialTheme.colorScheme.surface)
             .border(0.5.dp, MaterialTheme.colorScheme.outline)
             .paintedShadow(RectangleShape, edge = 14.dp),
     ) {
-        DrawerHeader(state)
+        DrawerHeader(state, headerDragModifier, onOpenSettings)
         if (state.setupRequired) {
             SetupGuide(onOpenSettings)
         } else {
-            Messages(state, Modifier.weight(1f))
+            if (state.messages.isEmpty()) {
+                EmptyAgentActions(
+                    onSnip = onSnip,
+                    onExplainPage = onExplainPage,
+                    onSummarizeChapter = onSummarizeChapter,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Messages(state, Modifier.weight(1f))
+            }
             Composer(state)
             DrawerHints(state)
         }
     }
 }
 
+/** 空会话引导(A-19):只给三个真实动作 + 一句最小上传说明;composer 仍可自定义提问 */
 @Composable
-private fun DrawerHeader(state: AgentUiState) {
+private fun EmptyAgentActions(
+    onSnip: () -> Unit,
+    onExplainPage: () -> Unit,
+    onSummarizeChapter: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("随写随问", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "动作会把对应页面快照(含手写层)发给已连接的视觉模型",
+            fontSize = 11.sp, lineHeight = 16.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(18.dp))
+        EmptyAction("框选讲解", primary = true, onSnip)
+        Spacer(Modifier.height(8.dp))
+        EmptyAction("讲解本页", primary = false, onExplainPage)
+        Spacer(Modifier.height(8.dp))
+        EmptyAction("归纳本章", primary = false, onSummarizeChapter)
+    }
+}
+
+@Composable
+private fun EmptyAction(label: String, primary: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (primary) Modifier.background(accentBrush())
+                else Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (primary) Color.White else MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+@Composable
+private fun DrawerHeader(
+    state: AgentUiState,
+    headerDragModifier: Modifier = Modifier,
+    onOpenSettings: (page: String) -> Unit = {},
+) {
     val agent = ServiceLocator.agentController
     var showModels by remember { mutableStateOf(false) }
     Row(
@@ -139,6 +308,7 @@ private fun DrawerHeader(state: AgentUiState) {
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .innerHighlight(strength = 0.25f)
+            .then(headerDragModifier)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -150,7 +320,6 @@ private fun DrawerHeader(state: AgentUiState) {
                 .clip(CircleShape)
                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                 .clickable { showModels = !showModels }
-                .softHover()
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -177,9 +346,10 @@ private fun DrawerHeader(state: AgentUiState) {
             Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
         Spacer(Modifier.weight(1f))
+        // 关闭:48dp 命中(A-9),图标 16dp
         Box(
             Modifier
-                .size(26.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .clickable { agent.closeDrawer() },
             contentAlignment = Alignment.Center,
@@ -189,16 +359,22 @@ private fun DrawerHeader(state: AgentUiState) {
     }
     AnimatedVisibility(
         visible = showModels,
-        enter = expandVertically(tween(200)) + fadeIn(tween(200)),
-        exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+        enter = if (LocalMilkMotion.current) fadeIn(tween(60))
+        else expandVertically(tween(200)) + fadeIn(tween(200)),
+        exit = if (LocalMilkMotion.current) fadeOut(tween(60))
+        else shrinkVertically(tween(180)) + fadeOut(tween(140)),
     ) {
-        ModelSheet(state) { showModels = false }
+        ModelSheet(
+            state,
+            onDismiss = { showModels = false },
+            onOpenSettings = onOpenSettings,
+        )
     }
 }
 
 /** 无可用视觉模型 → 引导卡(§3.4:入口即视觉,不显示空对话) */
 @Composable
-private fun SetupGuide(onOpenSettings: () -> Unit) {
+private fun SetupGuide(onOpenSettings: (page: String) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -222,8 +398,10 @@ private fun SetupGuide(onOpenSettings: () -> Unit) {
             Modifier
                 .clip(CircleShape)
                 .background(accentBrush())
-                .clickable(onClick = onOpenSettings)
-                .padding(horizontal = 20.dp, vertical = 9.dp),
+                .clickable(onClick = { onOpenSettings("agent") })
+                .defaultMinSize(minHeight = 48.dp)
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Text("去设置", color = Color.White, style = MaterialTheme.typography.labelLarge)
         }
@@ -250,12 +428,13 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
             .background(bg)
             .border(1.dp, borderC, CircleShape)
             .clickable(onClick = onClick)
-            .softHover()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .defaultMinSize(minHeight = 48.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             label, fontSize = 11.sp,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp),
         )
     }
 }
@@ -266,35 +445,63 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun Messages(state: AgentUiState, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
     val agent = ServiceLocator.agentController
+    val scope = rememberCoroutineScope()
 
-    // 贴底跟随;用户上滑即解除
+    // 贴底跟随;用户上滑即解除(A-20)
     val atBottom by remember {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
             last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
         }
     }
-    LaunchedEffect(state.messages.lastOrNull()?.text?.length, state.messages.size) {
-        if (atBottom && state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.size - 1)
+    // A-20:新消息(条数变化)→ 动画滚动一次;同一条流式追加 → 直接贴底,不反复起动画
+    var prevSize by remember { mutableStateOf(-1) }
+    LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.text?.length) {
+        val n = state.messages.size
+        val animate = n != prevSize
+        prevSize = n
+        if (atBottom && n > 0) {
+            if (animate) listState.animateScrollToItem(n - 1)
+            else listState.scrollToItem(n - 1)
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxWidth(),
-        // 底部预留输入条高度:操作 chips 不被 composer 遮挡(视觉审查实证)
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(state.messages, key = { it.id }) { msg ->
-            when (msg.role) {
-                AgentMessage.Role.USER -> UserMessage(msg)
-                AgentMessage.Role.ASSISTANT -> AssistantMessage(state, msg)
+    Box(modifier.fillMaxWidth()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            // composer 位于正常流布局下方,仅保留常规内容间距(A-22,原 96dp 预留与布局重复)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(state.messages, key = { it.id }) { msg ->
+                when (msg.role) {
+                    AgentMessage.Role.USER -> UserMessage(msg)
+                    AgentMessage.Role.ASSISTANT -> AssistantMessage(state, msg)
+                }
+            }
+            if (state.error != null) {
+                item(key = "err") { ErrorBanner(state.error!!) }
             }
         }
-        if (state.error != null) {
-            item(key = "err") { ErrorBanner(state.error!!) }
+        // 流式中用户上滑后:显示「回到底部」(A-20)
+        if (!atBottom && state.messages.isNotEmpty()) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                    .clickable {
+                        scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
+                    }
+                    .defaultMinSize(minHeight = 48.dp)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("↓ 回到底部", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -403,7 +610,7 @@ private fun AssistantMessage(state: AgentUiState, msg: com.milknote.agent.UiMess
             }
             Spacer(Modifier.weight(1f))
         }
-        // 状态与操作 chips(§9):复制 / 插入批注层(幂等)/ 记忆卡 M3 stub
+        // 状态与操作 chips(§9):复制 / 插入批注层(幂等)
         when (msg.phase) {
             AgentMessage.Phase.STREAMING -> {}
             AgentMessage.Phase.FAILED -> ActionChip("重试", accent = true) { agent.retry() }
@@ -419,9 +626,9 @@ private fun AssistantMessage(state: AgentUiState, msg: com.milknote.agent.UiMess
                 if (msg.insertedAnnotationId == null) {
                     ActionChip("插入批注层", accent = true) { agent.insertAnnotation(msg.id) }
                 } else {
-                    ActionChip("已插入批注层 ✓", accent = false) {}
+                    // 已插入是状态不是操作:静态胶囊,不注册点击(空回调红线)
+                    StaticChip("已插入批注层 ✓")
                 }
-                ActionChip("记忆卡", enabled = false) {}   // M3
             }
             else -> {}
         }
@@ -450,13 +657,12 @@ private fun ActionChip(
             .clip(CircleShape)
             .background(bg)
             .clickable(enabled = enabled, onClick = onClick)
-            .softHover()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .defaultMinSize(minHeight = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let {
+            Spacer(Modifier.width(10.dp))
             Icon(it, null, modifier = Modifier.size(12.dp), tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline)
-            Spacer(Modifier.width(4.dp))
         }
         Text(
             label, fontSize = 11.sp,
@@ -465,6 +671,25 @@ private fun ActionChip(
                 accent -> MaterialTheme.colorScheme.primary
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
+            modifier = Modifier.padding(start = if (icon != null) 4.dp else 10.dp, end = 10.dp),
+        )
+    }
+}
+
+/** 状态展示胶囊(无点击语义) */
+@Composable
+private fun StaticChip(label: String) {
+    Row(
+        Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .defaultMinSize(minHeight = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label, fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp),
         )
     }
 }
@@ -509,6 +734,8 @@ private fun Composer(state: AgentUiState) {
     var text by remember { mutableStateOf("") }
     var showAttach by remember { mutableStateOf(false) }
     val streaming = state.phase == AgentMessage.Phase.STREAMING || state.phase == AgentMessage.Phase.SENDING
+    // A-23:无文字且无附件 → 发送禁用(灰底弱图标、disabled 语义),不产生空请求;48dp 命中保留
+    val canSend = text.isNotBlank() || state.draftAttachments.isNotEmpty()
 
     // slash 面板(§6.4:前缀匹配六意图 + /清空)
     val slashSuggestions = if (text.startsWith("/")) {
@@ -598,16 +825,21 @@ private fun Composer(state: AgentUiState) {
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 回形针:附件面板(当前页/整章/任意页;A2.6 真实作用)
-            Icon(
-                Icons.Outlined.AttachFile,
-                if (showAttach) "收起附件面板" else "附件",
-                modifier = Modifier
-                    .size(20.dp)
+            // 回形针:附件面板(48dp 命中,图标 20dp)
+            Box(
+                Modifier
+                    .size(48.dp)
                     .clickable { showAttach = !showAttach },
-                tint = if (showAttach) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(8.dp))
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.AttachFile,
+                    if (showAttach) "收起附件面板" else "附件",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (showAttach) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(4.dp))
             Box(Modifier.weight(1f)) {
                 if (text.isEmpty()) {
                     Text(
@@ -626,11 +858,11 @@ private fun Composer(state: AgentUiState) {
                     modifier = Modifier.fillMaxWidth().onFocusChanged { composerFocused = it.isFocused },
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(4.dp))
             if (streaming) {
                 Box(
                     Modifier
-                        .size(30.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { agent.stop() },
@@ -641,17 +873,24 @@ private fun Composer(state: AgentUiState) {
             } else {
                 Box(
                     Modifier
-                        .size(30.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(accentBrush())
-                        .clickable {
+                        .then(
+                            if (canSend) Modifier.background(accentBrush())
+                            else Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                        )
+                        .clickable(enabled = canSend) {
                             agent.setDraftText(text)
                             agent.send()
                             text = ""
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.AutoMirrored.Outlined.Send, "发送", modifier = Modifier.size(15.dp), tint = Color.White)
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Send, "发送",
+                        modifier = Modifier.size(15.dp),
+                        tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
                 }
             }
         }
@@ -686,7 +925,15 @@ private fun AttachmentPanel(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
             Spacer(Modifier.weight(1f))
-            Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onClose).padding(4.dp))
+            // 关闭:48dp 命中(A-9)
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         Spacer(Modifier.height(6.dp))
         // 快捷:当前页 / 整章
@@ -701,7 +948,7 @@ private fun AttachmentPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
         Spacer(Modifier.height(4.dp))
-        // 页列表(排除当前页——上面已有快捷)
+        // 页列表(排除当前页——上面已有快捷);超限内部滚动(A-18)
         Column(
             Modifier
                 .fillMaxWidth()
@@ -714,13 +961,12 @@ private fun AttachmentPanel(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onPickPage(pg) }
-                        .softHover()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .defaultMinSize(minHeight = 48.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(pg.pageId, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground)
+                    Text(pg.pageId, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 8.dp))
                     Spacer(Modifier.weight(1f))
-                    Text("+ 附加", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("+ 附加", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
                 }
             }
         }
@@ -729,20 +975,24 @@ private fun AttachmentPanel(
 
 @Composable
 private fun AttachPick(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        fontSize = 11.sp,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
+    Box(
+        Modifier
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
             .clickable(onClick = onClick)
-            .softHover()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
+            .defaultMinSize(minHeight = 48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 10.dp),
+        )
+    }
 }
 
-/** 草稿附件卡片(logicalName + 尺寸 + ✕ 移除) */
+/** 草稿附件卡片(logicalName + 尺寸 + ✕ 移除;移除命中扩大) */
 @Composable
 private fun DraftAttachmentCard(d: com.milknote.agent.DraftAttachment, onRemove: () -> Unit) {
     Column(
@@ -761,7 +1011,14 @@ private fun DraftAttachmentCard(d: com.milknote.agent.DraftAttachment, onRemove:
             Spacer(Modifier.width(4.dp))
             Text(d.logicalName, fontFamily = Mono, fontSize = 9.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
             Spacer(Modifier.width(4.dp))
-            Text("✕", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onRemove).padding(2.dp))
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("✕", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         Text(
             "${d.widthPx}×${d.heightPx}px" + if (d.source == com.milknote.agent.Attachment.Source.SNIP) " · 选区" else "",
@@ -796,7 +1053,11 @@ private fun DrawerHints(state: AgentUiState) {
 // ---------------- 模型切换 sheet(仅视觉) ----------------
 
 @Composable
-private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
+private fun ModelSheet(
+    state: AgentUiState,
+    onDismiss: () -> Unit,
+    onOpenSettings: (page: String) -> Unit,
+) {
     val agent = ServiceLocator.agentController
     Column(
         Modifier
@@ -810,37 +1071,45 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
             .paintedShadow(RoundedCornerShape(14.dp), edge = 10.dp)
             .padding(vertical = 8.dp),
     ) {
-        state.profiles.forEach { profile ->
-            Text(
-                profile.title,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            )
-            profile.models.filter { it.vision }.forEach { m ->
-                val active = profile.id == state.activeProfileId && m.id == state.activeModelId
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            agent.selectModel(profile.id, m.id)
-                            onDismiss()
-                        }
-                        .softHover()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
+        // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            state.profiles.forEach { profile ->
+                Text(
+                    profile.title,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+                profile.models.filter { it.vision }.forEach { m ->
+                    val active = profile.id == state.activeProfileId && m.id == state.activeModelId
+                    Row(
                         Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(m.id, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.weight(1f))
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                agent.selectModel(profile.id, m.id)
+                                onDismiss()
+                            }
+                            .defaultMinSize(minHeight = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .padding(start = 12.dp)
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(m.id, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -866,7 +1135,9 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
         )
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            Modifier
+                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             EffortChip("自动", current == com.milknote.agent.ReasoningEffort.AUTO) {
@@ -879,20 +1150,30 @@ private fun ModelSheet(state: AgentUiState, onDismiss: () -> Unit) {
             }
         }
         Text(
-            "档位映射因厂商而异(OpenAI/Kimi reasoning_effort · DeepSeek/GLM/Qwen thinking 开关 · OpenRouter reasoning.effort · Claude 预算);自动=不发参数",
-            fontSize = 9.sp, lineHeight = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            "档位映射因厂商而异;自动=不发参数。完整说明见 设置 · Agent。",
+            fontSize = 10.sp, lineHeight = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
         )
         Spacer(Modifier.height(4.dp))
-        Text(
-            "管理模型 → 设置 · Agent",
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
+        // A-17:真正进入 设置 · Agent(此前只关面板不导航)
+        Box(
+            Modifier
                 .padding(horizontal = 12.dp, vertical = 4.dp)
-                .clickable(onClick = onDismiss),
-        )
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    onDismiss()
+                    onOpenSettings("agent")
+                }
+                .defaultMinSize(minHeight = 48.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(
+                "管理模型 → 设置 · Agent",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
@@ -915,17 +1196,21 @@ private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
         animationSpec = tween(200),
         label = "effortChipBg",
     )
-    Text(
-        label,
-        fontSize = 11.sp,
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
+    Box(
+        Modifier
             .clip(CircleShape)
             .background(bg)
             .clickable(onClick = onClick)
-            .softHover()
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
+            .defaultMinSize(minHeight = 48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp),
+        )
+    }
 }
 
 // ---------------- Markdown 渲染(§6.3 容错子集) ----------------

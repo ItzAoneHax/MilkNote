@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.onFocusChanged
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
-import com.milknote.app.ui.common.softHover
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.LocalMilkWarning
 import com.milknote.app.ui.theme.Mono
@@ -107,7 +106,6 @@ internal fun SettingsNavRail(
                 .padding(horizontal = 12.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(onClick = onBack)
-                .softHover()
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -145,7 +143,6 @@ internal fun SettingsNavRail(
                             .clip(RoundedCornerShape(10.dp))
                             .background(itemBg)
                             .clickable { onSelect(item.key) }
-                            .softHover()
                             .padding(horizontal = 12.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -240,7 +237,7 @@ internal fun SettingsRow(
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick).softHover() else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -328,7 +325,6 @@ internal fun <T> InlineSelectionList(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onPick(item) }
-                        .softHover()
                         .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

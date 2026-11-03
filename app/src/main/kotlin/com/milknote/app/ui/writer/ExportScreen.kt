@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
-import com.milknote.app.ui.common.softHover
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.PillShape
@@ -203,7 +202,6 @@ private fun ExportTopBar(notebookName: String, onBack: () -> Unit) {
             Modifier
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(onClick = onBack)
-                .softHover()
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

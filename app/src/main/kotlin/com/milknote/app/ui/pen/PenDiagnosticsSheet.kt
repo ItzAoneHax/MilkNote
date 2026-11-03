@@ -61,7 +61,8 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
     val listState = rememberLazyListState()
 
     LaunchedEffect(entries.size) {
-        if (entries.isNotEmpty()) listState.animateScrollToItem(entries.size - 1)
+        // 事件流水逐条到达:直接贴底(不逐条动画滚动,A-20)
+        if (entries.isNotEmpty()) listState.scrollToItem(entries.size - 1)
     }
 
     fun reportText(): String = buildString {
@@ -176,7 +177,8 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
                     .fillMaxWidth()
                     .height(260.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.92f))
+                    // 终端语义(A-01):不随主题反转的固定深底——暗色下不得复用 onBackground(浅色)
+                    .background(com.milknote.app.ui.theme.ConsoleBg)
                     .padding(10.dp),
             ) {
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -187,11 +189,11 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
                             fontSize = 10.sp,
                             lineHeight = 13.sp,
                             color = when {
-                                e.text.startsWith("TRIGGER") -> androidx.compose.ui.graphics.Color(0xFF7D92FF)
-                                e.text.startsWith("PALM") -> androidx.compose.ui.graphics.Color(0xFFFFB86B)
-                                e.text.startsWith("EXPORT") -> androidx.compose.ui.graphics.Color(0xFFFFD65A)
-                                e.text.startsWith("KEY") || e.text.startsWith("BTN") -> androidx.compose.ui.graphics.Color(0xFF95E6CB)
-                                else -> androidx.compose.ui.graphics.Color(0xFFE8E6E0)
+                                e.text.startsWith("TRIGGER") -> com.milknote.app.ui.theme.ConsoleAccent
+                                e.text.startsWith("PALM") -> com.milknote.app.ui.theme.ConsoleWarn
+                                e.text.startsWith("EXPORT") -> com.milknote.app.ui.theme.ConsoleExport
+                                e.text.startsWith("KEY") || e.text.startsWith("BTN") -> com.milknote.app.ui.theme.ConsoleSuccess
+                                else -> com.milknote.app.ui.theme.ConsoleText
                             },
                         )
                     }

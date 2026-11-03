@@ -1,6 +1,5 @@
 package com.milknote.app.ui.common
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -12,12 +11,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -68,39 +64,29 @@ fun PenBatteryCapsule(
     }
 }
 
-/** 卡片双层软阴影 + hover 上浮(0.18–0.24s 过渡;§5.1 视觉语言)——委托 softShadow */
+/** 卡片双层软阴影(A2.8 视觉语言;R2 触控复审:移除通用 hover 上浮,红线三.3) */
 @Composable
-fun Modifier.softCard(hoverable: Boolean = true): Modifier =
-    this.softShadow(elevation = 6.dp, shape = MaterialTheme.shapes.large, hoverLift = hoverable)
+fun Modifier.softCard(): Modifier =
+    this.softShadow(elevation = 6.dp, shape = MaterialTheme.shapes.large)
 
 /**
- * 柔和基础设施(A2.8,DESIGN-V0 §5.1「柔和的皮」):
- * softShadow 双层 tinted 阴影 / innerHighlight 顶缘内高光 /
- * softHover 悬停淡背景 / softClickable 按压缩放。
+ * 柔和基础设施(A2.8,R2 触控复审收敛):
+ * softShadow 双层 tinted 阴影 / innerHighlight 顶缘内高光 / softClickable 按压反馈。
+ * hover 反馈已按「触控笔/手指优先」红线移除——按下-抬起才是触控反馈主体(A-32)。
  */
 @Composable
 fun Modifier.softShadow(
     elevation: Dp = 6.dp,
     shape: Shape = MaterialTheme.shapes.large,
-    hoverLift: Boolean = false,
 ): Modifier {
     val dark = com.milknote.app.ui.theme.LocalMilkDark.current
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val lift by animateFloatAsState(
-        targetValue = if (hovered && hoverLift) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "softShadowLift",
-    )
-    val base = this
+    return this
         .shadow(
-            elevation = elevation + elevation * lift,
+            elevation = elevation,
             shape = shape,
             ambientColor = if (dark) Color(0x33000000) else Color(0x141B1A16),
             spotColor = if (dark) Color(0x4D000000) else Color(0x2423221E),
         )
-        .graphicsLayer { translationY = -2f * lift }
-    return if (hoverLift) base.hoverable(interaction) else base
 }
 
 /** 顶缘内高光:1px 白渐变线(亮 45%→0 / 暗 10%→0);暗色表面收益最大,白卡上无害 */
@@ -161,20 +147,7 @@ fun Modifier.paintedShadow(shape: Shape, edge: Dp = 12.dp): Modifier {
     }
 }
 
-/** hover 淡背景(笔悬停/鼠标均触发,200ms 过渡);叠在自身 background 之后使用 */
-@Composable
-fun Modifier.softHover(bg: Color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.04f)): Modifier {
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val color by animateColorAsState(
-        targetValue = if (hovered) bg else Color.Transparent,
-        animationSpec = tween(durationMillis = 200),
-        label = "softHover",
-    )
-    return this.hoverable(interaction).background(color)
-}
-
-/** 按压缩放 0.97(120ms)+ 默认 ripple;CTA/工具按钮用 */
+/** 按压缩放 0.98(80ms,motionPress)+ 默认 ripple;CTA/工具按钮用(卡片/纸面不缩放) */
 @Composable
 fun Modifier.softClickable(
     enabled: Boolean = true,
@@ -183,8 +156,8 @@ fun Modifier.softClickable(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = tween(durationMillis = 120),
+        targetValue = if (pressed) 0.98f else 1f,
+        animationSpec = tween(durationMillis = 80),
         label = "softClickable",
     )
     return this

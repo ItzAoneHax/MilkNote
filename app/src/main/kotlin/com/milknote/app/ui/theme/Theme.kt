@@ -45,6 +45,13 @@ val LocalMilkWarning = androidx.compose.runtime.staticCompositionLocalOf { WarnA
 /** 当前是否暗色主题(themeMode 手动覆盖时不等于系统值;柔和层配色用) */
 val LocalMilkDark = androidx.compose.runtime.staticCompositionLocalOf { false }
 
+/**
+ * 减弱动效(A-28/红线「尊重系统减少动画」):系统 Animator 时长缩放为 0 时为 true。
+ * 为 true 时空间动画(位移/缩放/展开)退化为 ≤80ms 淡化或即时切换;
+ * 颜色过渡与书写路径不受影响。随 MilkRoot 组合时读取。
+ */
+val LocalMilkMotion = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /** 圆角比例(§5.1 视觉语言):卡片/弹窗 ~20,缩略图 ~10,小控件全胶囊 */
 val MilkShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),

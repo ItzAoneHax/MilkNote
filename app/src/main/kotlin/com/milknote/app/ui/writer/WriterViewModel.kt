@@ -320,6 +320,14 @@ class WriterViewModel : ViewModel() {
         _state.value = _state.value.copy(snip = _state.value.snip.copy(rect = rect, phase = SnipPhase.FROZEN))
     }
 
+    /** 拖动被系统取消(pointerCancel):清空未确认选区,留在 FROZEN 供重试(不执行任何动作) */
+    fun snipResetDrag() {
+        val s = _state.value.snip
+        if (s.phase == SnipPhase.FROZEN) {
+            _state.value = _state.value.copy(snip = s.copy(rect = null))
+        }
+    }
+
     /** 全页:选区扩为整页(页坐标矩形,由视图换算传入) */
     fun snipFullPage(pageRect: Rect4) {
         _state.value = _state.value.copy(snip = _state.value.snip.copy(rect = pageRect, phase = SnipPhase.CONFIRMED))

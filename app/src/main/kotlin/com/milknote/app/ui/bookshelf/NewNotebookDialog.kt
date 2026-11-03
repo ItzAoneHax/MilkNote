@@ -11,16 +11,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,7 +59,11 @@ import com.milknote.notes.model.PAGE_SIZES_MM
 import com.milknote.notes.model.PAPER_KINDS
 import com.milknote.notes.model.PURPOSE_TAGS
 
-/** ② 新建笔记本弹窗:名称 / 封面色 6 / 纸张尺寸·方向 / 纸张模板 / 用途标签;「创建 ↵」直接进入第 1 页 */
+/**
+ * ② 新建笔记本弹窗:名称 / 封面色 6 / 纸张尺寸·方向 / 纸张模板 / 用途标签;「创建 ↵」直接进入第 1 页。
+ * R2 复审:≤600dp 限宽(A-08);小窗/IME 可滚动、取消与创建始终可达;
+ * 色点/chips 48dp 命中,视觉尺寸不变(A-09)。
+ */
 @Composable
 fun NewNotebookDialog(
     onDismiss: () -> Unit,
@@ -74,189 +84,208 @@ fun NewNotebookDialog(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 120.dp)
+                .widthIn(max = 600.dp)   // 先限宽再 fill(顺序反了会通栏,实测像素验证)
+                .fillMaxWidth()
+                .imePadding()
+                .heightIn(max = 620.dp)
                 .softShadow(14.dp, RoundedCornerShape(20.dp))
                 .clip(RoundedCornerShape(20.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
                 .innerHighlight()
                 .paintedShadow(RoundedCornerShape(20.dp))
-                .padding(30.dp),
+                .padding(horizontal = 28.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text("新建笔记本", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // 名称输入(App 输入框语言:10dp 圆角 + focus 描边,替换 M3 OutlinedTextField)
-            var nameFocused by remember { mutableStateOf(false) }
-            val nameBorder by animateColorAsState(
-                if (nameFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                tween(200), label = "nameBorder",
-            )
-            Box(
+            // 内容区可滚动:小窗口/IME 打开时不裁切(A-08);CTA 固定在底部
+            Column(
                 Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, nameBorder, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (name.isEmpty()) {
-                    Text("如:高数·第三章", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                }
-                BasicTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onBackground),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { nameFocused = it.isFocused },
+                // 名称输入(App 输入框语言:10dp 圆角 + focus 描边,替换 M3 OutlinedTextField)
+                var nameFocused by remember { mutableStateOf(false) }
+                val nameBorder by animateColorAsState(
+                    if (nameFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    tween(200), label = "nameBorder",
                 )
-            }
-            Spacer(Modifier.height(18.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, nameBorder, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    if (name.isEmpty()) {
+                        Text("如:高数·第三章", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    }
+                    BasicTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { submit() }),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onBackground),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { nameFocused = it.isFocused },
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
 
-            Text("封面色", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CoverPalette.forEachIndexed { i, c ->
-                    val sel = i == coverIdx
-                    val ring by animateDpAsState(if (sel) 3.dp else 1.dp, tween(200), label = "coverRing")
-                    Box(
-                        Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(c)
-                            .border(
-                                width = ring,
-                                color = if (sel) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
-                                shape = CircleShape,
+                Text("封面色", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CoverPalette.forEachIndexed { i, c ->
+                        val sel = i == coverIdx
+                        val ring by animateDpAsState(if (sel) 3.dp else 1.dp, tween(200), label = "coverRing")
+                        // 48dp 命中,视觉色点 30dp(A-9)
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clickable { coverIdx = i },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(c)
+                                    .border(
+                                        width = ring,
+                                        color = if (sel) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
+                                        shape = CircleShape,
+                                    ),
                             )
-                            .clickable { coverIdx = i },
-                    )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+
+                Text("尺寸 · 方向", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PAGE_SIZES_MM.keys.forEach { id ->
+                        OptionChip(
+                            label = id,
+                            selected = pageSize == id,
+                            selectedBg = MaterialTheme.colorScheme.onBackground,
+                            selectedFg = MaterialTheme.colorScheme.background,
+                        ) { pageSize = id }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    PAGE_ORIENTATIONS.forEach { (id, label) ->
+                        OptionChip(
+                            label = label,
+                            selected = orientation == id,
+                            selectedBg = MaterialTheme.colorScheme.primary,
+                            selectedFg = MaterialTheme.colorScheme.onPrimary,
+                        ) { orientation = id }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+
+                Text("纸张", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PAPER_KINDS.forEach { (id, label) ->
+                        OptionChip(
+                            label = label,
+                            selected = paper == id,
+                            selectedBg = MaterialTheme.colorScheme.onBackground,
+                            selectedFg = MaterialTheme.colorScheme.background,
+                        ) { paper = id }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+
+                Text("用途", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PURPOSE_TAGS.forEach { tag ->
+                        OptionChip(
+                            label = tag,
+                            selected = purpose == tag,
+                            selectedBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            selectedFg = MaterialTheme.colorScheme.primary,
+                        ) { purpose = tag }
+                    }
                 }
             }
-            Spacer(Modifier.height(18.dp))
 
-            Text("尺寸 · 方向", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(20.dp))
+            // CTA 行:取消 + 创建,均 ≥48dp 命中,始终可达(A-08)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PAGE_SIZES_MM.keys.forEach { id ->
-                    val sel = pageSize == id
-                    val bg by animateColorAsState(
-                        if (sel) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.surface,
-                        tween(200), label = "sizeBg",
+                Box(
+                    Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss)
+                        .defaultMinSize(minHeight = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "取消",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 18.dp),
                     )
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(bg)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                            .clickable { pageSize = id }
-                            .padding(horizontal = 16.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            id,
-                            fontSize = 13.sp,
-                            color = if (sel) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
                 }
                 Spacer(Modifier.width(8.dp))
-                PAGE_ORIENTATIONS.forEach { (id, label) ->
-                    val sel = orientation == id
-                    val bg by animateColorAsState(
-                        if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                        tween(200), label = "orientBg",
-                    )
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(bg)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                            .clickable { orientation = id }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
-                            color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(accentBrush())
+                        .softClickable { submit() }
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("创建", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.width(8.dp))
+                    Text("↵", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
                 }
-            }
-            Spacer(Modifier.height(18.dp))
-
-            Text("纸张", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PAPER_KINDS.forEach { (id, label) ->
-                    val sel = paper == id
-                    val bg by animateColorAsState(
-                        if (sel) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.surface,
-                        tween(200), label = "paperBg",
-                    )
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(bg)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                            .clickable { paper = id }
-                            .padding(horizontal = 16.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
-                            color = if (sel) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-
-            Text("用途", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PURPOSE_TAGS.forEach { tag ->
-                    val sel = purpose == tag
-                    val bg by animateColorAsState(
-                        if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-                        tween(200), label = "purposeBg",
-                    )
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(bg)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                            .clickable { purpose = tag }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            tag,
-                            fontSize = 12.sp,
-                            color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(26.dp))
-
-            // 创建 ↵
-            Row(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(accentBrush())
-                    .softClickable { submit() }
-                    .padding(horizontal = 30.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("创建", color = Color.White, style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.width(8.dp))
-                Text("↵", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
             }
         }
+    }
+}
+
+/** 表单选项 chip:48dp 命中(视觉文字不变大),选中底色/前景 200ms 过渡 */
+@Composable
+private fun OptionChip(
+    label: String,
+    selected: Boolean,
+    selectedBg: Color,
+    selectedFg: Color,
+    onClick: () -> Unit,
+) {
+    val bg by animateColorAsState(
+        if (selected) selectedBg else MaterialTheme.colorScheme.surface,
+        tween(200), label = "optionChipBg",
+    )
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .defaultMinSize(minHeight = 48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            color = if (selected) selectedFg else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 14.dp),
+        )
     }
 }
 

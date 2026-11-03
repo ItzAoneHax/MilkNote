@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +73,7 @@ fun MilkRoot() {
     var showPalette by remember { mutableStateOf(false) }
     var showNewNotebook by remember { mutableStateOf(false) }
     var settingsFromWriter by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf("appearance") }
     val context = LocalContext.current
 
     val bookshelfVm: BookshelfViewModel = viewModel()
@@ -163,8 +165,9 @@ fun MilkRoot() {
         }
     }
 
-    val openSettings: (fromWriter: Boolean) -> Unit = { fromWriter ->
+    val openSettings: (fromWriter: Boolean, page: String) -> Unit = { fromWriter, page ->
         settingsFromWriter = fromWriter
+        settingsPage = page
         screen = MilkScreen.Settings
     }
 
@@ -194,7 +197,7 @@ fun MilkRoot() {
                     screen = MilkScreen.Export(s.notebookId)
                 },
                 CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
-                CommandItem("id_settings", "设置", section = "通用") { openSettings(true) },
+                CommandItem("id_settings", "设置", section = "通用") { openSettings(true, "appearance") },
             )
         }
         else -> {
@@ -207,7 +210,7 @@ fun MilkRoot() {
                     screen = MilkScreen.Writer(nb.id)
                 }
             } + listOf(
-                CommandItem("id_settings", "设置", section = "通用") { openSettings(false) },
+                CommandItem("id_settings", "设置", section = "通用") { openSettings(false, "appearance") },
             )
         }
     }
@@ -234,13 +237,47 @@ fun MilkRoot() {
     }
 
     MilkTheme(darkTheme = dark) {
+        // A-02:系统栏跟随「最终生效主题」(手动深色 ≠ 系统值)——底色与背景一致、
+        // 图标外观随主题反色;不依赖 launch 时按系统 uiMode 定型的 themes.xml
+        val sysBarView = androidx.compose.ui.platform.LocalView.current
+        val reducedMotion = remember(context) {
+            runCatching {
+                android.provider.Settings.Global.getFloat(
+                    context.contentResolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                    1f,
+                ) == 0f
+            }.getOrDefault(false)
+        }
+        androidx.compose.runtime.DisposableEffect(dark) {
+            val window = (sysBarView.context as? android.app.Activity)?.window
+                ?: com.milknote.app.di.ServiceLocator.activity?.window
+            if (window != null) {
+                val bg = if (dark) com.milknote.app.ui.theme.PaperDark else com.milknote.app.ui.theme.PaperLight
+                @Suppress("DEPRECATION") // 35 仍生效;enableEdgeToEdge 下我们自绘全屏背景,系统栏只需同色
+                window.statusBarColor = bg.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = bg.toArgb()
+                // API 29+:系统对透明导航栏强制加对比纱罩(实测残白 #F9F9FF),须显式关闭
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    window.isNavigationBarContrastEnforced = false
+                }
+                val insets = androidx.core.view.WindowCompat.getInsetsController(window, sysBarView)
+                insets.isAppearanceLightStatusBars = !dark
+                insets.isAppearanceLightNavigationBars = !dark
+            }
+            onDispose {}
+        }
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.milknote.app.ui.theme.LocalMilkMotion provides reducedMotion,
+        ) {
         Box(Modifier.fillMaxSize()) {
             when (val s = screen) {
                 is MilkScreen.Bookshelf -> BookshelfScreen(
                     vm = bookshelfVm,
                     onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
                     onOpenDiagnostics = { showDiagnostics = true },
-                    onOpenSettings = { openSettings(false) },
+                    onOpenSettings = { openSettings(false, "appearance") },
                     onOpenPalette = { showPalette = true },
                     showNewNotebook = showNewNotebook,
                     onNewNotebookHandled = { showNewNotebook = false },
@@ -251,7 +288,7 @@ fun MilkRoot() {
                     onBack = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenPalette = { showPalette = true },
-                    onOpenSettings = { openSettings(true) },
+                    onOpenSettings = { page -> openSettings(true, page) },
                     // 主线程已在 WriterScreen 增加 onOpenExport 参数(顶栏导出入口接通)
                     onOpenExport = { screen = MilkScreen.Export(s.notebookId) },
                 )
@@ -264,6 +301,7 @@ fun MilkRoot() {
                     )
                 }
                 is MilkScreen.Settings -> SettingsScreen(
+                    initialPage = settingsPage,
                     onBack = {
                         screen = if (settingsFromWriter) {
                             writerVm.state.value.notebook?.let { MilkScreen.Writer(it.id) } ?: MilkScreen.Bookshelf
@@ -286,11 +324,14 @@ fun MilkRoot() {
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     Box(Modifier.padding(top = 90.dp).clickable(enabled = false) {}) {
+                        // 减弱动效:取消缩放,仅 ≤80ms 淡化(红线三.11)
+                        val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
                         AnimatedVisibility(
                             visible = showPalette,
-                            enter = fadeIn(animationSpec = tween(180)) +
+                            enter = if (reduced) fadeIn(animationSpec = tween(60))
+                            else fadeIn(animationSpec = tween(180)) +
                                 scaleIn(initialScale = 0.97f, animationSpec = tween(200)),
-                            exit = fadeOut(animationSpec = tween(140)),
+                            exit = fadeOut(animationSpec = tween(if (reduced) 60 else 140)),
                         ) {
                             CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
                         }
@@ -301,6 +342,7 @@ fun MilkRoot() {
             if (showDiagnostics) {
                 PenDiagnosticsSheet(onDismiss = { showDiagnostics = false })
             }
+        }
         }
     }
 }
