@@ -231,6 +231,36 @@ class SelectionTransformTest {
         assertEquals(0f, c.selectionTransformSnapshot()?.rotationDeg ?: 99f, 0.001f)
     }
 
+    @Test fun `旋转吸附按元素最终朝向而非旋转增量`() {
+        val rotated = image().copy(rotationDeg = 10f)
+        val c = controller(strokes = emptyList(), cards = emptyList(), images = listOf(rotated))
+        assertNotNull(c.selectElementAt(80f, 40f))
+        c.beginSelectionTransform(SelectionHandle.ROTATE)
+        c.moveSelectionTransform(1f, 0f)
+        assertEquals(0f, c.selectionTransformSnapshot()?.rotationDeg ?: 99f, 0.001f)
+        c.moveSelectionTransform(1f, 31f)
+        assertEquals(35f, c.selectionTransformSnapshot()?.rotationDeg ?: 0f, 0.001f)
+        assertTrue(c.endSelectionTransform())
+        assertEquals(45f, c.page.images.single().rotationDeg, 0.001f)
+    }
+
+    @Test fun `多选旋转按最接近档位的元素朝向吸附`() {
+        val first = image("i1").copy(rotationDeg = 15f)
+        val second = image("i2").copy(
+            x = 160f, y = 20f, width = 30f, height = 30f, rotationDeg = 40f,
+        )
+        val c = controller(strokes = emptyList(), cards = emptyList(), images = listOf(first, second))
+        c.armLasso()
+        val loop = listOf(pt(0f, 0f), pt(220f, 0f), pt(220f, 100f), pt(0f, 100f))
+        c.beginLasso(loop.first()); loop.drop(1).forEach(c::extendLasso); c.endLasso()
+        c.beginSelectionTransform(SelectionHandle.ROTATE)
+        c.moveSelectionTransform(1f, 3f)
+        assertEquals(5f, c.selectionTransformSnapshot()?.rotationDeg ?: 0f, 0.001f)
+        assertTrue(c.endSelectionTransform())
+        assertEquals(20f, c.page.images.first { it.id == "i1" }.rotationDeg, 0.001f)
+        assertEquals(45f, c.page.images.first { it.id == "i2" }.rotationDeg, 0.001f)
+    }
+
     @Test fun `当前选区可关闭吸附且新选区默认恢复开启`() {
         val c = controller(strokes = listOf(stroke()), cards = emptyList(), images = emptyList())
         c.pageBoundsProvider = { com.milknote.ink.model.StrokeGeom.Box(0f, 0f, 200f, 200f) }

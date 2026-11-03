@@ -394,7 +394,32 @@ class InkController {
         return best.scale
     }
 
+    /** 吸附按元素最终朝向计算；多选时选择修正量最小的元素作为参考。 */
     private fun snapRotation(angle: Float): Float {
+        val refs = selectionRefs
+        val baseAngles = if (refs == null) emptyList() else buildList {
+            page.images.filter { ElementRef(ElementRef.Kind.IMAGE, it.id) in refs }
+                .forEach { add(it.rotationDeg) }
+            page.cards.filter { ElementRef(ElementRef.Kind.CARD, it.id) in refs }
+                .forEach { add(it.rotationDeg) }
+        }
+        if (baseAngles.isEmpty()) return snapRotationDelta(angle)
+        var best: Float? = null
+        var bestCorrection = Float.MAX_VALUE
+        for (base in baseAngles) {
+            val absolute = ((base + angle) % 360f + 360f) % 360f
+            val nearest = (absolute / 45f).roundToInt() * 45
+            val correction = nearest - absolute
+            if (abs(correction) <= 6f && abs(correction) < bestCorrection) {
+                best = angle + correction
+                bestCorrection = abs(correction)
+            }
+        }
+        return best ?: angle
+    }
+
+    /** 无图片/文字卡可参考时（纯笔迹选区）退回按旋转增量吸附。 */
+    private fun snapRotationDelta(angle: Float): Float {
         val normalized = (angle % 360f + 360f) % 360f
         val nearest = (normalized / 45f).roundToInt() * 45
         val delta = (normalized - nearest + 540f) % 360f - 180f
