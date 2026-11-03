@@ -38,6 +38,7 @@ import com.milknote.app.ui.settings.AppSettings
 import com.milknote.app.ui.settings.SettingsScreen
 import com.milknote.app.ui.settings.ThemeMode
 import com.milknote.app.ui.theme.MilkTheme
+import com.milknote.app.ui.writer.ExportScreen
 import com.milknote.app.ui.writer.WriterScreen
 import com.milknote.app.ui.writer.WriterViewModel
 import com.milknote.device.pen.PenAction
@@ -45,10 +46,11 @@ import com.milknote.device.pen.PenTrigger
 import com.milknote.ink.input.InkAction
 import kotlinx.coroutines.flow.first
 
-/** IA 仅两层 + 设置(DESIGN-V0 §5.3:书架 ↔ 书写页;设置为覆盖层) */
+/** IA 仅两层 + 设置(DESIGN-V0 §5.3:书架 ↔ 书写页;设置为覆盖层);导出页挂书写会话之下 */
 private sealed interface MilkScreen {
     data object Bookshelf : MilkScreen
     data class Writer(val notebookId: String) : MilkScreen
+    data class Export(val notebookId: String) : MilkScreen
     data object Settings : MilkScreen
 }
 
@@ -188,8 +190,8 @@ fun MilkRoot() {
                         it.quickIntent(com.milknote.agent.Intents.Id.SUMMARIZE)
                     }
                 },
-                CommandItem("id_export", "全部导出 PDF", hint = "${st.pages.size} 页", section = "笔记") {
-                    writerVm.exportPdf { writerVm.toast(it) }
+                CommandItem("id_export", "导出笔记", hint = "PNG · PDF", section = "笔记") {
+                    screen = MilkScreen.Export(s.notebookId)
                 },
                 CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
                 CommandItem("id_settings", "设置", section = "通用") { openSettings(true) },
@@ -210,10 +212,18 @@ fun MilkRoot() {
         }
     }
 
-    BackHandler(enabled = screen is MilkScreen.Writer || screen is MilkScreen.Settings || showPalette) {
+    BackHandler(
+        enabled = screen is MilkScreen.Writer ||
+            screen is MilkScreen.Export ||
+            screen is MilkScreen.Settings ||
+            showPalette,
+    ) {
         when {
             showPalette -> showPalette = false
             screen is MilkScreen.Writer -> { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf }
+            screen is MilkScreen.Export -> {
+                screen = MilkScreen.Writer((screen as MilkScreen.Export).notebookId)
+            }
             screen is MilkScreen.Settings -> {
                 screen = if (settingsFromWriter) {
                     writerVm.state.value.notebook?.let { MilkScreen.Writer(it.id) } ?: MilkScreen.Bookshelf
@@ -242,7 +252,17 @@ fun MilkRoot() {
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenPalette = { showPalette = true },
                     onOpenSettings = { openSettings(true) },
+                    // 主线程已在 WriterScreen 增加 onOpenExport 参数(顶栏导出入口接通)
+                    onOpenExport = { screen = MilkScreen.Export(s.notebookId) },
                 )
+                is MilkScreen.Export -> {
+                    // 导出页复用书写页 VM(open 幂等:同 id 早退);返回钮走 onBack → Writer
+                    LaunchedEffect(s.notebookId) { writerVm.open(s.notebookId) }
+                    ExportScreen(
+                        vm = writerVm,
+                        onBack = { screen = MilkScreen.Writer(s.notebookId) },
+                    )
+                }
                 is MilkScreen.Settings -> SettingsScreen(
                     onBack = {
                         screen = if (settingsFromWriter) {

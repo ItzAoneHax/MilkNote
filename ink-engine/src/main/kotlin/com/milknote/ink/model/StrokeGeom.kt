@@ -1,5 +1,8 @@
 package com.milknote.ink.model
 
+import kotlin.math.cos
+import kotlin.math.sin
+
 /** 笔迹几何:包围盒 + 相交测试(整笔划橡皮擦除用) */
 object StrokeGeom {
 
@@ -20,14 +23,53 @@ object StrokeGeom {
         return Box(l, t, r, b)
     }
 
-    /** 擦除判定:eraser 轨迹(按其宽度扩张)与目标笔迹包围盒相交,且有点落在扩张盒内 */
+    /**
+     * 笔迹展开为几何折线:普通笔迹 = 采样点;形状(RECT/OVAL/LINE,两点 Stroke)=
+     * 可见轮廓 —— RECT 四边(闭合)、OVAL 椭圆 32 采样(闭合)、LINE 线段。
+     * 擦除/套索命中按可见轮廓判定(图形引擎 §形状兼容)。
+     */
+    fun polyline(s: Stroke): List<InkPoint> {
+        if (!s.tool.isShape) return s.points
+        if (s.points.isEmpty()) return s.points
+        val a = s.points.first()
+        val b = s.points.last()
+        val t0 = a.timeMs
+        return when (s.tool) {
+            InkTool.LINE -> listOf(a, b)
+            InkTool.RECT -> {
+                val l = minOf(a.x, b.x); val t = minOf(a.y, b.y)
+                val r = maxOf(a.x, b.x); val bo = maxOf(a.y, b.y)
+                listOf(
+                    pt(l, t, t0), pt(r, t, t0 + 1), pt(r, bo, t0 + 2),
+                    pt(l, bo, t0 + 3), pt(l, t, t0 + 4),   // 闭合
+                )
+            }
+            InkTool.OVAL -> {
+                val l = minOf(a.x, b.x); val t = minOf(a.y, b.y)
+                val r = maxOf(a.x, b.x); val bo = maxOf(a.y, b.y)
+                val cx = (l + r) / 2f; val cy = (t + bo) / 2f
+                val rx = (r - l) / 2f; val ry = (bo - t) / 2f
+                val n = 32
+                (0..n).map { i ->
+                    val ang = (i % n) * (2.0 * Math.PI / n)
+                    pt(cx + rx * cos(ang).toFloat(), cy + ry * sin(ang).toFloat(), t0 + i.toLong())
+                }
+            }
+            else -> s.points
+        }
+    }
+
+    private fun pt(x: Float, y: Float, t: Long) = InkPoint(x, y, 0f, 0f, 0f, t)
+
+    /** 擦除判定:eraser 轨迹(按其宽度扩张)与目标几何(形状 = 可见轮廓)相交,且有点落在扩张盒内 */
     fun intersects(target: Stroke, eraser: Stroke): Boolean {
         val half = eraser.baseWidthMm * MM_TO_PX * 0.5f + 2f
         val eb = bounds(eraser).expand(half)
         if (!eb.intersects(bounds(target))) return false
-        for (p in target.points) if (eb.contains(p.x, p.y)) return true
+        val targetPts = polyline(target)
+        for (p in targetPts) if (eb.contains(p.x, p.y)) return true
         // 点阵皆在盒外但轨迹可能穿过:退化为线段相交采样(目标轨迹点到 eraser 线段距离)
-        val eps = target.points
+        val eps = targetPts
         val pts = eraser.points
         if (eps.size < 2 || pts.size < 2) return false
         for (i in 1 until eps.size) for (j in 1 until pts.size) {
@@ -74,7 +116,9 @@ object LassoGeom {
         return inside
     }
 
-    /** stroke 是否被圈选捕获:非空且所有点均在路径内 */
-    fun captures(polygon: List<InkPoint>, stroke: Stroke): Boolean =
-        stroke.points.isNotEmpty() && stroke.points.all { contains(polygon, it.x, it.y) }
+    /** stroke 是否被圈选捕获:非空且所有几何点(形状 = 可见轮廓采样)均在路径内 */
+    fun captures(polygon: List<InkPoint>, stroke: Stroke): Boolean {
+        val pts = StrokeGeom.polyline(stroke)
+        return pts.isNotEmpty() && pts.all { contains(polygon, it.x, it.y) }
+    }
 }

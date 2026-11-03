@@ -33,8 +33,17 @@ val CoverPalette = listOf(
     Color(0xFFD98E04), Color(0xFF7C5CE0), Color(0xFF2C8CC8),
 )
 
-// 墨色选择(工具条:墨黑/蓝/红/荧光黄)
-val InkPalette = listOf(
-    Color(0xFF23221E), Color(0xFF3B5BEC), Color(0xFFD2483C),
-    Color(0xFFFFD65A),
-)
+// 书写工具默认 ARGB;每种笔的独立色板由 WriterToolSettings 组合
+const val InkBlackArgb = 0xFF23221E
+const val InkBlueArgb = 0xFF3B5BEC
+const val InkRedArgb = 0xFFD2483C
+const val InkGreenArgb = 0xFF2E9E6B
+const val InkPurpleArgb = 0xFF7C5CE0
+const val BallBlueArgb = 0xFF2C8CC8
+const val HighlightYellowArgb = 0xFFFFD65A
+const val HighlightPinkArgb = 0xFFFF8FA3
+const val HighlightGreenArgb = 0xFF8FDC97
+const val HighlightBlueArgb = 0xFF83C5FF
+
+// 兼容其他界面的基础墨色板
+val InkPalette = listOf(Color(InkBlackArgb), Color(InkBlueArgb), Color(InkRedArgb), Color(HighlightYellowArgb))

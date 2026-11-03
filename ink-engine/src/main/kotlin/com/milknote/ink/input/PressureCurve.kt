@@ -38,7 +38,7 @@ object PressureCurve {
         return smoothstep(n).pow(gamma.gamma)
     }
 
-    /** 按工具得到宽度倍率曲线:圆珠压感弱(区间压半),荧光笔不随压感(恒宽) */
+    /** 按工具得到宽度倍率曲线:圆珠压感弱(区间压半),荧光笔/形状工具不随压感(恒宽) */
     fun widthRatio(tool: InkTool, p: Float, gamma: PressureGamma): Float {
         val r = curve(p, gamma)
         return when (tool) {
@@ -46,6 +46,7 @@ object PressureCurve {
             InkTool.BALL -> 0.55f + 0.45f * r          // 恒定感更强
             InkTool.HIGHLIGHTER -> 1f                   // 恒宽
             InkTool.ERASER -> 1f
+            InkTool.RECT, InkTool.OVAL, InkTool.LINE -> 1f   // 形状:恒定线宽
         }
     }
 

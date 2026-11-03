@@ -5,6 +5,13 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 应用内「最近图片」选择(插入照片到笔记):打开选择器时才动态请求。
+         33+ 用细粒度媒体权限;31–32 用旧版读存储(maxSdkVersion 圈定,33+ 系统自动忽略) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- 笔键长按接管(写 Secure 表 gb_boosting;signature 权限,一次性
          adb shell pm grant com.milknote.app android.permission.WRITE_SECURE_SETTINGS) -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"

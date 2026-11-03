@@ -1,6 +1,8 @@
 package com.milknote.app.ui.writer
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
@@ -16,11 +18,15 @@ import com.milknote.ink.input.InkAction
 import com.milknote.ink.input.InkCommit
 import com.milknote.ink.input.InkController
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.ImageElement
+import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.notes.model.NotebookMeta
 import com.milknote.notes.model.NotebookPage
+import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,14 +42,16 @@ data class WriterUiState(
     val notebook: NotebookMeta? = null,
     val pages: List<NotebookPage> = emptyList(),
     val currentPageId: String = "p0001",
-    val tool: ToolConfig = ToolConfig(),
+    val toolSettings: WriterToolSettings = WriterToolSettings(),
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val lassoArmed: Boolean = false,          // 套索模式(等待圈选)
     val selectionCount: Int = 0,              // 选中笔迹数(>0 显示操作条)
     val frontBufferEnabled: Boolean = false,  // 前置缓冲出墨(设置)
     val snip: SnipUiState = SnipUiState(),    // ④ 框选模式(AGENT-BACKEND §4.2)
-)
+) {
+    val tool: ToolConfig get() = toolSettings.current
+}
 
 /** ④ 框选状态:IDLE → FROZEN(拖选中)→ CONFIRMED(松开待发) */
 data class SnipUiState(
@@ -84,13 +92,9 @@ class WriterViewModel : ViewModel() {
         viewModelScope.launch {
             ServiceLocator.appSettings.flow.collect { s ->
                 frontBufferFlag = s.frontBufferInk
-                if (controller.tool.pressureGamma != s.pressureGamma) {
-                    controller.tool = controller.tool.copy(pressureGamma = s.pressureGamma)
-                }
-                _state.value = _state.value.copy(
-                    tool = controller.tool,
-                    frontBufferEnabled = s.frontBufferInk,
-                )
+                val settings = _state.value.toolSettings.withPressureGamma(s.pressureGamma)
+                applyToolSettings(settings)
+                _state.value = _state.value.copy(frontBufferEnabled = s.frontBufferInk)
             }
         }
         registerAgentBridge()
@@ -118,12 +122,15 @@ class WriterViewModel : ViewModel() {
         val cards = if (pageId == _state.value.currentPageId) {
             controller.annotationCards()
         } else null
+        val images = if (pageId == _state.value.currentPageId) controller.images() else null
         return AgentBridge.PageData(
             strokes = strokes ?: repo.loadPage(notebookId, pageId),
             cards = cards ?: repo.loadAnnotations(notebookId, pageId),
             paper = nb.paper,
             pageSize = nb.pageSize,
             orientation = nb.orientation,
+            images = images ?: repo.loadImages(notebookId, pageId),
+            imageDir = repo.notebookDir(notebookId).absolutePath,
         )
     }
 
@@ -157,13 +164,104 @@ class WriterViewModel : ViewModel() {
         id
     }
 
+    /** 手动插入文字框:沿用批注卡的拖动、撤销、落盘与导出链路。 */
+    fun createTextCard(text: String) {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val (pageW, pageH) = nb.pageMm(PageRenderer.MM_TO_PX)
+        val width = AnnotationCardRenderer.cardWidthDefault(pageW)
+        val card = AnnotationCard(
+            id = UUID.randomUUID().toString().substring(0, 8),
+            x = (pageW - width) / 2f,
+            y = pageH * 0.28f,
+            width = width,
+            kind = AnnotationCard.Kind.TEXT,
+            text = text,
+            createdAt = System.currentTimeMillis(),
+        )
+        controller.addAnnotationCard(card)
+        viewModelScope.launch { refreshThumbOf(pageId) }
+    }
+
+    /** 形状使用两点 Stroke,撤销/擦除/套索与 proto 沿用普通笔迹路径。 */
+    fun addShape(config: ShapeConfig, start: Pair<Float, Float>, end: Pair<Float, Float>) {
+        val now = System.currentTimeMillis()
+        val previous = controller.tool
+        controller.tool = previous.copy(tool = config.tool, color = config.color, baseWidthMm = config.widthMm)
+        controller.beginStroke(InkPoint(start.first, start.second, 1f, 0f, 0f, now))
+        controller.extendStroke(listOf(InkPoint(end.first, end.second, 1f, 0f, 0f, now + 1)))
+        controller.endStroke()
+        controller.tool = previous
+        viewModelScope.launch { refreshThumbOf(_state.value.currentPageId) }
+    }
+
+    /** 将相册图片复制进笔记本资产目录,再作为页面元素插入,避免 content Uri 授权过期。 */
+    fun insertImage(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val nb = _state.value.notebook ?: return@launch
+            val pageId = _state.value.currentPageId
+            val dir = File(repo.notebookDir(notebookId), "images").apply { mkdirs() }
+            val digest = MessageDigest.getInstance("SHA-256")
+            val tmp = File(dir, "${UUID.randomUUID()}.tmp")
+            val copied = runCatching {
+                ServiceLocator.appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            digest.update(buffer, 0, count)
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                } ?: error("无法读取图片")
+            }
+            if (copied.isFailure) {
+                tmp.delete()
+                toast("插图失败:无法读取图片")
+                return@launch
+            }
+            val hash = digest.digest().joinToString("") { "%02x".format(it) }.substring(0, 24)
+            val ext = when (ServiceLocator.appContext.contentResolver.getType(uri)) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val target = File(dir, "$hash.$ext")
+            if (target.exists()) tmp.delete() else if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true); tmp.delete()
+            }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(target.absolutePath, options)
+            if (options.outWidth <= 0 || options.outHeight <= 0) {
+                toast("插图失败:图片格式不支持")
+                return@launch
+            }
+            val (pageW, pageH) = nb.pageMm(PageRenderer.MM_TO_PX)
+            val scale = minOf(pageW * 0.55f / options.outWidth, pageH * 0.55f / options.outHeight, 1f)
+            val width = options.outWidth * scale
+            val height = options.outHeight * scale
+            val image = ImageElement(
+                id = UUID.randomUUID().toString().substring(0, 12),
+                src = "images/${target.name}",
+                x = (pageW - width) / 2f,
+                y = (pageH - height) / 2f,
+                width = width,
+                height = height,
+                createdAt = System.currentTimeMillis(),
+            )
+            withContext(Dispatchers.Main) {
+                controller.addImageElement(image)
+                refreshThumbOf(pageId)
+                toast("已插入图片")
+            }
+        }
+    }
+
     /** 笔动作(笔键手势路由结果;按住修饰类由视图直接处理,不经过这里) */
     fun onPenAction(action: InkAction) {
         when (action) {
-            InkAction.TOGGLE_ERASER -> {
-                val t = _state.value.tool
-                setTool(if (t.tool == InkTool.ERASER) InkTool.PEN else InkTool.ERASER)
-            }
+            InkAction.TOGGLE_ERASER -> toggleEraser()
             InkAction.UNDO -> controller.undo()
             InkAction.REDO -> controller.redo()
             InkAction.NEW_PAGE -> newPage()
@@ -270,10 +368,10 @@ class WriterViewModel : ViewModel() {
             notebook = nb,
             pages = repo.listPages(nbId),
             currentPageId = cur,
-            tool = controller.tool,
+            toolSettings = _state.value.toolSettings,
             frontBufferEnabled = frontBufferFlag,
         )
-        controller.loadStrokes(repo.loadPage(nbId, cur), repo.loadAnnotations(nbId, cur))
+        controller.loadStrokes(repo.loadPage(nbId, cur), repo.loadAnnotations(nbId, cur), repo.loadImages(nbId, cur))
         bindAgent(nb.id, cur)
         refreshAllThumbs()
     }
@@ -287,9 +385,10 @@ class WriterViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val strokes = repo.loadPage(notebookId, pageId)
             val cards = repo.loadAnnotations(notebookId, pageId)
+            val images = repo.loadImages(notebookId, pageId)
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(currentPageId = pageId)
-                controller.loadStrokes(strokes, cards)
+                controller.loadStrokes(strokes, cards, images)
                 bindAgent(notebookId, pageId)
             }
         }
@@ -305,26 +404,21 @@ class WriterViewModel : ViewModel() {
 
     // ---- 工具 ----
 
-    fun setTool(tool: InkTool) {
-        controller.tool = controller.tool.copy(tool = tool)
-        _state.value = _state.value.copy(tool = controller.tool)
-    }
+    fun setTool(tool: InkTool) = applyToolSettings(_state.value.toolSettings.selectTool(tool))
 
-    fun setColor(color: Long) {
-        // 荧光黄切到荧光笔,其余色回钢笔(简化交互)
-        val isHighlight = color == 0xFFFFD65AL
-        controller.tool = controller.tool.copy(
-            color = color,
-            tool = if (isHighlight) InkTool.HIGHLIGHTER
-                   else if (controller.tool.tool == InkTool.HIGHLIGHTER) InkTool.PEN
-                   else controller.tool.tool,
-        )
-        _state.value = _state.value.copy(tool = controller.tool)
-    }
+    fun toggleEraser() = applyToolSettings(_state.value.toolSettings.toggleEraser())
 
-    fun setWidth(mm: Float) {
-        controller.tool = controller.tool.copy(baseWidthMm = mm)
-        _state.value = _state.value.copy(tool = controller.tool)
+    fun setColor(color: Long) = applyToolSettings(_state.value.toolSettings.selectColor(color))
+
+    fun setPaletteColor(index: Int, color: Long) = applyToolSettings(
+        _state.value.toolSettings.updatePaletteColor(index, color),
+    )
+
+    fun setWidth(mm: Float) = applyToolSettings(_state.value.toolSettings.selectWidth(mm))
+
+    private fun applyToolSettings(settings: WriterToolSettings) {
+        controller.tool = settings.effective
+        _state.value = _state.value.copy(toolSettings = settings)
     }
 
     fun undo() { controller.undo() }
@@ -338,6 +432,8 @@ class WriterViewModel : ViewModel() {
             is InkCommit.Added, is InkCommit.Tombstoned -> repo.appendCommit(notebookId, page, commit)
             is InkCommit.CardAdded, is InkCommit.CardRemoved ->
                 repo.saveAnnotations(notebookId, page, controller.annotationCards())
+            is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
+                repo.saveImages(notebookId, page, controller.images())
         }
         scheduleFlush()
     }
@@ -368,7 +464,10 @@ class WriterViewModel : ViewModel() {
             val nbId = notebookId
             val nb = _state.value.notebook ?: return@launch
             val map = repo.listPages(nbId).associate { p ->
-                p.pageId to renderPageThumb(repo.loadPage(nbId, p.pageId), repo.loadAnnotations(nbId, p.pageId), nb.paper, nb.pageSize, nb.orientation)
+                p.pageId to renderPageThumb(
+                    repo.loadPage(nbId, p.pageId), repo.loadAnnotations(nbId, p.pageId), nb.paper, nb.pageSize, nb.orientation,
+                    images = repo.loadImages(nbId, p.pageId), imageDir = repo.notebookDir(nbId).absolutePath,
+                )
             }
             thumbs.value = map
         }
@@ -387,7 +486,10 @@ class WriterViewModel : ViewModel() {
         val strokes = controller.page.strokes.toList()
         val cards = controller.annotationCards()
         val bmp = withContext(Dispatchers.Default) {
-            renderPageThumb(strokes, cards, nb.paper, nb.pageSize, nb.orientation)
+            renderPageThumb(
+                strokes, cards, nb.paper, nb.pageSize, nb.orientation,
+                images = controller.images(), imageDir = repo.notebookDir(notebookId).absolutePath,
+            )
         }
         thumbs.value = thumbs.value + (pageId to bmp)
     }
@@ -406,6 +508,8 @@ class WriterViewModel : ViewModel() {
                 repo.loadPage(notebookId, pageId),
                 repo.loadAnnotations(notebookId, pageId),
                 nb.paper, nb.pageSize, nb.orientation,
+                images = repo.loadImages(notebookId, pageId),
+                imageDir = repo.notebookDir(notebookId).absolutePath,
             )
             val bmp = PageRenderer.renderFull(data)
             val uri = PageExporter.savePng(ServiceLocator.appContext, bmp, "${nb.name}-$pageId")
@@ -422,6 +526,8 @@ class WriterViewModel : ViewModel() {
             val uri = PageExporter.savePdf(
                 ServiceLocator.appContext, pages, nb.paper, nb.name,
                 nb.pageSize, nb.orientation,
+                imageDir = repo.notebookDir(notebookId).absolutePath,
+                imagesOf = { pageId -> repo.loadImages(notebookId, pageId) },
             )
             withContext(Dispatchers.Main) { onDone(uri) }
         }
@@ -436,6 +542,8 @@ internal fun renderPageThumb(
     paper: String,
     pageSize: String = "A4",
     orientation: String = "portrait",
+    images: List<ImageElement> = emptyList(),
+    imageDir: String? = null,
 ): ImageBitmap {
     val (pageW, pageH) = PageRenderer.pageDimsPx(pageSize, orientation)
     val w = 132
@@ -443,7 +551,11 @@ internal fun renderPageThumb(
     val canvas = android.graphics.Canvas(bmp)
     val scale = w / pageW
     canvas.scale(scale, scale)
-    PageRenderer.drawAll(canvas, AgentBridge.PageData(strokes, cards, paper, pageSize, orientation), pageW, pageH, clip = null)
+    PageRenderer.drawAll(
+        canvas,
+        AgentBridge.PageData(strokes, cards, paper, pageSize, orientation, images = images, imageDir = imageDir),
+        pageW, pageH, clip = null,
+    )
     return bmp.asImageBitmap()
 }
 

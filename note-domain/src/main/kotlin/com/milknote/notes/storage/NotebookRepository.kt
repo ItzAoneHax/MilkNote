@@ -2,6 +2,7 @@ package com.milknote.notes.storage
 
 import com.milknote.ink.input.InkCommit
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.Stroke
 import com.milknote.ink.serialize.ProtoInk
 import com.milknote.notes.model.NotebookMeta
@@ -134,8 +135,9 @@ class NotebookRepository(
 
     fun appendCommit(notebookId: String, pageId: String, commit: InkCommit) {
         when (commit) {
-            // 批注卡不走 pb 追加流:由调用方走 saveAnnotations 整表重写(JSON sidecar)
+            // 批注卡/图片不走 pb 追加流:由调用方走 saveAnnotations / saveImages 整表重写(JSON sidecar)
             is InkCommit.CardAdded, is InkCommit.CardRemoved -> return
+            is InkCommit.ImageAdded, is InkCommit.ImageRemoved -> return
             is InkCommit.Added, is InkCommit.Tombstoned -> {}
         }
         writeQueue.trySend {
@@ -145,6 +147,7 @@ class NotebookRepository(
                     is InkCommit.Added -> ProtoInk.writeRecord(out, ProtoInk.recordOf(commit.stroke))
                     is InkCommit.Tombstoned -> ProtoInk.writeRecord(out, ProtoInk.tombstoneOf(commit.strokeId))
                     is InkCommit.CardAdded, is InkCommit.CardRemoved -> {}
+                    is InkCommit.ImageAdded, is InkCommit.ImageRemoved -> {}   // 上方已 return,不可达
                 }
             }
             f.setLastModified(System.currentTimeMillis())
@@ -178,6 +181,28 @@ class NotebookRepository(
             if (!tmp.renameTo(f)) {
                 f.delete()
                 if (!tmp.renameTo(f)) error("annotation save failed: $pageId")
+            }
+        }
+    }
+
+    // ---- 图片元素(贴图层;JSON sidecar `<pageId>.img.json`,整表原子重写;参照批注卡)----
+
+    fun loadImages(notebookId: String, pageId: String): List<ImageElement> = runCatching {
+        val f = File(dirOf(notebookId), "$pageId.img.json")
+        if (!f.exists()) return emptyList()
+        json.decodeFromString<List<ImageElement>>(f.readText())
+    }.getOrDefault(emptyList())
+
+    /** 整表重写(原子替换:临时文件 + rename);走单线程写队列与笔迹追加保序 */
+    fun saveImages(notebookId: String, pageId: String, images: List<ImageElement>) {
+        writeQueue.trySend {
+            val dir = dirOf(notebookId)
+            val f = File(dir, "$pageId.img.json")
+            val tmp = File(dir, "$pageId.img.json.tmp")
+            tmp.writeText(json.encodeToString(images))
+            if (!tmp.renameTo(f)) {
+                f.delete()
+                if (!tmp.renameTo(f)) error("image list save failed: $pageId")
             }
         }
     }

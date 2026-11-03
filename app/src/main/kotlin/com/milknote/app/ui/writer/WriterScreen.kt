@@ -2,7 +2,6 @@ package com.milknote.app.ui.writer
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,16 +34,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.CleaningServices
-import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Highlight
-import androidx.compose.material.icons.outlined.Image as ImageIcon
-import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Title
+import androidx.compose.material.icons.outlined.ViewSidebar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -64,7 +60,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -82,7 +77,6 @@ import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softHover
 import com.milknote.app.ui.common.softShadow
-import com.milknote.app.ui.theme.InkPalette
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.PillShape
 import com.milknote.device.pen.PenAction
@@ -99,6 +93,7 @@ fun WriterScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenPalette: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenExport: () -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val thumbs by vm.thumbs.collectAsState()
@@ -151,7 +146,19 @@ fun WriterScreen(
 
     // 画布引用(④ 框选遮罩需要视口↔页坐标变换)
     val surfaceRef = remember { mutableStateOf<InkSurfaceView?>(null) }
+    var sidebarVisible by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    var motionIndex by remember { mutableStateOf<Int?>(null) }
+    var detailTool by remember { mutableStateOf<InkTool?>(null) }
+    var detailColor by remember { mutableStateOf<Int?>(null) }
+    var showTextEditor by remember { mutableStateOf(false) }
+    var showShapeSettings by remember { mutableStateOf(false) }
+    var shapeConfig by remember { mutableStateOf<ShapeConfig?>(null) }
+    var showRecentImages by remember { mutableStateOf(false) }
+    val onMotion: (Int, Boolean) -> Unit = { index, hovered ->
+        if (hovered) motionIndex = index else if (motionIndex == index) motionIndex = null
+    }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -164,10 +171,17 @@ fun WriterScreen(
             battery = battery,
             onBack = onBack,
             onOpenDiagnostics = onOpenDiagnostics,
-            onExportPng = { vm.exportPng { toast = it } },
-            onExportPdf = { vm.exportPdf { toast = it } },
             onAgent = { openAgentDrawer(vm) },
             onOpenPalette = onOpenPalette,
+            sidebarVisible = sidebarVisible,
+            onToggleSidebar = { sidebarVisible = !sidebarVisible },
+            motionIndex = motionIndex,
+            onMotion = onMotion,
+            onPenDetail = { detailTool = it },
+            onText = { showTextEditor = true },
+            onShapes = { showShapeSettings = true },
+            onImages = { showRecentImages = true },
+            onExport = onOpenExport,
         )
 
         Row(
@@ -175,12 +189,24 @@ fun WriterScreen(
                 .fillMaxWidth()
                 .weight(1f),
         ) {
-            PageSidebar(
+            androidx.compose.animation.AnimatedVisibility(visible = sidebarVisible) {
+                PageSidebar(
+                    state = state,
+                    thumbs = thumbs,
+                    onBack = onBack,
+                    onSwitch = vm::switchPage,
+                    onNewPage = vm::newPage,
+                )
+            }
+            WriterLeftRail(
                 state = state,
-                thumbs = thumbs,
-                onBack = onBack,
-                onSwitch = vm::switchPage,
-                onNewPage = vm::newPage,
+                enabled = state.snip.phase == SnipPhase.IDLE,
+                motionIndex = motionIndex,
+                onMotion = onMotion,
+                onUndo = vm::undo,
+                onRedo = vm::redo,
+                onColor = vm::setColor,
+                onColorDetail = { detailColor = it },
             )
             // ---- 纸面画布 ----
             Box(
@@ -192,6 +218,19 @@ fun WriterScreen(
                 PaperCanvas(vm, state, dark, penConnected, surfaceRef)
                 // 纸面暗角(纯显示层,不参与导出)
                 Box(Modifier.matchParentSize().paperVignette(dark))
+                shapeConfig?.let { config ->
+                    if (state.snip.phase == SnipPhase.IDLE) {
+                        ShapeOverlay(
+                            config = config,
+                            onComplete = { start, end ->
+                                surfaceRef.value?.let { surface ->
+                                    vm.addShape(config, surface.viewToPage(start.x, start.y), surface.viewToPage(end.x, end.y))
+                                }
+                            },
+                            onCancel = { shapeConfig = null },
+                        )
+                    }
+                }
                 // ④ 框选遮罩(冻结画布+压暗;AGENT-BACKEND §4.2)
                 if (state.snip.phase != com.milknote.app.ui.writer.SnipPhase.IDLE) {
                     SnipOverlay(
@@ -232,6 +271,53 @@ fun WriterScreen(
 
         StatusBar(state)
     }
+
+    detailTool?.let { tool ->
+        PenSettingsDialog(
+            tool = tool,
+            settings = state.toolSettings,
+            onDismiss = { detailTool = null },
+            onWidth = vm::setWidth,
+            onSelectColor = vm::setColor,
+            onColorDetail = { detailColor = it },
+        )
+    }
+    detailColor?.let { index ->
+        state.toolSettings.palettes[state.tool.tool]?.getOrNull(index)?.let { color ->
+            ColorSettingsDialog(
+                initialColor = color,
+                onDismiss = { detailColor = null },
+                onColorChange = { vm.setPaletteColor(index, it) },
+            )
+        }
+    }
+    if (showTextEditor) {
+        TextBoxDialog(
+            onDismiss = { showTextEditor = false },
+            onCreate = {
+                vm.createTextCard(it)
+                showTextEditor = false
+            },
+        )
+    }
+    if (showShapeSettings) {
+        ShapeSettingsDialog(
+            initialColor = state.tool.color,
+            initialWidth = state.tool.baseWidthMm,
+            onDismiss = { showShapeSettings = false },
+            onStart = {
+                shapeConfig = it
+                showShapeSettings = false
+            },
+        )
+    }
+    if (showRecentImages) {
+        RecentImagesDialog(
+            onDismiss = { showRecentImages = false },
+            onSelect = vm::insertImage,
+        )
+    }
+    }
 }
 
 /** 顶栏:面包屑 | 撤销重做·工具·墨色粗细 居中 | 笔电 ⌘K [Agent] */
@@ -243,10 +329,17 @@ private fun WriterTopBar(
     battery: Int,
     onBack: () -> Unit,
     onOpenDiagnostics: () -> Unit,
-    onExportPng: () -> Unit,
-    onExportPdf: () -> Unit,
     onAgent: () -> Unit,
     onOpenPalette: () -> Unit = {},
+    sidebarVisible: Boolean,
+    onToggleSidebar: () -> Unit,
+    motionIndex: Int?,
+    onMotion: (Int, Boolean) -> Unit,
+    onPenDetail: (InkTool) -> Unit,
+    onText: () -> Unit,
+    onShapes: () -> Unit,
+    onImages: () -> Unit,
+    onExport: () -> Unit,
 ) {
     // ④ 框选时工具组整体禁用(半透明、不可点;DESIGN-V0 §5.3)
     val snipActive = state.snip.phase != SnipPhase.IDLE
@@ -277,91 +370,102 @@ private fun WriterTopBar(
 
         Spacer(Modifier.weight(1f))
 
-        // 撤销 / 重做(禁用态也要可辨,不用 outline——浅色下几乎隐形)
-        val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.Undo, null, tint = if (state.canUndo) MaterialTheme.colorScheme.onBackground else disabledTint, modifier = Modifier.size(19.dp)) },
-            enabled = state.canUndo, onClick = vm::undo,
-        )
-        Spacer(Modifier.width(14.dp))
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.Redo, null, tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground else disabledTint, modifier = Modifier.size(19.dp)) },
-            enabled = state.canRedo, onClick = vm::redo,
-        )
-
-        Spacer(Modifier.width(18.dp))
         DividerDot()
 
-        // 工具组:钢笔/圆珠/荧光/橡皮/套索 —— 工具与模式(套索/选中)互斥高亮,
-        // 同一时刻只亮一个,避免"钢笔+套索"等多状态并存
+        // 工具组:写实笔形显示各笔墨色;首点选择,再点已选笔进入详细设定
         Spacer(Modifier.width(18.dp))
         val modeActive = state.lassoArmed || state.selectionCount > 0
-        ToolIcon(Icons.Outlined.Draw, "钢笔", !modeActive && state.tool.tool == InkTool.PEN, enabled = !snipActive) { vm.setTool(InkTool.PEN) }
-        Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Brush, "圆珠", !modeActive && state.tool.tool == InkTool.BALL, enabled = !snipActive) { vm.setTool(InkTool.BALL) }
-        Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Highlight, "荧光", !modeActive && state.tool.tool == InkTool.HIGHLIGHTER, enabled = !snipActive) { vm.setTool(InkTool.HIGHLIGHTER) }
-        Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.CleaningServices, "橡皮", !modeActive && state.tool.tool == InkTool.ERASER, enabled = !snipActive) { vm.setTool(InkTool.ERASER) }
-        Spacer(Modifier.width(10.dp))
-        ToolIcon(Icons.Outlined.Gesture, "套索", state.lassoArmed, enabled = !snipActive) { vm.toggleLasso() }
-
-        Spacer(Modifier.width(18.dp))
-        DividerDot()
-
-        // 墨色(荧光黄=荧光笔;选中尺寸/描边 200ms 过渡)
-        Spacer(Modifier.width(18.dp))
-        InkPalette.forEach { c ->
-            val active = state.tool.color == c.toArgbLong()
-            val dotSize by animateDpAsState(if (active) 19.dp else 15.dp, tween(200), label = "inkDot")
-            val ring by animateDpAsState(if (active) 2.dp else 1.dp, tween(200), label = "inkRing")
-            val ringC by animateColorAsState(
-                if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
-                tween(200), label = "inkRingC",
+        writingTools.forEachIndexed { index, tool ->
+            val active = !modeActive && !state.toolSettings.eraserTemporary && state.tool.tool == tool
+            val label = when (tool) {
+                InkTool.PEN -> "钢笔"
+                InkTool.BALL -> "圆珠笔"
+                InkTool.HIGHLIGHTER -> "荧光笔"
+                else -> ""
+            }
+            PenToolButton(
+                tool = tool,
+                label = label,
+                color = state.toolSettings.configs.getValue(tool).color,
+                active = active,
+                enabled = !snipActive,
+                squeezed = motionIndex != null && kotlin.math.abs(motionIndex - index) == 1,
+                onHoverChanged = { onMotion(index, it) },
+                onClick = { if (active) onPenDetail(tool) else vm.setTool(tool) },
             )
-            Box(
-                Modifier
-                    .size(dotSize)
-                    .clip(CircleShape)
-                    .background(c)
-                    .border(width = ring, color = ringC, shape = CircleShape)
-                    .clickable { vm.setColor(c.toArgbLong()) },
-            )
-            Spacer(Modifier.width(7.dp))
         }
+        PenToolButton(
+            tool = InkTool.ERASER,
+            label = "橡皮",
+            color = 0xFFFFFFFF,
+            active = !modeActive && state.toolSettings.eraserTemporary,
+            enabled = !snipActive,
+            squeezed = motionIndex != null && kotlin.math.abs(motionIndex - 3) == 1,
+            onHoverChanged = { onMotion(3, it) },
+            onClick = { vm.toggleEraser() },
+        )
 
-        // 粗细(底色 200ms 过渡)
-        Spacer(Modifier.width(6.dp))
-        listOf(0.4f, 0.7f, 1.2f).forEach { mm ->
-            val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
-            val wBg by animateColorAsState(
-                if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
-                tween(200), label = "widthBg",
-            )
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .background(wBg)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                    .clickable { vm.setWidth(mm) }
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+        Spacer(Modifier.width(10.dp))
+        DividerDot()
+        Spacer(Modifier.width(8.dp))
+
+            // 粗细(底色 200ms 过渡)
+            listOf(0.4f, 0.7f, 1.2f).forEach { mm ->
+                val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
+                val wBg by animateColorAsState(
+                    if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
+                    tween(200), label = "widthBg",
+                )
                 Box(
                     Modifier
-                        .size(width = if (mm > 0.9f) 14.dp else if (mm > 0.5f) 10.dp else 7.dp, height = (mm * 4).dp.coerceAtLeast(2.dp))
-                        .background(if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground, CircleShape),
-                )
+                        .clip(CircleShape)
+                        .background(wBg)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        .clickable(enabled = !snipActive) { vm.setWidth(mm) }
+                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(width = if (mm > 0.9f) 14.dp else if (mm > 0.5f) 10.dp else 7.dp, height = (mm * 4).dp.coerceAtLeast(2.dp))
+                            .background(if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground, CircleShape),
+                    )
+                }
+                Spacer(Modifier.width(7.dp))
             }
-            Spacer(Modifier.width(7.dp))
-        }
 
         Spacer(Modifier.weight(1f))
 
-        // 导出
-        IconToggleButton(icon = { Icon(Icons.Outlined.ImageIcon, "导出PNG", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }, enabled = true, onClick = onExportPng)
-        Spacer(Modifier.width(12.dp))
-        IconToggleButton(icon = { Icon(Icons.Outlined.PictureAsPdf, "导出PDF", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }, enabled = true, onClick = onExportPdf)
+        // 文档功能列表:粗细右侧、笔电量左侧;不再占用独立画布区域
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.ViewSidebar, if (sidebarVisible) "收起书架" else "展开书架", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = true, onClick = onToggleSidebar,
+        )
+        Spacer(Modifier.width(8.dp))
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.Gesture, "框选", modifier = Modifier.size(18.dp), tint = if (state.lassoArmed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = !snipActive, active = state.lassoArmed, onClick = vm::toggleLasso,
+        )
+        Spacer(Modifier.width(8.dp))
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.Title, "文字框", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = !snipActive, onClick = onText,
+        )
+        Spacer(Modifier.width(8.dp))
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.Category, "图形绘制", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = !snipActive, onClick = onShapes,
+        )
+        Spacer(Modifier.width(8.dp))
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.Image, "插入图片", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = !snipActive, onClick = onImages,
+        )
+        Spacer(Modifier.width(8.dp))
+        IconToggleButton(
+            icon = { Icon(Icons.Outlined.FileDownload, "导出", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = !snipActive, onClick = onExport,
+        )
 
         Spacer(Modifier.width(14.dp))
         Box(Modifier.combinedClickable(onClick = {}, onLongClick = onOpenDiagnostics)) {
@@ -384,8 +488,6 @@ private fun WriterTopBar(
         }
     }
 }
-
-private fun Color.toArgbLong(): Long = toArgb().toLong() and 0xFFFFFFFFL
 
 /** 选中操作条:顶部滑入 + 软阴影深胶囊 */
 @Composable
@@ -493,55 +595,15 @@ private fun DividerDot() {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun IconToggleButton(icon: @Composable () -> Unit, enabled: Boolean, onClick: () -> Unit) {
+private fun IconToggleButton(icon: @Composable () -> Unit, enabled: Boolean, active: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
             .size(30.dp)
             .clip(CircleShape)
+            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
             .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = {}, onDoubleClick = {}),
         contentAlignment = Alignment.Center,
     ) { icon() }
-}
-
-@Composable
-private fun ToolIcon(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    active: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val bg by animateColorAsState(
-        targetValue = if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
-        animationSpec = tween(200),
-        label = "toolBg",
-    )
-    val bd by animateColorAsState(
-        targetValue = if (active && enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else Color.Transparent,
-        animationSpec = tween(200),
-        label = "toolBorder",
-    )
-    val tint by animateColorAsState(
-        targetValue = when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-            active -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = tween(200),
-        label = "toolTint",
-    )
-    Box(
-        Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .border(1.dp, bd, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .softHover(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, label, modifier = Modifier.size(18.dp), tint = tint)
-    }
 }
 
 /** 侧栏:‹ 书架 + 本章页面缩略图(DESIGN-V0 §5.3:只放页面缩略,不放笔记本列表) */
@@ -671,6 +733,7 @@ private fun PaperCanvas(
         update = { view ->
             view.controller = vm.controller
             view.paperStyle = state.notebook?.paper ?: "dot"
+            view.imageDir = state.notebook?.id?.let { ServiceLocator.repository.notebookDir(it) }
             view.frontBufferEnabled = state.frontBufferEnabled
             view.darkTheme = dark
             view.penConnected = penConnected

@@ -1,6 +1,7 @@
 package com.milknote.ink.input
 
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkOp
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
@@ -10,12 +11,14 @@ import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
 import java.util.UUID
 
-/** 落盘回调:笔迹新增 / 笔迹删除(tombstone)/ 批注卡增删,由 note-domain 转成 StrokeRecord 追加 */
+/** 落盘回调:笔迹新增 / 笔迹删除(tombstone)/ 批注卡、图片增删,由 note-domain 转成追加/整表重写 */
 sealed interface InkCommit {
     data class Added(val stroke: Stroke) : InkCommit
     data class Tombstoned(val strokeId: String) : InkCommit
     data class CardAdded(val card: AnnotationCard) : InkCommit
     data class CardRemoved(val cardId: String) : InkCommit
+    data class ImageAdded(val image: ImageElement) : InkCommit
+    data class ImageRemoved(val imageId: String) : InkCommit
 }
 
 /** 选中集快照(UI 显示用;box 为所选笔迹并集包围盒,页坐标) */
@@ -224,8 +227,8 @@ class InkController {
         notifyInvalidate()
     }
 
-    /** 渲染缓存失效键(页面版本 + 选中集版本) */
-    val renderStamp: Long get() = page.version * 1_000_003L + selectionStamp
+    /** 渲染缓存失效键(页面版本 + 选中集版本 + 图片拖动版本) */
+    val renderStamp: Long get() = page.version * 1_000_003L + selectionStamp + imageDragStamp
 
     /** 改绑 TEMP_ERASER 到单击类触发时:下一笔临时为橡皮(取用即复位) */
     @Volatile var oneShotEraser: Boolean = false
@@ -398,11 +401,103 @@ class InkController {
         return true
     }
 
+    // ---- 图片元素(贴图层;页坐标,渲染在笔迹之下、批注卡之下;同一撤销栈)----
+
+    fun images(): List<ImageElement> = page.images.toList()
+
+    /** 插入图片元素(进撤销栈;落盘经 onCommit → saveImages 整表重写) */
+    fun addImageElement(image: ImageElement) {
+        val op = InkOp.AddImage(image)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+    }
+
+    /** 删除图片元素(RemoveImage 记录层位,撤销原位恢复;可撤销);返回是否删除 */
+    fun deleteImageElement(imageId: String): Boolean {
+        val idx = page.images.indexOfFirst { it.id == imageId }
+        if (idx < 0) return false
+        val op = InkOp.RemoveImage(page.images[idx], idx)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+        return true
+    }
+
+    // ---- 图片拖动(与批注卡拖动同构:拖动预览由视图渲染,抬起才落 Batch op)----
+
+    private var imageDragId: String? = null
+    private var imageDragDx = 0f
+    private var imageDragDy = 0f
+    private var imageDragStarted = false
+    /** 图片拖动版本(进入/退出拖动时推进 → 视图 committed 缓存把拖动中的图片摘出来重画) */
+    private var imageDragStamp = 0L
+
+    /** 拖动中的图片 id(渲染缓存排除集用;null = 无拖动) */
+    fun draggingImageId(): String? = imageDragId
+
+    /** 拖动预览偏移(id to (dx, dy);页坐标) */
+    fun imageDragOffset(): Pair<String, Pair<Float, Float>>? =
+        imageDragId?.let { it to (imageDragDx to imageDragDy) }
+
+    /** 开始图片拖动(命中后调用;id 不存在则不进入拖动态) */
+    fun beginImageDrag(imageId: String) {
+        imageDragId = imageId
+        imageDragDx = 0f; imageDragDy = 0f
+        imageDragStarted = page.images.any { it.id == imageId }
+        imageDragStamp++
+        notifyInvalidate()
+    }
+
+    fun moveImageDrag(dx: Float, dy: Float) {
+        if (!imageDragStarted) return
+        imageDragDx = dx; imageDragDy = dy
+        notifyInvalidate()
+    }
+
+    /**
+     * 拖动结束:位移 >1px 落 Batch(RemoveImage 旧 + AddImage 平移,同 id 保持 src 不变),
+     * 可撤销(undo 先撤 AddImage 再按 index 原位恢复);返回是否落盘。
+     */
+    fun endImageDrag(): Boolean {
+        if (!imageDragStarted) return false
+        imageDragStarted = false
+        val id = imageDragId
+        val dx = imageDragDx; val dy = imageDragDy
+        imageDragId = null; imageDragDx = 0f; imageDragDy = 0f
+        val idx = page.images.indexOfFirst { it.id == id }
+        val image = idx.takeIf { it >= 0 }?.let { page.images[it] }
+        if (image == null || (dx * dx + dy * dy) < 1f) {
+            imageDragStamp++
+            notifyInvalidate()
+            return false
+        }
+        val moved = image.copy(x = image.x + dx, y = image.y + dy)
+        val batch = InkOp.Batch(listOf(InkOp.RemoveImage(image, idx), InkOp.AddImage(moved)))
+        page.apply(batch)
+        imageDragStamp++
+        emitForward(batch)
+        notifyInvalidate()
+        return true
+    }
+
+    /** 放弃进行中的拖动(第二指落下/事件取消);不产生记录 */
+    fun cancelImageDrag() {
+        if (!imageDragStarted && imageDragId == null) return
+        imageDragStarted = false
+        imageDragId = null
+        imageDragDx = 0f; imageDragDy = 0f
+        imageDragStamp++
+        notifyInvalidate()
+    }
+
     private fun emitInverse(op: InkOp) = when (op) {
         is InkOp.Add -> onCommit?.invoke(InkCommit.Tombstoned(op.stroke.id))
         is InkOp.Remove -> onCommit?.invoke(InkCommit.Added(op.stroke))
         is InkOp.AddCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
+        is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
+        is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
         is InkOp.Batch -> op.ops.forEach(::emitInverse)
     }
 
@@ -411,20 +506,27 @@ class InkController {
         is InkOp.Remove -> onCommit?.invoke(InkCommit.Tombstoned(op.stroke.id))
         is InkOp.AddCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
+        is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
+        is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
         is InkOp.Batch -> op.ops.forEach(::emitForward)
     }
 
     fun clear() {
         page.strokes.clear()
         page.cards.clear()
+        page.images.clear()
         clearSelection()
         notifyInvalidate()
     }
 
-    /** 整页加载(切页;批注卡一并) */
-    fun loadStrokes(strokes: List<Stroke>, cards: List<AnnotationCard> = emptyList()) {
+    /** 整页加载(切页;批注卡/图片一并) */
+    fun loadStrokes(
+        strokes: List<Stroke>,
+        cards: List<AnnotationCard> = emptyList(),
+        images: List<ImageElement> = emptyList(),
+    ) {
         clearSelection()
-        page.reset(strokes, cards)
+        page.reset(strokes, cards, images)
         notifyInvalidate()
     }
 }

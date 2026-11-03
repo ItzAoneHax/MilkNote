@@ -7,10 +7,17 @@ enum class InkTool(val id: String) {
     PEN("pen"),           // 钢笔:压感变宽 + 倾斜笔锋
     BALL("ball"),         // 圆珠:恒定宽度,轻压感
     HIGHLIGHTER("highlighter"), // 荧光:宽、半透明
-    ERASER("eraser");     // 擦除(整笔划)
+    ERASER("eraser"),     // 擦除(整笔划)
+    RECT("rect"),         // 矩形:两点 = 对角,轮廓描边
+    OVAL("oval"),         // 椭圆:两点 = 外接矩形,轮廓描边
+    LINE("line");         // 直线:两点 = 线段,描边
 
     companion object { fun of(id: String): InkTool = entries.firstOrNull { it.id == id } ?: PEN }
 }
+
+/** 形状工具:两点 Stroke(起点/终点定义几何),恒定轮廓宽 = baseWidthMm */
+val InkTool.isShape: Boolean
+    get() = this == InkTool.RECT || this == InkTool.OVAL || this == InkTool.LINE
 
 /** 单采样点。压感为归一化原始值 [0,1](压感是数据,笔宽是样式 —— PEN-ADAPTATION §3.3) */
 data class InkPoint(
@@ -31,6 +38,22 @@ data class Stroke(
     val points: List<InkPoint>,
 )
 
+/**
+ * 页面图片元素(用户/Agent 贴图;GRAPHICS-ENGINE §图片层):
+ * src 为相对 notebookDir 的相对路径(如 `images/xxx.png`),文件本体随笔记本目录备份;
+ * x/y/width/height 为页坐标 px(与笔迹同一坐标系)。落盘走 `<pageId>.img.json` 整表重写。
+ */
+@Serializable
+data class ImageElement(
+    val id: String,
+    val src: String,            // 相对 notebookDir 的路径
+    val x: Float,               // 左上角 x(页坐标 px)
+    val y: Float,               // 左上角 y
+    val width: Float,           // 显示宽(px)
+    val height: Float,          // 显示高(px)
+    val createdAt: Long = 0L,
+)
+
 /** 当前笔设置(工具条状态) */
 data class ToolConfig(
     val tool: InkTool = InkTool.PEN,
@@ -44,12 +67,14 @@ enum class PressureGamma(val gamma: Float, val label: String) {
     SOFT(1.4f, "柔和"), STANDARD(1.0f, "标准"), SENSITIVE(0.7f, "灵敏");
 }
 
-/** 撤销栈操作:写入 = Add,擦除 = Remove;批注卡同栈(DESIGN-V0 §4 结果落点 / AGENT-BACKEND §9) */
+/** 撤销栈操作:写入 = Add,擦除 = Remove;批注卡/图片同栈(DESIGN-V0 §4 / AGENT-BACKEND §9 / 图片层) */
 sealed interface InkOp {
     data class Add(val stroke: Stroke) : InkOp
     data class Remove(val stroke: Stroke, val index: Int) : InkOp
     data class AddCard(val card: AnnotationCard) : InkOp
     data class RemoveCard(val card: AnnotationCard) : InkOp
+    data class AddImage(val image: ImageElement) : InkOp
+    data class RemoveImage(val image: ImageElement, val index: Int) : InkOp
     data class Batch(val ops: List<InkOp>) : InkOp
 }
 
@@ -70,10 +95,11 @@ data class AnnotationCard(
     enum class Kind { TEXT, LATEX }
 }
 
-/** 页面墨迹状态:提交的笔迹 + 批注卡 + 撤销/重做栈 */
+/** 页面墨迹状态:提交的笔迹 + 批注卡 + 图片元素 + 撤销/重做栈 */
 class PageInkState {
     val strokes: MutableList<Stroke> = mutableListOf()
     val cards: MutableList<AnnotationCard> = mutableListOf()
+    val images: MutableList<ImageElement> = mutableListOf()
     private val undoStack: ArrayDeque<InkOp> = ArrayDeque()
     private val redoStack: ArrayDeque<InkOp> = ArrayDeque()
 
@@ -88,11 +114,17 @@ class PageInkState {
     }
 
     /** 整页替换(切页加载;撤销栈清零,历史由文件承载) */
-    fun reset(strokes: List<Stroke>, cards: List<AnnotationCard> = emptyList()) {
+    fun reset(
+        strokes: List<Stroke>,
+        cards: List<AnnotationCard> = emptyList(),
+        images: List<ImageElement> = emptyList(),
+    ) {
         this.strokes.clear()
         this.strokes.addAll(strokes)
         this.cards.clear()
         this.cards.addAll(cards)
+        this.images.clear()
+        this.images.addAll(images)
         undoStack.clear()
         redoStack.clear()
         version++
@@ -139,6 +171,8 @@ class PageInkState {
             is InkOp.Remove -> strokes.removeAt(strokes.indexOfFirst { it.id == op.stroke.id }.takeIf { it >= 0 } ?: return)
             is InkOp.AddCard -> cards.add(op.card)
             is InkOp.RemoveCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.AddImage -> images.add(op.image)
+            is InkOp.RemoveImage -> images.removeAt(images.indexOfFirst { it.id == op.image.id }.takeIf { it >= 0 } ?: return)
             is InkOp.Batch -> op.ops.forEach(::doApply)
         }
     }
@@ -152,6 +186,11 @@ class PageInkState {
             }
             is InkOp.AddCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
             is InkOp.RemoveCard -> cards.add(op.card)
+            is InkOp.AddImage -> images.removeAt(images.indexOfFirst { it.id == op.image.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.RemoveImage -> {
+                val idx = op.index.coerceIn(0, images.size)
+                images.add(idx, op.image)                                // 原层位恢复
+            }
             is InkOp.Batch -> op.ops.reversed().forEach(::undoApply)
         }
     }

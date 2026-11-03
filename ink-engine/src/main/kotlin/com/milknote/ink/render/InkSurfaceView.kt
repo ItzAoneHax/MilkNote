@@ -72,6 +72,19 @@ class InkSurfaceView @JvmOverloads constructor(
     var paperStyle: String = "dot"
         set(value) { field = value; committedKey = Long.MIN_VALUE; invalidate() }
 
+    /**
+     * 图片元素根目录(笔记本 `<id>.milk` 目录;ImageElement.src 为其相对路径)。
+     * 切换笔记本(目录变更)时重建缓存:解码缓存全量失效 + 已提交层重绘。
+     */
+    var imageDir: java.io.File? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            ImageElementRenderer.clearCache()
+            committedKey = Long.MIN_VALUE
+            invalidate()
+        }
+
     /** 颜色由界面主题注入(奶白纸 + #D8D4C8 点) */
     var paperColor: Int = 0xFFFAF9F5.toInt()
     var dotColor: Int = 0xFFD8D4C8.toInt()
@@ -154,6 +167,11 @@ class InkSurfaceView @JvmOverloads constructor(
     private var cardDownId: String? = null      // 按下时的卡(UP 未移动 → 切换展开)
     private var cardDownAt = 0L
     private val expandedCards = HashSet<String>()
+
+    // 图片交互:命中即拖动(拖动预览由 controller 偏移承载,抬起落 Batch op)
+    private var imageDragActive = false
+    private var imageAnchorX = 0f
+    private var imageAnchorY = 0f
 
     // 轨迹预测(androidx.input MotionEventPredictor;不可用时静默降级)
     private val predictor: Any? = try {
@@ -271,7 +289,7 @@ class InkSurfaceView @JvmOverloads constructor(
             p.color = color.toInt()
             p.isAntiAlias = true
             p.style = Paint.Style.FILL
-            if (tool == InkTool.HIGHLIGHTER) p.alpha = (255 * 0.45f).toInt()
+            if (tool == InkTool.HIGHLIGHTER) p.alpha = (p.alpha * 0.45f).toInt()
             return p
         }
     }
@@ -476,12 +494,20 @@ class InkSurfaceView @JvmOverloads constructor(
                     cardDownId = null
                     c?.cancelCardDrag()
                 }
-                if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive) scaleDetector.onTouchEvent(event)
+                if (imageDragActive && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                    imageDragActive = false
+                    c?.cancelImageDrag()
+                }
+                if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive && !imageDragActive) scaleDetector.onTouchEvent(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 when {
                     cardDragActive && c != null -> {
                         c.moveCardDrag(pageX(event.x) - cardAnchorX, pageY(event.y) - cardAnchorY)
+                        return true
+                    }
+                    imageDragActive && c != null -> {
+                        c.moveImageDrag(pageX(event.x) - imageAnchorX, pageY(event.y) - imageAnchorY)
                         return true
                     }
                     lassoStrokeActive && c != null -> {
@@ -556,6 +582,10 @@ class InkSurfaceView @JvmOverloads constructor(
                         }
                         cardDownId = null
                     }
+                    imageDragActive -> {
+                        imageDragActive = false
+                        c?.endImageDrag()   // 未位移(<1px)在 controller 内视为无记录
+                    }
                     lassoStrokeActive -> {
                         lassoStrokeActive = false
                         c?.endLasso()
@@ -597,6 +627,10 @@ class InkSurfaceView @JvmOverloads constructor(
                     cardDownId = null
                     c?.cancelCardDrag()
                 }
+                if (imageDragActive) {
+                    imageDragActive = false
+                    c?.cancelImageDrag()
+                }
                 fingerDrawing = false
                 return true
             }
@@ -605,7 +639,8 @@ class InkSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * 特殊落笔路由:⓪ 批注卡(最上层)→ ① 点中选中集拖动 → ② 套索圈选。
+     * 特殊落笔路由:⓪ 批注卡(最上层)→ ⓪.5 图片元素 → ① 点中选中集拖动 → ② 套索圈选。
+     * 图片命中在批注卡之后、选中集/套索之前,不影响书写与套索路径。
      * 返回 true = 已消费(不再进入书写)。
      */
     private fun routeSpecialDown(event: MotionEvent, c: InkController?, raw: List<InkPoint>): Boolean {
@@ -620,6 +655,16 @@ class InkSurfaceView @JvmOverloads constructor(
             cardDownAt = event.eventTime
             cardAnchorX = px; cardAnchorY = py
             return true
+        }
+        // ⓪.5 图片元素:命中即拖动(后插入者在同位时优先;UP 未移动由 controller 判定无记录)
+        if (c.page.images.isNotEmpty()) {
+            val img = c.page.images.lastOrNull { ImageElementRenderer.hit(it, px, py) }
+            if (img != null) {
+                c.beginImageDrag(img.id)
+                imageDragActive = true
+                imageAnchorX = px; imageAnchorY = py
+                return true
+            }
         }
         // ① 选中集拖动(橡皮/手指同样可拖)
         if (c.hitSelection(px, py)) {
@@ -735,12 +780,22 @@ class InkSurfaceView @JvmOverloads constructor(
         }
     }
 
-    /** 显示色映射:暗色下墨黑/红/蓝 → 浅色(荧光黄不变);颜色数据不变 */
-    private fun displayColor(c: Long): Long = when (c) {
-        0xFF23221E -> if (darkTheme) 0xFFE8E6E0 else c
-        0xFFD2483C -> if (darkTheme) 0xFFE06558 else c
-        0xFF3B5BEC -> if (darkTheme) 0xFF7D92FF else c
-        else -> c
+    /** 显示色映射:暗色下经典墨色用指定浅色,自定义深色按亮度抬升;原始 ARGB 不变。 */
+    private fun displayColor(c: Long): Long {
+        if (!darkTheme) return c
+        when (c) {
+            0xFF23221E -> return 0xFFE8E6E0
+            0xFFD2483C -> return 0xFFE06558
+            0xFF3B5BEC -> return 0xFF7D92FF
+        }
+        val r = ((c shr 16) and 0xFF) / 255f
+        val g = ((c shr 8) and 0xFF) / 255f
+        val b = (c and 0xFF) / 255f
+        val luminance = 0.2126f * r + 0.7152f * g + 0.0722f * b
+        if (luminance >= 0.34f) return c
+        val lift = ((0.34f - luminance) / 0.34f).coerceIn(0f, 1f) * 0.72f
+        fun channel(v: Float): Long = ((v + (1f - v) * lift) * 255f).toInt().coerceIn(0, 255).toLong()
+        return (c and 0xFF000000) or (channel(r) shl 16) or (channel(g) shl 8) or channel(b)
     }
     private val lassoPaint = Paint().apply {
         color = 0xFF3B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
@@ -781,6 +836,18 @@ class InkSurfaceView @JvmOverloads constructor(
             if (key != committedKey) rebuildCommitted(c, key)
         }
         canvas.drawPicture(committed)
+
+        // 图片拖动预览:拖动中的图片不在 committed 缓存里(rebuildCommitted 已摘除),
+        // 单独带偏移重画,跟随手指(页坐标偏移,随视口缩放生效)
+        if (c != null) {
+            val (imgDragId, imgDragOff) = c.imageDragOffset() ?: (null to (0f to 0f))
+            if (imgDragId != null) {
+                val img = c.page.images.firstOrNull { it.id == imgDragId }
+                if (img != null) {
+                    ImageElementRenderer.draw(canvas, img, imageDir, imgDragOff.first, imgDragOff.second)
+                }
+            }
+        }
 
         // 批注卡层(墨迹之上;AGENT-BACKEND §9 结果贴回)
         if (c != null) {
@@ -859,6 +926,14 @@ class InkSurfaceView @JvmOverloads constructor(
     private fun rebuildCommitted(c: InkController, key: Long) {
         val p = Picture()
         val canvas = p.beginRecording(pageWidthPx.toInt(), pageHeightPx.toInt())
+        // 图片层(笔迹之下;AGENT 贴图/用户插图同一层);拖动中的图片摘除,由预览单独带偏移画
+        if (c.page.images.isNotEmpty()) {
+            val imgDragId = c.draggingImageId()
+            for (img in c.page.images) {
+                if (img.id == imgDragId) continue
+                ImageElementRenderer.draw(canvas, img, imageDir)
+            }
+        }
         val excluded = c.excludedFromCache()
         for (s in c.page.strokes) {
             if (s.id in excluded) continue
@@ -880,7 +955,7 @@ class InkSurfaceView @JvmOverloads constructor(
 
     // ---------------- 导出 ----------------
 
-    /** 页面位图(纸+全部已提交笔迹;目标宽 px,高等比) */
+    /** 页面位图(纸+图片+全部已提交笔迹;目标宽 px,高等比) */
     fun snapshotBitmap(targetWidthPx: Int, withPaper: Boolean = true): Bitmap {
         val w = targetWidthPx
         val h = (pageHeightPx / pageWidthPx * w).toInt()
@@ -894,6 +969,9 @@ class InkSurfaceView @JvmOverloads constructor(
         }
         val c = controller
         if (c != null) {
+            for (img in c.page.images) {
+                ImageElementRenderer.draw(canvas, img, imageDir)
+            }
             for (s in c.page.strokes) {
                 canvas.drawPath(StrokeRenderer.buildPath(s, mmToPx, c.tool.pressureGamma), paintFor(s.color, s.tool))
             }

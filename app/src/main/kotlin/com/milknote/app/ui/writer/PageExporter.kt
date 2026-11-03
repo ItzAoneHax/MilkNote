@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfDocument
 import android.os.Environment
 import android.provider.MediaStore
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.Stroke
 import java.io.OutputStream
 
@@ -29,7 +30,7 @@ object PageExporter {
         return "已导出 PNG → 图片/MilkNote"
     }
 
-    /** 整本 PDF:页面物理尺寸(1mm = 72/25.4pt),方向生效;批注卡随页导出 */
+    /** 整本 PDF:页面物理尺寸(1mm = 72/25.4pt),方向生效;批注卡与图片层随页导出 */
     fun savePdf(
         context: Context,
         pages: List<Triple<String, List<Stroke>, List<AnnotationCard>>>,
@@ -37,6 +38,8 @@ object PageExporter {
         name: String,
         pageSize: String = "A4",
         orientation: String = "portrait",
+        imageDir: String? = null,                                    // notebook 目录(ImageElement.src 相对它)
+        imagesOf: ((pageId: String) -> List<ImageElement>)? = null,  // 页 → 图片元素(缺省不带图片层)
     ): String {
         if (pages.isEmpty()) return "没有页面"
         val (wMm, hMm) = com.milknote.notes.model.PAGE_SIZES_MM[pageSize] ?: com.milknote.notes.model.PAGE_SIZES_MM.getValue("A4")
@@ -47,7 +50,7 @@ object PageExporter {
         val pageWpx = pwMm * MM_TO_PX
         val pageHpx = phMm * MM_TO_PX
         for ((index, triple) in pages.withIndex()) {
-            val (_, strokes, cards) = triple
+            val (pageId, strokes, cards) = triple
             val pageInfo = PdfDocument.PageInfo.Builder(pw, ph, index + 1).create()
             val page = doc.startPage(pageInfo)
             val canvas = page.canvas
@@ -56,7 +59,11 @@ object PageExporter {
             val paint = android.graphics.Paint().apply { isAntiAlias = true; style = android.graphics.Paint.Style.FILL }
             com.milknote.app.agent.PageRenderer.drawAll(
                 canvas,
-                com.milknote.app.agent.AgentBridge.PageData(strokes, cards, paper, pageSize, orientation),
+                com.milknote.app.agent.AgentBridge.PageData(
+                    strokes, cards, paper, pageSize, orientation,
+                    images = imagesOf?.invoke(pageId) ?: emptyList(),
+                    imageDir = imageDir,
+                ),
                 pageWpx, pageHpx, clip = null,
             )
             paint.reset()

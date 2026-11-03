@@ -16,13 +16,15 @@ import java.io.ByteArrayOutputStream
  */
 object AgentBridge {
 
-    /** 页面数据快照(渲染输入;由 WriterViewModel 提供) */
+    /** 页面数据快照(渲染输入;由 WriterViewModel 提供;images/imageDir 可选,旧调用点零改动) */
     data class PageData(
         val strokes: List<com.milknote.ink.model.Stroke>,
         val cards: List<com.milknote.ink.model.AnnotationCard>,
         val paper: String,
         val pageSize: String,
         val orientation: String,
+        val images: List<com.milknote.ink.model.ImageElement> = emptyList(),
+        val imageDir: String? = null,   // notebook 目录绝对路径(ImageElement.src 相对它解析)
     )
 
     /** 渲染回调:pageId → 页面数据(null = 页面不在内存,回退磁盘读取由实现方决定) */
