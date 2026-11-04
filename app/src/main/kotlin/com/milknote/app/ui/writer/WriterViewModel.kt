@@ -58,6 +58,9 @@ data class WriterUiState(
     val snip: SnipUiState = SnipUiState(),    // ④ 框选模式(AGENT-BACKEND §4.2)
 ) {
     val tool: ToolConfig get() = toolSettings.current
+    val currentPageIndex: Int get() = pages.indexOfFirst { it.pageId == currentPageId }
+    val canPreviousPage: Boolean get() = currentPageIndex > 0
+    val canNextPage: Boolean get() = currentPageIndex >= 0 && currentPageIndex < pages.lastIndex
 }
 
 /** ④ 框选状态:IDLE → FROZEN(拖选中)→ CONFIRMED(松开待发) */
@@ -93,6 +96,8 @@ class WriterViewModel : ViewModel() {
 
     private var notebookId: String = ""
     private var thumbJob: Job? = null
+    private var pageSwitchJob: Job? = null
+    private var pendingPageId: String? = null
 
     init {
         // 设置 → 压感曲线档(笔宽是样式,换档即时生效)/ 前置缓冲开关
@@ -405,6 +410,8 @@ class WriterViewModel : ViewModel() {
 
     fun open(nbId: String) {
         if (notebookId == nbId) return
+        pageSwitchJob?.cancel()
+        pendingPageId = null
         notebookId = nbId
         val nb = repo.listNotebooks().firstOrNull { it.id == nbId } ?: return
         val pages = repo.listPages(nbId)
@@ -427,12 +434,22 @@ class WriterViewModel : ViewModel() {
     }
 
     fun switchPage(pageId: String) {
-        if (pageId == _state.value.currentPageId) return
-        viewModelScope.launch(Dispatchers.IO) {
+        val st = _state.value
+        if (st.pages.none { it.pageId == pageId } || pageId == pendingPageId) return
+        if (pageId == st.currentPageId) {
+            pageSwitchJob?.cancel()
+            pendingPageId = null
+            return
+        }
+        pendingPageId = pageId
+        pageSwitchJob?.cancel()
+        pageSwitchJob = viewModelScope.launch(Dispatchers.IO) {
             val strokes = repo.loadPage(notebookId, pageId)
             val cards = repo.loadAnnotations(notebookId, pageId)
             val images = repo.loadImages(notebookId, pageId)
             withContext(Dispatchers.Main) {
+                if (pendingPageId != pageId) return@withContext
+                pendingPageId = null
                 _state.value = _state.value.copy(currentPageId = pageId)
                 controller.loadStrokes(strokes, cards, images)
                 bindAgent(notebookId, pageId)
@@ -440,7 +457,19 @@ class WriterViewModel : ViewModel() {
         }
     }
 
+    fun previousPage() = stepPage(-1)
+
+    fun nextPage() = stepPage(1)
+
+    private fun stepPage(delta: Int) {
+        val st = _state.value
+        val basePageId = pendingPageId ?: st.currentPageId
+        adjacentPageId(st.pages, basePageId, delta)?.let(::switchPage)
+    }
+
     fun newPage() {
+        pageSwitchJob?.cancel()
+        pendingPageId = null
         val pageId = repo.newPage(notebookId)
         _state.value = _state.value.copy(pages = repo.listPages(notebookId), currentPageId = pageId)
         controller.loadStrokes(emptyList())

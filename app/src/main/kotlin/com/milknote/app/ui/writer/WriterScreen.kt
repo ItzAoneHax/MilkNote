@@ -35,10 +35,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Category
@@ -86,6 +89,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -296,13 +300,21 @@ fun WriterScreen(
                     onDelete = vm::deleteSelection,
                     onClear = vm::clearSelection,
                 )
+                if (state.snip.phase == SnipPhase.IDLE) {
+                    PageTurnControls(
+                        state = state,
+                        onPrevious = vm::previousPage,
+                        onNext = vm::nextPage,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
+                    )
+                }
                 // 轻提示 toast:底部滑入
                 var lastToast by remember { mutableStateOf("") }
                 toast?.let { lastToast = it }
                 ToastBar(
                     visible = toast != null,
                     text = lastToast,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 82.dp),
                 )
             }
         }
@@ -882,6 +894,36 @@ private fun IconToggleButton(
     }
 }
 
+/** 画布翻页:侧栏收起/专注模式也保留，首尾页禁用对应方向。 */
+@Composable
+private fun PageTurnControls(
+    state: WriterUiState,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    WriterToolIsland(modifier.height(48.dp), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = state.canPreviousPage,
+            onClick = onPrevious,
+        )
+        Text(
+            "${state.currentPageIndex + 1} / ${state.pages.size}",
+            modifier = Modifier.width(64.dp),
+            fontFamily = Mono,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            enabled = state.canNextPage,
+            onClick = onNext,
+        )
+    }
+}
+
 /** 侧栏:‹ 书架 + 本章页面缩略图(DESIGN-V0 §5.3:只放页面缩略,不放笔记本列表) */
 @Composable
 private fun PageSidebar(
@@ -892,6 +934,11 @@ private fun PageSidebar(
     onNewPage: () -> Unit,
 ) {
     val nb = state.notebook
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.currentPageId, state.pages.size) {
+        val index = state.currentPageIndex
+        if (index >= 0) listState.scrollToItem(index)
+    }
     val (pwMm, hMm) = com.milknote.notes.model.PAGE_SIZES_MM[nb?.pageSize] ?: com.milknote.notes.model.PAGE_SIZES_MM.getValue("A4")
     val pageAspect = if (nb?.orientation == "landscape") hMm / pwMm else pwMm / hMm
     Column(
@@ -917,7 +964,7 @@ private fun PageSidebar(
         }
         Spacer(Modifier.height(6.dp))
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.pages, key = { it.pageId }) { p ->
                 val active = p.pageId == state.currentPageId
                 val thumbBg by animateColorAsState(
@@ -993,6 +1040,8 @@ private fun PaperCanvas(
                 surfaceRef.value = this
                 inputInterceptor = ServiceLocator.penPort::onDispatchTouchEvent
                 onViewportChanged = vm::refreshSelectionOverlay
+                onPreviousPage = vm::previousPage
+                onNextPage = vm::nextPage
                 // 按住+书写修饰(PEN-ADAPTATION §4.3):落笔瞬间同步查询
                 // 「主/副键按住」触发器 → 映射动作 → 套索圈选/临时橡皮
                 holdActionProvider = {
@@ -1012,6 +1061,8 @@ private fun PaperCanvas(
             view.frontBufferEnabled = state.frontBufferEnabled
             view.darkTheme = dark
             view.penConnected = penConnected
+            view.canTurnPrevious = state.canPreviousPage
+            view.canTurnNext = state.canNextPage
             // 纸张尺寸+方向(旧笔记本缺字段 → A4 竖,几何与历史一致)
             val nb = state.notebook
             val (pw, ph) = nb?.pageMm(view.mmToPx) ?: (210f * view.mmToPx to 297f * view.mmToPx)

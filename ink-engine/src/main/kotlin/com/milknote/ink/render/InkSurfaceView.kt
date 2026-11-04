@@ -12,12 +12,14 @@ import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import com.milknote.ink.input.InkAction
@@ -32,6 +34,7 @@ import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.model.orderedElements
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
@@ -80,6 +83,12 @@ class InkSurfaceView @JvmOverloads constructor(
 
     /** 视口缩放/平移后同步 Compose 选区菜单位置。 */
     var onViewportChanged: (() -> Unit)? = null
+
+    /** 左右边缘单指横滑翻页；边界由书写页状态注入。 */
+    var onPreviousPage: (() -> Unit)? = null
+    var onNextPage: (() -> Unit)? = null
+    var canTurnPrevious: Boolean = false
+    var canTurnNext: Boolean = false
 
     /** 纸张模板:dot | line | grid | blank */
     var paperStyle: String = "dot"
@@ -195,6 +204,7 @@ class InkSurfaceView @JvmOverloads constructor(
     } catch (_: Throwable) { null }
 
     // 手势导航
+    private val zoomEndDebounce = ZoomEndDebounce()
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             userAdjusted = true
@@ -208,9 +218,20 @@ class InkSurfaceView @JvmOverloads constructor(
             invalidate()
             return true
         }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            zoomEndDebounce.onScaleEnd(SystemClock.uptimeMillis())
+        }
     })
     private var lastPanX = 0f
     private var lastPanY = 0f
+    private val edgeSizePx = 32f * resources.displayMetrics.density
+    private val edgeTurnDistancePx = 56f * resources.displayMetrics.density
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var edgeSwipeEdge: PageEdge? = null
+    private var edgeSwipeActive = false
+    private var edgeStartX = 0f
+    private var edgeStartY = 0f
 
     // ---------------- 前置缓冲出墨(DESIGN-V0 §3.1 双路径) ----------------
 
@@ -477,6 +498,8 @@ class InkSurfaceView @JvmOverloads constructor(
         }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                zoomEndDebounce.reset()
+                clearEdgeSwipe()
                 val tool = event.getToolType(0)
                 if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
                     stylusSeen = true
@@ -488,6 +511,13 @@ class InkSurfaceView @JvmOverloads constructor(
                 // 手指:控制柄/已选区/图片与文字点按优先;其他区域在连接笔后仅导航。
                 if (routeSpecialDown(event, c, collectRaw(event))) {
                     return true
+                }
+                val edge = pageEdgeAt(event.x, width.toFloat(), edgeSizePx)
+                if (edge != null) {
+                    edgeSwipeEdge = edge
+                    edgeStartX = event.x; edgeStartY = event.y
+                    lastPanX = event.x; lastPanY = event.y
+                    scaleDetector.onTouchEvent(event)
                 } else if (stylusSeen || c == null) {
                     lastPanX = event.x; lastPanY = event.y
                     scaleDetector.onTouchEvent(event)
@@ -498,6 +528,7 @@ class InkSurfaceView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) clearEdgeSwipe()
                 if (fingerDrawing && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
                     c?.cancelStroke()   // 双指:取消手指书写,转入缩放
                     fingerDrawing = false
@@ -525,9 +556,24 @@ class InkSurfaceView @JvmOverloads constructor(
                     c?.cancelSelectionTransform()
                 }
                 if (!isWriting() && !lassoStrokeActive && !dragActive && !cardDragActive && !imageDragActive && transformActive == null) scaleDetector.onTouchEvent(event)
+                if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) syncLastPanToRemainingPointer(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 when {
+                    edgeSwipeEdge != null -> {
+                        val edge = edgeSwipeEdge!!
+                        val turn = edgeSwipeTurn(
+                            edge, edgeStartX, edgeStartY, event.x, event.y, touchSlop,
+                        )
+                        if (turn != null) edgeSwipeActive = true
+                        val dx = event.x - edgeStartX
+                        val dy = event.y - edgeStartY
+                        if (!edgeSwipeActive && abs(dy) > touchSlop && abs(dy) > abs(dx)) {
+                            clearEdgeSwipe()
+                            lastPanX = event.x; lastPanY = event.y
+                        }
+                        return true
+                    }
                     transformActive != null && c != null -> {
                         val t = c.selectionTransformSnapshot()
                         if (t != null) {
@@ -603,12 +649,16 @@ class InkSurfaceView @JvmOverloads constructor(
                     else -> {
                         scaleDetector.onTouchEvent(event)
                         if (!scaleDetector.isInProgress) {
-                            panX += event.x - lastPanX
-                            panY += event.y - lastPanY
+                            val dx = event.x - lastPanX
+                            val dy = event.y - lastPanY
                             lastPanX = event.x; lastPanY = event.y
-                            userAdjusted = true
-                            onViewportChanged?.invoke()
-                            invalidate()
+                            if (event.pointerCount == 1 && !zoomEndDebounce.shouldSuppressPan(SystemClock.uptimeMillis())) {
+                                panX += dx
+                                panY += dy
+                                userAdjusted = true
+                                onViewportChanged?.invoke()
+                                invalidate()
+                            }
                         }
                     }
                 }
@@ -616,6 +666,18 @@ class InkSurfaceView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 when {
+                    edgeSwipeEdge != null -> {
+                        scaleDetector.onTouchEvent(event)
+                        val turn = edgeSwipeTurn(
+                            edgeSwipeEdge!!, edgeStartX, edgeStartY, event.x, event.y, edgeTurnDistancePx,
+                        )
+                        clearEdgeSwipe()
+                        when (turn) {
+                            PageTurn.PREVIOUS -> if (canTurnPrevious) onPreviousPage?.invoke()
+                            PageTurn.NEXT -> if (canTurnNext) onNextPage?.invoke()
+                            null -> Unit
+                        }
+                    }
                     transformActive != null -> {
                         transformActive = null
                         c?.endSelectionTransform()
@@ -663,6 +725,7 @@ class InkSurfaceView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                clearEdgeSwipe()
                 if (transformActive != null) {
                     transformActive = null
                     c?.cancelSelectionTransform()
@@ -689,10 +752,23 @@ class InkSurfaceView @JvmOverloads constructor(
                     c?.cancelImageDrag()
                 }
                 fingerDrawing = false
+                scaleDetector.onTouchEvent(event)
                 return true
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    private fun clearEdgeSwipe() {
+        edgeSwipeEdge = null
+        edgeSwipeActive = false
+    }
+
+    private fun syncLastPanToRemainingPointer(event: MotionEvent) {
+        val lifted = event.actionIndex
+        val remaining = (0 until event.pointerCount).firstOrNull { it != lifted } ?: return
+        lastPanX = event.getX(remaining)
+        lastPanY = event.getY(remaining)
     }
 
     /**
