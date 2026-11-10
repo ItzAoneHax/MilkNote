@@ -1,0 +1,4 @@
+Physical size: 2560x1600
+Physical density: 320
+  mCurrentFocus=Window{e3c8dc6 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}
+  mFocusedApp=ActivityRecord{52b64c1 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity t10}

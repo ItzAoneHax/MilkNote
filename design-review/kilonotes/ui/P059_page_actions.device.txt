@@ -1,0 +1,4 @@
+Physical size: 2560x1600
+Physical density: 320
+  mCurrentFocus=Window{67b12fe u0 PopupWindow:4b4c584}
+  mFocusedApp=ActivityRecord{fa1a0c6 u0 com.topstack.kilonotes.pad/.MainActivity t11}

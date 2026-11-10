@@ -1,0 +1,4 @@
+Physical size: 2560x1600
+Physical density: 320
+  mCurrentFocus=Window{49b980b u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity}
+  mFocusedApp=ActivityRecord{db4ab0f u0 com.google.android.documentsui/com.android.documentsui.picker.PickActivity t10}

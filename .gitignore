@@ -22,5 +22,5 @@ milk_ui.xml
 ui_dump.xml
 .local-test/
 
-# 本地参考应用与系统镜像下载(数 GB,不属于源码)
-.zcode/downloads/
+# 本地参考应用、脚本、截图与系统镜像(数 GB,不属于源码)
+.zcode/

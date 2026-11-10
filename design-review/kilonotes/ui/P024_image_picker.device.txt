@@ -1,0 +1,4 @@
+Physical size: 2560x1600
+Physical density: 320
+  mCurrentFocus=Window{1584745 u0 com.topstack.kilonotes.pad/com.topstack.kilonotes.pad.select.SelectPhotoDialogActivity}
+  mFocusedApp=ActivityRecord{7e26c24 u0 com.topstack.kilonotes.pad/.select.SelectPhotoDialogActivity t10}
