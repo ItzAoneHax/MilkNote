@@ -13,6 +13,7 @@ import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.orderedElements
 import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.ink.render.ImageElementRenderer
+import com.milknote.ink.render.MediaElementRenderer
 import com.milknote.ink.render.PaperRenderer
 import com.milknote.ink.render.StrokeRenderer
 import com.milknote.notes.model.PAGE_SIZES_MM
@@ -37,7 +38,7 @@ object PageRenderer {
 
     /** 整页(2x);snip 整页上下文与缩略图/导出共用 */
     fun renderFull(data: AgentBridge.PageData): Bitmap {
-        val (pageW, pageH) = pageDimsPx(data.pageSize, data.orientation)
+        val (pageW, pageH) = pageDimsPx(data)
         val w = (pageW * PAGE_DPI_SCALE).toInt()
         val h = (pageH / pageW * w).toInt()
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -51,7 +52,7 @@ object PageRenderer {
     /** 选区裁剪:按选区长边 ~1568×2 渲染源区域(预算内再由 SnipEncoder 统一收口) */
     private fun renderRect(data: AgentBridge.PageData, rect: Rect4): Bitmap {
         val r = rect.normalized()
-        val (pageW, _) = pageDimsPx(data.pageSize, data.orientation)
+        val (pageW, _) = pageDimsPx(data)
         val target = com.milknote.agent.ImageBudget.LONG_EDGE_PX
         val scale = (target * 1.25f) / maxOf(r.width, r.height).coerceAtLeast(1f)
         val w = (r.width * scale).toInt().coerceAtLeast(8)
@@ -60,7 +61,7 @@ object PageRenderer {
         val canvas = Canvas(bmp)
         canvas.scale(scale, scale)
         canvas.translate(-r.l, -r.t)
-        drawAll(canvas, data, pageW, pageDimsPx(data.pageSize, data.orientation).second, clip = RectF(r.l, r.t, r.r, r.b))
+        drawAll(canvas, data, pageW, pageDimsPx(data).second, clip = RectF(r.l, r.t, r.r, r.b))
         return bmp
     }
 
@@ -73,14 +74,18 @@ object PageRenderer {
         clip: RectF?,
     ) {
         if (clip != null) canvas.clipRect(clip)
-        val paperPaint = Paint().apply { color = 0xFFFAF9F5.toInt() }
+        val paperPaint = Paint().apply {
+            color = runCatching { android.graphics.Color.parseColor(data.paperColor) }
+                .getOrDefault(0xFFFAF9F5.toInt())
+        }
         canvas.drawRect(0f, 0f, pageW, pageH, paperPaint)   // 显式矩形(禁 drawColor)
         PaperRenderer.draw(canvas, data.paper, pageW, pageH, 0xFFD8D4C8.toInt())
         val dir = data.imageDir?.let { java.io.File(it) }
         val paint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
-        for (element in orderedElements(data.strokes, data.cards, data.images)) {
+        for (element in orderedElements(data.strokes, data.cards, data.images, data.media)) {
             when (element) {
                 is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, dir)
+                is PageElement.Media -> MediaElementRenderer.draw(canvas, element.value)
                 is PageElement.Ink -> {
                     val s = element.value
                     paint.color = s.color.toInt()
@@ -97,6 +102,11 @@ object PageRenderer {
         return if (orientation == "landscape") h * MM_TO_PX to w * MM_TO_PX else w * MM_TO_PX to h * MM_TO_PX
     }
 
+    fun pageDimsPx(data: AgentBridge.PageData): Pair<Float, Float> =
+        if (data.pageWidthMm != null && data.pageHeightMm != null) {
+            data.pageWidthMm * MM_TO_PX to data.pageHeightMm * MM_TO_PX
+        } else pageDimsPx(data.pageSize, data.orientation)
+
     private suspend fun loadData(page: PageRef): AgentBridge.PageData? {
         // 内存优先;图片层由磁盘补齐(pageProvider 的快照可能不含 images/imageDir)
         AgentBridge.pageProvider?.invoke(page)?.let { return fillImages(page, it) }
@@ -104,14 +114,19 @@ object PageRenderer {
         return runCatching {
             val repo = com.milknote.app.di.ServiceLocator.repository
             val meta = repo.listNotebooks().firstOrNull { it.id == page.notebookId } ?: return null
+            val spec = meta.pageSpec(page.pageId)
             AgentBridge.PageData(
                 strokes = repo.loadPage(page.notebookId, page.pageId),
                 cards = repo.loadAnnotations(page.notebookId, page.pageId),
-                paper = meta.paper,
+                paper = spec.paper,
                 pageSize = meta.pageSize,
                 orientation = meta.orientation,
                 images = repo.loadImages(page.notebookId, page.pageId),
+                media = repo.loadMedia(page.notebookId, page.pageId),
                 imageDir = repo.notebookDir(page.notebookId).absolutePath,
+                paperColor = spec.paperColor,
+                pageWidthMm = spec.widthMm,
+                pageHeightMm = spec.heightMm,
             )
         }.getOrNull()
     }

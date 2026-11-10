@@ -2,7 +2,7 @@ package com.milknote.ink.model
 
 /** 页面元素的稳定引用；选择、调层与持久化共用，避免不同类型之间 id 冲突。 */
 data class ElementRef(val kind: Kind, val id: String) {
-    enum class Kind(val legacyRank: Int) { IMAGE(0), STROKE(1), CARD(2) }
+    enum class Kind(val legacyRank: Int) { IMAGE(0), MEDIA(1), STROKE(2), CARD(3) }
 }
 
 data class LayerState(val ref: ElementRef, val zIndex: Long)
@@ -14,6 +14,11 @@ sealed interface PageElement {
 
     data class Image(val value: ImageElement) : PageElement {
         override val ref = ElementRef(ElementRef.Kind.IMAGE, value.id)
+        override val zIndex get() = value.zIndex
+    }
+
+    data class Media(val value: MediaElement) : PageElement {
+        override val ref = ElementRef(ElementRef.Kind.MEDIA, value.id)
         override val zIndex get() = value.zIndex
     }
 
@@ -38,9 +43,11 @@ fun orderedElements(
     strokes: List<Stroke>,
     cards: List<AnnotationCard>,
     images: List<ImageElement>,
+    media: List<MediaElement> = emptyList(),
 ): List<PageElement> {
     val all = buildList {
         images.forEachIndexed { i, value -> add(IndexedElement(PageElement.Image(value), i)) }
+        media.forEachIndexed { i, value -> add(IndexedElement(PageElement.Media(value), i)) }
         strokes.forEachIndexed { i, value -> add(IndexedElement(PageElement.Ink(value), i)) }
         cards.forEachIndexed { i, value -> add(IndexedElement(PageElement.Card(value), i)) }
     }
@@ -51,9 +58,10 @@ fun orderedElements(
     ).map { it.element }
 }
 
-fun PageInkState.orderedElements(): List<PageElement> = orderedElements(strokes, cards, images)
+fun PageInkState.orderedElements(): List<PageElement> = orderedElements(strokes, cards, images, media)
 
 fun PageInkState.nextZIndex(): Long =
     (strokes.maxOfOrNull { it.zIndex } ?: 0L)
         .coerceAtLeast(cards.maxOfOrNull { it.zIndex } ?: 0L)
-        .coerceAtLeast(images.maxOfOrNull { it.zIndex } ?: 0L) + 1L
+        .coerceAtLeast(images.maxOfOrNull { it.zIndex } ?: 0L)
+        .coerceAtLeast(media.maxOfOrNull { it.zIndex } ?: 0L) + 1L

@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.onFocusChanged
+import com.milknote.app.ui.common.MilkChoicePanel
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
@@ -62,7 +63,7 @@ import com.milknote.app.ui.theme.Mono
 /**
  * 设置组件套件(A2.7,Codex/ZCode 设置页调研收敛):
  * - 骨架 = 左导航(分组小标题+图标行,选中=淡蓝胶囊) + 右侧 ≤560dp 居中列
- * - 行 = 左(标题+灰副题)/右(控件),行间 hairline;值列「当前值 ›」,选择器=行下原地展开(✓ 标当前)
+ * - 行 = 左(标题+灰副题)/右(控件),行间 hairline;值列「当前值 ›」,选择器=中央单选面板(✓ 标当前)
  * - 纪律:mono 只用于值/URL/id/数字;蓝仅激活态;即时生效优先,显式输入才出「保存」
  */
 
@@ -268,7 +269,7 @@ internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     Text("›", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** 选择行:点击展开候选列表,✓ 标当前项,点选即收起(替换 AlertDialog+RadioButton) */
+/** 选择行:点击打开中央单选面板,✓ 标当前项,点选即关闭。 */
 @Composable
 internal fun <T> SelectRow(
     title: String,
@@ -280,20 +281,21 @@ internal fun <T> SelectRow(
     mono: Boolean = false,
 ) {
     var open by remember { mutableStateOf(false) }
-    Column(Modifier.animateContentSize(tween(200))) {
-        SettingsRow(
+    SettingsRow(
+        title = title,
+        subtitle = subtitle,
+        onClick = { open = true },
+        trailing = { RowValue(value = selected?.let(label) ?: "—", mono = mono) },
+    )
+    if (open) {
+        MilkChoicePanel(
             title = title,
-            subtitle = subtitle,
-            onClick = { open = !open },
-            trailing = { RowValue(value = selected?.let(label) ?: "—", mono = mono) },
+            items = items,
+            selected = selected,
+            label = label,
+            onPick = onPick,
+            onDismiss = { open = false },
         )
-        if (open) {
-            Hairline()
-            InlineSelectionList(items = items, selected = selected, label = label) {
-                onPick(it)
-                open = false
-            }
-        }
     }
 }
 

@@ -21,3 +21,6 @@ shot_*.jpg
 milk_ui.xml
 ui_dump.xml
 .local-test/
+
+# 本地参考应用与系统镜像下载(数 GB,不属于源码)
+.zcode/downloads/

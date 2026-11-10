@@ -35,4 +35,15 @@ class PageNavigationTest {
         assertTrue(last.canPreviousPage)
         assertFalse(last.canNextPage)
     }
+
+    @Test fun `删除页后优先停留下一页 否则上一页`() {
+        assertEquals("p0002", pageIdAfterDelete(pages, "p0001"))
+        assertEquals("p0003", pageIdAfterDelete(pages, "p0002"))
+        assertEquals("p0002", pageIdAfterDelete(pages, "p0003"))
+    }
+
+    @Test fun `删除唯一页后没有相邻页 由调用方补空白页`() {
+        assertNull(pageIdAfterDelete(pages.take(1), "p0001"))
+        assertNull(pageIdAfterDelete(pages, "missing"))
+    }
 }

@@ -114,10 +114,14 @@ class AgentStore(
         )
     }
 
-    fun readAttachment(notebookId: String, attachment: Attachment): ByteArray? {
-        val f = File(notebooksRoot, "$notebookId.milk/${attachment.file}")
-        return if (f.exists()) f.readBytes() else null
-    }
+    fun readAttachment(notebookId: String, attachment: Attachment): ByteArray? = runCatching {
+        if (attachment.file.isBlank() || attachment.file.startsWith('/') || attachment.file.startsWith('\\') ||
+            attachment.file.replace('\\', '/').split('/').any { it == ".." || it == "." }
+        ) return@runCatching null
+        val root = File(notebooksRoot, "$notebookId.milk").canonicalFile
+        val f = File(root, attachment.file).canonicalFile
+        if (f.toPath().startsWith(root.toPath()) && f != root && f.isFile) f.readBytes() else null
+    }.getOrNull()
 
     private fun atomicWrite(target: File, text: String) {
         target.parentFile?.mkdirs()

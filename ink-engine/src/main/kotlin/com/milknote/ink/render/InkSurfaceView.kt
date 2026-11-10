@@ -109,6 +109,7 @@ class InkSurfaceView @JvmOverloads constructor(
 
     /** 颜色由界面主题注入(奶白纸 + #D8D4C8 点) */
     var paperColor: Int = 0xFFFAF9F5.toInt()
+        set(value) { field = value; committedKey = Long.MIN_VALUE; invalidate() }
     var dotColor: Int = 0xFFD8D4C8.toInt()
     var backdropColor: Int = 0xFFEFEDE5.toInt()   // 纸外(视口)底色
     var paperFrameColor: Int = 0x1423221E          // 纸面细边
@@ -797,7 +798,8 @@ class InkSurfaceView @JvmOverloads constructor(
         if (stylus) {
             val onCard = c.page.cards.any { AnnotationCardRenderer.hit(it, px, py, it.id in expandedCards) }
             val onImage = c.page.images.any { ImageElementRenderer.hit(it, px, py) }
-            if (onCard || onImage) {
+            val onMedia = c.page.media.any { ElementGeom.contains(it, px, py) }
+            if (onCard || onImage || onMedia) {
                 c.clearSelection()
                 return false
             }
@@ -822,9 +824,9 @@ class InkSurfaceView @JvmOverloads constructor(
         // 工具覆盖:倒置橡皮 > 按住修饰(临时橡皮)> 一次性临时橡皮(改绑到单击类触发)
         val hold = holdActionProvider?.invoke()
         val override: ToolConfig? = when {
-            invertedEraser -> ToolConfig(tool = InkTool.ERASER, baseWidthMm = 4f)
+            invertedEraser -> ToolConfig(tool = InkTool.ERASER, baseWidthMm = c.eraserWidthMm)
             hold == InkAction.TEMP_ERASER || c.consumeOneShotEraser() ->
-                ToolConfig(tool = InkTool.ERASER, baseWidthMm = 4f)
+                ToolConfig(tool = InkTool.ERASER, baseWidthMm = c.eraserWidthMm)
             else -> null
         }
         val batch = if (fixed) raw.map { fixedPressure(toPage(it)) } else raw.map(::toPage)
@@ -1179,6 +1181,7 @@ class InkSurfaceView @JvmOverloads constructor(
     private fun drawElement(canvas: Canvas, element: PageElement, c: InkController, halo: Boolean = false) {
         when (element) {
             is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, imageDir)
+            is PageElement.Media -> MediaElementRenderer.draw(canvas, element.value)
             is PageElement.Ink -> {
                 val path = StrokeRenderer.buildPath(element.value, mmToPx, c.tool.pressureGamma)
                 if (halo) canvas.drawPath(path, selectionHaloPaint)
@@ -1234,6 +1237,7 @@ class InkSurfaceView @JvmOverloads constructor(
             for (element in c.page.orderedElements()) {
                 when (element) {
                     is PageElement.Image -> ImageElementRenderer.draw(canvas, element.value, imageDir)
+                    is PageElement.Media -> MediaElementRenderer.draw(canvas, element.value)
                     is PageElement.Ink -> canvas.drawPath(
                         StrokeRenderer.buildPath(element.value, mmToPx, c.tool.pressureGamma),
                         paintFor(element.value.color, element.value.tool),

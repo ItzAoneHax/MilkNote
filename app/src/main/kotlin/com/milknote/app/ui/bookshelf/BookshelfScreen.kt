@@ -32,10 +32,16 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -56,6 +62,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.milknote.app.ui.common.MilkActionPanel
+import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.PenBatteryCapsule
 import com.milknote.app.ui.common.accentBrush
@@ -75,15 +84,52 @@ import com.milknote.notes.model.NotebookMeta
 fun BookshelfScreen(
     vm: BookshelfViewModel,
     onOpenNotebook: (String) -> Unit,
+    onOpenNotebookWithImage: (String, android.net.Uri) -> Unit = { id, _ -> onOpenNotebook(id) },
     onOpenDiagnostics: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPalette: () -> Unit = {},
+    onOpenCards: () -> Unit = {},
     showNewNotebook: Boolean = false,
     onNewNotebookHandled: () -> Unit = {},
 ) {
     val notebooks by vm.notebooks.collectAsState()
+    val sortMode by vm.sortMode.collectAsState()
+    val importing by vm.importing.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
+    var showCreateActions by remember { mutableStateOf(false) }
+    var showSort by remember { mutableStateOf(false) }
+    var manageTarget by remember { mutableStateOf<NotebookMeta?>(null) }
     var deleteTarget by remember { mutableStateOf<NotebookMeta?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    fun openImageNotebook(uri: android.net.Uri, prefix: String) {
+        val id = vm.create(prefix, "#3B5BEC", "blank", "阅读摘录")
+        onOpenNotebookWithImage(id, uri)
+    }
+    val imageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri -> if (uri != null) openImageNotebook(uri, "图片笔记") }
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.TakePicture(),
+    ) { ok -> cameraUri?.let { if (ok) openImageNotebook(it, "拍照笔记") } }
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) vm.importDocument(uri) }
+
+    LaunchedEffect(Unit) {
+        vm.events.collect { event ->
+            when (event) {
+                is BookshelfEvent.Imported -> onOpenNotebook(event.notebookId)
+                is BookshelfEvent.Message -> android.widget.Toast.makeText(context, event.text, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // 「最近」徽标跟随真实的最近更新时间,不随排序方式改变含义
+    val recentId = remember(notebooks) {
+        notebooks.maxByOrNull { it.updatedAt }?.id
+    }
 
     // ⌘K「新建笔记本」请求(面板 → 本屏弹窗)
     LaunchedEffect(showNewNotebook) {
@@ -101,7 +147,8 @@ fun BookshelfScreen(
         BookshelfTopBar(
             count = notebooks.size,
             battery = battery,
-            onNew = { showCreate = true },
+            onNew = { showCreateActions = true },
+            onSort = { showSort = true },
             onOpenSettings = onOpenSettings,
             onBatteryLongPress = onOpenDiagnostics,
             onOpenPalette = onOpenPalette,
@@ -113,34 +160,116 @@ fun BookshelfScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 36.dp, vertical = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(26.dp),
             verticalArrangement = Arrangement.spacedBy(26.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().weight(1f),
         ) {
             items(notebooks, key = { it.id }) { nb ->
                 Box(Modifier.animateItem()) {
                     NotebookCard(
                         meta = nb,
                         pageCount = vm.pageCountOf(nb.id),
-                        recent = nb.id == notebooks.firstOrNull()?.id,
+                        recent = nb.id == recentId,
                         onOpen = { onOpenNotebook(nb.id) },
-                        onDelete = { deleteTarget = nb },
+                        onManage = { manageTarget = nb },
                     )
                 }
             }
             item(key = "__new__") {
-                NewNotebookCard(onNew = { showCreate = true })
+                NewNotebookCard(onNew = { showCreateActions = true })
             }
         }
+        com.milknote.app.ui.common.LibraryBottomNav(
+            selected = "笔记", onNotes = {}, onCards = onOpenCards,
+        )
+    }
+
+    if (importing) {
+        MilkCenterPanel(title = "正在导入", onDismiss = {}, maxWidth = 420.dp, closable = false) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("正在校验文件并生成新笔记本…")
+            }
+        }
+    }
+
+    if (showCreateActions) {
+        MilkActionPanel(
+            title = "创建",
+            subtitle = "从本地内容开始，不连接外部网盘",
+            actions = listOf(
+                MilkPanelAction("笔记本", icon = Icons.Outlined.Add, onClick = {
+                    showCreateActions = false; showCreate = true
+                }),
+                MilkPanelAction("导入 PDF / MilkNote 备份", icon = Icons.Outlined.FileOpen, onClick = {
+                    showCreateActions = false
+                    importLauncher.launch(arrayOf("application/pdf", "application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*"))
+                }),
+                MilkPanelAction("图片", icon = Icons.Outlined.Image, onClick = {
+                    showCreateActions = false; imageLauncher.launch("image/*")
+                }),
+                MilkPanelAction("拍照", icon = Icons.Outlined.CameraAlt, onClick = {
+                    showCreateActions = false
+                    val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+                    val file = java.io.File(dir, "capture-${System.currentTimeMillis()}.jpg")
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", file,
+                    )
+                    cameraUri = uri
+                    cameraLauncher.launch(uri)
+                }),
+            ),
+            onDismiss = { showCreateActions = false },
+        )
     }
 
     // ---- ② 新建弹窗 ----
     AnimatedVisibility(visible = showCreate, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
         NewNotebookDialog(
             onDismiss = { showCreate = false },
-            onCreate = { name, color, paper, purpose, pageSize, orientation ->
-                val id = vm.create(name, color, paper, purpose, pageSize, orientation)
+            onCreate = { name, color, paper, purpose, pageSize, orientation, paperColor ->
+                val id = vm.create(name, color, paper, purpose, pageSize, orientation, paperColor)
                 showCreate = false
                 onOpenNotebook(id)
             },
+        )
+    }
+
+    // ---- 排序(P057):中央面板,当前项勾选;选择立即生效并保持 ----
+    if (showSort) {
+        MilkActionPanel(
+            title = "排序方式",
+            subtitle = "名称 / 修改时间 / 上次打开 / 标签，选择后立即生效。",
+            actions = buildList {
+                BookshelfSortMode.entries.forEach { mode ->
+                    val selected = mode == sortMode
+                    add(
+                        MilkPanelAction(
+                            label = mode.label,
+                            icon = if (selected) Icons.Outlined.Check else null,
+                            trailingText = if (selected) "当前" else null,
+                            onClick = {
+                                vm.setSortMode(mode)
+                                showSort = false
+                            },
+                        )
+                    )
+                }
+            },
+            onDismiss = { showSort = false },
+        )
+    }
+
+    manageTarget?.let { target ->
+        NotebookManagePanel(
+            meta = target,
+            folders = vm.folders(),
+            onDismiss = { manageTarget = null },
+            onSave = { updated -> vm.updateNotebook(updated); manageTarget = null },
+            onDelete = { manageTarget = null; deleteTarget = target },
         )
     }
 
@@ -199,6 +328,7 @@ private fun BookshelfTopBar(
     count: Int,
     battery: Int,
     onNew: () -> Unit,
+    onSort: () -> Unit,
     onOpenSettings: () -> Unit,
     onBatteryLongPress: () -> Unit,
     onOpenPalette: () -> Unit = {},
@@ -224,6 +354,23 @@ private fun BookshelfTopBar(
         // 搜索 → ⌘K 命令面板(DESIGN-V0 §5.4 统一入口;识别检索 M3)
         SearchCommandPill(onClick = onOpenPalette)
         Spacer(Modifier.width(14.dp))
+
+        // 排序(P057):48dp 命中,图标 19dp;点击打开中央排序面板
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onSort),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.Sort, "排序",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+
         Box(
             Modifier
                 .clip(CircleShape)
@@ -293,17 +440,17 @@ private fun NotebookCard(
     pageCount: Int,
     recent: Boolean,
     onOpen: () -> Unit,
-    onDelete: () -> Unit,
+    onManage: () -> Unit,
 ) {
     val cover = runCatching { Color(android.graphics.Color.parseColor(meta.coverColor)) }.getOrDefault(Color(0xFF3B5BEC))
-    var showMenu by remember { mutableStateOf(false) }
+    val tagColor = runCatching { Color(android.graphics.Color.parseColor(meta.tagColor.ifBlank { meta.coverColor })) }.getOrDefault(cover)
     // 等高框架(A-05):封面固定 aspectRatio + 元信息固定 68dp,新建卡复用同一骨架
     Column(
         modifier = Modifier
             .softCard()
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .combinedClickable(onClick = onOpen, onLongClick = onDelete)
+            .combinedClickable(onClick = onOpen, onLongClick = onManage)
             .innerHighlight()
             .padding(12.dp),
     ) {
@@ -336,28 +483,16 @@ private fun NotebookCard(
                     Text("最近", fontSize = 10.sp, color = Color(0xFF23221E))
                 }
             }
-            // 可见管理入口(A-07):删除不再只靠长按;48dp 命中,图标 18dp
+            // 可见管理入口：重命名/标签/移动/删除统一进入中央管理面板。
             Box(Modifier.align(Alignment.TopEnd)) {
                 Box(
-                    Modifier
-                        .size(48.dp)
-                        .clickable { showMenu = true },
+                    Modifier.size(48.dp).clickable(onClick = onManage),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Outlined.MoreVert, "笔记本操作",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
-                    )
-                }
-                androidx.compose.material3.DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text("打开") },
-                        onClick = { showMenu = false; onOpen() },
-                    )
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                        onClick = { showMenu = false; onDelete() },
                     )
                 }
             }
@@ -373,17 +508,17 @@ private fun NotebookCard(
                 )
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(7.dp).background(cover, CircleShape))
+                    Box(Modifier.size(7.dp).background(tagColor, CircleShape))
                     Spacer(Modifier.width(6.dp))
-                    MonoText("${pageCount} 页 · ${formatRelative(meta.updatedAt)}")
+                    MonoText("${pageCount} 页 · ${formatRelative(meta.updatedAt)}${if (meta.folder.isBlank()) "" else " · ${meta.folder}"}")
                     Spacer(Modifier.weight(1f))
                     // A-03:小字用对比达标前景(亮=同色相加深,暗=提亮;原色对比 2.4–4.5 不足)
                     val tagFg = com.milknote.app.ui.theme.coverForeground(
-                        cover, com.milknote.app.ui.theme.LocalMilkDark.current,
+                        tagColor, com.milknote.app.ui.theme.LocalMilkDark.current,
                     )
                     Box(
                         Modifier
-                            .background(cover.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+                            .background(tagColor.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                     ) {
                         Text(meta.purpose, fontSize = 10.sp, color = tagFg)

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkSlider
 import com.milknote.app.ui.common.milkDialogSurface
@@ -69,12 +70,41 @@ internal fun PenSettingsDialog(
     onWidth: (Float) -> Unit,
     onSelectColor: (Long) -> Unit,
     onColorDetail: (Int) -> Unit,
+    onEraserWidth: (Float) -> Unit = {},
 ) {
+    if (tool == InkTool.ERASER) {
+        MilkCenterPanel(title = "橡皮大小", subtitle = "整笔划擦除；再次点击橡皮可打开此面板", onDismiss = onDismiss, maxWidth = 430.dp) {
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(2f to "小", 5f to "中", 9f to "大").forEach { (mm, label) ->
+                    val active = abs(settings.eraserWidthMm - mm) < 0.1f
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                            .border(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                            .clickable { onEraserWidth(mm) }.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(Modifier.size((mm * 3).dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant))
+                        Spacer(Modifier.height(8.dp))
+                        Text("$label · ${mm.toInt()} mm")
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                MilkButton("完成", onClick = onDismiss)
+            }
+        }
+        return
+    }
     val current = settings.current
     val title = when (tool) {
         InkTool.PEN -> "钢笔详细设定"
         InkTool.BALL -> "圆珠笔详细设定"
         InkTool.HIGHLIGHTER -> "荧光笔详细设定"
+        InkTool.DOODLE -> "图案笔详细设定"
+        InkTool.LASER -> "激光笔设置（不落盘）"
         else -> "笔详细设定"
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {

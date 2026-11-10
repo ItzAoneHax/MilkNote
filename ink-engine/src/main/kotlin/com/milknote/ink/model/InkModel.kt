@@ -2,6 +2,11 @@ package com.milknote.ink.model
 
 import kotlinx.serialization.Serializable
 
+enum class LassoContent(val label: String) {
+    INK("笔迹"), SHAPE("图形"), IMAGE("图片"), TEXT("文字"),
+    DOODLE("图案笔"), TAPE("胶带"), STICKER("贴纸"), MEDIA("音视频"),
+}
+
 /** 工具(DESIGN-V0 §6.1 Stroke.tool) */
 enum class InkTool(val id: String) {
     PEN("pen"),           // 钢笔:压感变宽 + 倾斜笔锋
@@ -10,14 +15,24 @@ enum class InkTool(val id: String) {
     ERASER("eraser"),     // 擦除(整笔划)
     RECT("rect"),         // 矩形:两点 = 对角,轮廓描边
     OVAL("oval"),         // 椭圆:两点 = 外接矩形,轮廓描边
-    LINE("line");         // 直线:两点 = 线段,描边
+    LINE("line"),         // 直线:两点 = 线段,描边
+    DASHED_LINE("dashed_line"),
+    ARROW("arrow"),
+    TRIANGLE("triangle"),
+    STAR("star"),
+    POLYGON("polygon"),
+    DOODLE("doodle"),     // 图案笔：沿自由轨迹生成花纹
+    LASER("laser");       // 临时指示：只显示活动轨迹，不写持久化
 
     companion object { fun of(id: String): InkTool = entries.firstOrNull { it.id == id } ?: PEN }
 }
 
 /** 形状工具:两点 Stroke(起点/终点定义几何),恒定轮廓宽 = baseWidthMm */
 val InkTool.isShape: Boolean
-    get() = this == InkTool.RECT || this == InkTool.OVAL || this == InkTool.LINE
+    get() = this in setOf(
+        InkTool.RECT, InkTool.OVAL, InkTool.LINE, InkTool.DASHED_LINE,
+        InkTool.ARROW, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON,
+    )
 
 /** 单采样点。压感为归一化原始值 [0,1](压感是数据,笔宽是样式 —— PEN-ADAPTATION §3.3) */
 data class InkPoint(
@@ -45,6 +60,9 @@ data class Stroke(
  * x/y/width/height 为页坐标 px(与笔迹同一坐标系)。落盘走 `<pageId>.img.json` 整表重写。
  */
 @Serializable
+enum class PageImageKind { IMAGE, TAPE, STICKER, PDF_PAGE }
+
+@Serializable
 data class ImageElement(
     val id: String,
     val src: String,            // 相对 notebookDir 的路径
@@ -55,6 +73,7 @@ data class ImageElement(
     val createdAt: Long = 0L,
     val rotationDeg: Float = 0f,
     val zIndex: Long = 0L,
+    val kind: PageImageKind = PageImageKind.IMAGE,
 )
 
 /** 当前笔设置(工具条状态) */
@@ -78,6 +97,8 @@ sealed interface InkOp {
     data class RemoveCard(val card: AnnotationCard, val index: Int = -1) : InkOp
     data class AddImage(val image: ImageElement) : InkOp
     data class RemoveImage(val image: ImageElement, val index: Int) : InkOp
+    data class AddMedia(val media: MediaElement) : InkOp
+    data class RemoveMedia(val media: MediaElement, val index: Int) : InkOp
     data class Reorder(val before: List<LayerState>, val after: List<LayerState>) : InkOp
     data class Batch(val ops: List<InkOp>) : InkOp
 }
@@ -86,6 +107,20 @@ sealed interface InkOp {
  * 批注卡(Agent 结果贴回的承载;页坐标 px,与笔迹同一坐标系)。
  * 高度由文本布局测量得出(渲染层计算),不落库。
  */
+@Serializable
+enum class CardTextAlign { START, CENTER, END }
+
+@Serializable
+data class CardTextStyle(
+    val fontSizePx: Float = 24f,
+    val colorArgb: Long = 0xFF23221E,
+    val align: CardTextAlign = CardTextAlign.START,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val strikethrough: Boolean = false,
+)
+
 @Serializable
 data class AnnotationCard(
     val id: String,
@@ -98,15 +133,17 @@ data class AnnotationCard(
     val rotationDeg: Float = 0f,
     val scale: Float = 1f,      // 内容整体缩放;保留原宽度用于文本布局缓存
     val zIndex: Long = 0L,
+    val textStyle: CardTextStyle = CardTextStyle(),
 ) {
     enum class Kind { TEXT, LATEX }
 }
 
-/** 页面墨迹状态:提交的笔迹 + 批注卡 + 图片元素 + 撤销/重做栈 */
+/** 页面墨迹状态:提交的笔迹 + 批注卡 + 图片元素 + 音视频元素 + 撤销/重做栈 */
 class PageInkState {
     val strokes: MutableList<Stroke> = mutableListOf()
     val cards: MutableList<AnnotationCard> = mutableListOf()
     val images: MutableList<ImageElement> = mutableListOf()
+    val media: MutableList<MediaElement> = mutableListOf()
     private val undoStack: ArrayDeque<InkOp> = ArrayDeque()
     private val redoStack: ArrayDeque<InkOp> = ArrayDeque()
 
@@ -125,6 +162,7 @@ class PageInkState {
         strokes: List<Stroke>,
         cards: List<AnnotationCard> = emptyList(),
         images: List<ImageElement> = emptyList(),
+        media: List<MediaElement> = emptyList(),
     ) {
         this.strokes.clear()
         this.strokes.addAll(strokes)
@@ -132,6 +170,8 @@ class PageInkState {
         this.cards.addAll(cards)
         this.images.clear()
         this.images.addAll(images)
+        this.media.clear()
+        this.media.addAll(media)
         undoStack.clear()
         redoStack.clear()
         version++
@@ -183,6 +223,9 @@ class PageInkState {
         images.replaceAll { i ->
             byRef[ElementRef(ElementRef.Kind.IMAGE, i.id)]?.let { i.copy(zIndex = it.zIndex) } ?: i
         }
+        media.replaceAll { m ->
+            byRef[ElementRef(ElementRef.Kind.MEDIA, m.id)]?.let { m.copy(zIndex = it.zIndex) } ?: m
+        }
     }
 
     private fun doApply(op: InkOp) {
@@ -193,6 +236,8 @@ class PageInkState {
             is InkOp.RemoveCard -> cards.removeAt(cards.indexOfFirst { it.id == op.card.id }.takeIf { it >= 0 } ?: return)
             is InkOp.AddImage -> images.add(op.image)
             is InkOp.RemoveImage -> images.removeAt(images.indexOfFirst { it.id == op.image.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.AddMedia -> media.add(op.media)
+            is InkOp.RemoveMedia -> media.removeAt(media.indexOfFirst { it.id == op.media.id }.takeIf { it >= 0 } ?: return)
             is InkOp.Reorder -> applyLayers(op.after)
             is InkOp.Batch -> op.ops.forEach(::doApply)
         }
@@ -214,6 +259,11 @@ class PageInkState {
             is InkOp.RemoveImage -> {
                 val idx = op.index.coerceIn(0, images.size)
                 images.add(idx, op.image)                                // 原层位恢复
+            }
+            is InkOp.AddMedia -> media.removeAt(media.indexOfFirst { it.id == op.media.id }.takeIf { it >= 0 } ?: return)
+            is InkOp.RemoveMedia -> {
+                val idx = op.index.coerceIn(0, media.size)
+                media.add(idx, op.media)                                 // 原层位恢复
             }
             is InkOp.Reorder -> applyLayers(op.before)
             is InkOp.Batch -> op.ops.reversed().forEach(::undoApply)

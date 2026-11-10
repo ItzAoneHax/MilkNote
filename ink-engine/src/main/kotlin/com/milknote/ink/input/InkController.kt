@@ -7,12 +7,15 @@ import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkOp
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.LassoGeom
 import com.milknote.ink.model.LayerState
+import com.milknote.ink.model.MediaElement
 import com.milknote.ink.model.PageElement
 import com.milknote.ink.model.PageInkState
 import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
+import com.milknote.ink.model.isShape
 import com.milknote.ink.model.nextZIndex
 import com.milknote.ink.model.orderedElements
 import kotlin.math.abs
@@ -28,6 +31,8 @@ sealed interface InkCommit {
     data class CardRemoved(val cardId: String) : InkCommit
     data class ImageAdded(val image: ImageElement) : InkCommit
     data class ImageRemoved(val imageId: String) : InkCommit
+    data class MediaAdded(val media: MediaElement) : InkCommit
+    data class MediaRemoved(val mediaId: String) : InkCommit
     data object LayersChanged : InkCommit
 }
 
@@ -65,6 +70,7 @@ class InkController {
 
     var tool: com.milknote.ink.model.ToolConfig = com.milknote.ink.model.ToolConfig()
         set(value) { field = value; notifyInvalidate() }
+    var eraserWidthMm: Float = 4f
 
     /** 活动笔迹(书写中);点列表可变以避免每点拷贝 */
     private var activePoints: MutableList<InkPoint>? = null
@@ -95,6 +101,16 @@ class InkController {
     /** 已进入套索模式(等待下一笔圈选);由 UI(笔键触发/工具栏)置位,一圈后自动退出 */
     @Volatile var lassoArmed: Boolean = false
         private set
+    var lassoFilters: Set<LassoContent> = LassoContent.entries.toSet()
+        private set
+
+    fun setLassoFilters(filters: Set<LassoContent>) {
+        lassoFilters = filters.ifEmpty { LassoContent.entries.toSet() }
+        clearSelection()
+        notifyInvalidate()
+    }
+
+    fun lassoFiltersSnapshot(): Set<LassoContent> = lassoFilters
 
     private var lassoLoop: MutableList<InkPoint>? = null
     private var selectionRefs: LinkedHashSet<ElementRef>? = null
@@ -152,9 +168,13 @@ class InkController {
         val refs = LinkedHashSet<ElementRef>()
         if (loop != null) {
             for (element in page.orderedElements()) {
+                if (!matchesLassoFilter(element)) continue
                 val captured = when (element) {
                     is PageElement.Ink -> LassoGeom.captures(loop, element.value)
                     is PageElement.Image -> ElementGeom.rotatedCorners(
+                        element.value.x, element.value.y, element.value.width, element.value.height, element.value.rotationDeg,
+                    ).all { LassoGeom.contains(loop, it.x, it.y) }
+                    is PageElement.Media -> ElementGeom.rotatedCorners(
                         element.value.x, element.value.y, element.value.width, element.value.height, element.value.rotationDeg,
                     ).all { LassoGeom.contains(loop, it.x, it.y) }
                     is PageElement.Card -> ElementGeom.rotatedCorners(
@@ -174,6 +194,21 @@ class InkController {
         return selectionRefs != null
     }
 
+    private fun matchesLassoFilter(element: PageElement): Boolean = when (element) {
+        is PageElement.Ink -> when {
+            element.value.tool == InkTool.DOODLE -> LassoContent.DOODLE in lassoFilters
+            element.value.tool.isShape -> LassoContent.SHAPE in lassoFilters
+            else -> LassoContent.INK in lassoFilters
+        }
+        is PageElement.Card -> LassoContent.TEXT in lassoFilters
+        is PageElement.Image -> when (element.value.kind) {
+            com.milknote.ink.model.PageImageKind.TAPE -> LassoContent.TAPE in lassoFilters
+            com.milknote.ink.model.PageImageKind.STICKER -> LassoContent.STICKER in lassoFilters
+            else -> LassoContent.IMAGE in lassoFilters
+        }
+        is PageElement.Media -> LassoContent.MEDIA in lassoFilters
+    }
+
     fun lassoLoopSnapshot(): List<InkPoint> = lassoLoop?.toList() ?: emptyList()
 
     fun cancelLasso() {
@@ -184,8 +219,10 @@ class InkController {
     /** 手指点按图片/文字卡：按全局层序取最上层目标并单选。 */
     fun selectElementAt(x: Float, y: Float): ElementRef? {
         val target = page.orderedElements().asReversed().firstOrNull { element ->
+            if (!matchesLassoFilter(element)) return@firstOrNull false
             when (element) {
                 is PageElement.Image -> ElementGeom.contains(element.value, x, y)
+                is PageElement.Media -> ElementGeom.contains(element.value, x, y)
                 is PageElement.Card -> ElementGeom.contains(
                     element.value, cardHeightProvider(element.value), x, y,
                 )
@@ -210,6 +247,7 @@ class InkController {
             val b = when (element) {
                 is PageElement.Ink -> StrokeGeom.bounds(element.value)
                 is PageElement.Image -> ElementGeom.bounds(element.value)
+                is PageElement.Media -> ElementGeom.bounds(element.value)
                 is PageElement.Card -> ElementGeom.bounds(element.value, cardHeightProvider(element.value))
             }
             result = result?.let {
@@ -295,6 +333,7 @@ class InkController {
             when (element) {
                 is PageElement.Ink -> StrokeGeom.bounds(element.value)
                 is PageElement.Image -> ElementGeom.bounds(element.value)
+                is PageElement.Media -> ElementGeom.bounds(element.value)
                 is PageElement.Card -> ElementGeom.bounds(element.value, cardHeightProvider(element.value))
             }
         }
@@ -400,6 +439,8 @@ class InkController {
         val baseAngles = if (refs == null) emptyList() else buildList {
             page.images.filter { ElementRef(ElementRef.Kind.IMAGE, it.id) in refs }
                 .forEach { add(it.rotationDeg) }
+            page.media.filter { ElementRef(ElementRef.Kind.MEDIA, it.id) in refs }
+                .forEach { add(it.rotationDeg) }
             page.cards.filter { ElementRef(ElementRef.Kind.CARD, it.id) in refs }
                 .forEach { add(it.rotationDeg) }
         }
@@ -504,7 +545,8 @@ class InkController {
     }
 
     private fun transformedStroke(s: Stroke, t: ElementGeom.Transform): Stroke {
-        val convertShape = (s.tool == InkTool.RECT || s.tool == InkTool.OVAL) && abs(t.rotationDeg) > 0.01f
+        val convertShape = s.tool in setOf(InkTool.RECT, InkTool.OVAL, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON) &&
+            abs(t.rotationDeg) > 0.01f
         val source = if (convertShape) StrokeGeom.polyline(s) else s.points
         return s.copy(
             id = UUID.randomUUID().toString(),
@@ -531,8 +573,18 @@ class InkController {
         )
     }
 
-    private fun transformedCard(card: AnnotationCard, t: ElementGeom.Transform): AnnotationCard {
-        val baseH = cardHeightProvider(card)
+    private fun transformedMedia(media: MediaElement, t: ElementGeom.Transform): MediaElement {
+        val center = t.map(media.x + media.width / 2f, media.y + media.height / 2f)
+        val width = media.width * t.scale
+        val height = media.height * t.scale
+        return media.copy(
+            x = center.x - width / 2f, y = center.y - height / 2f,
+            width = width, height = height,
+            rotationDeg = (media.rotationDeg + t.rotationDeg) % 360f,
+        )
+    }
+
+    private fun transformedCard(card: AnnotationCard, t: ElementGeom.Transform): AnnotationCard {        val baseH = cardHeightProvider(card)
         val center = t.map(
             card.x + card.width * card.scale / 2f,
             card.y + baseH * card.scale / 2f,
@@ -566,6 +618,10 @@ class InkController {
             .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveImage(it.value, it.index)) }
         page.images.filter { ElementRef(ElementRef.Kind.IMAGE, it.id) in refs }
             .forEach { adds.add(InkOp.AddImage(transformedImage(it, t))) }
+        page.media.withIndex().filter { ElementRef(ElementRef.Kind.MEDIA, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveMedia(it.value, it.index)) }
+        page.media.filter { ElementRef(ElementRef.Kind.MEDIA, it.id) in refs }
+            .forEach { adds.add(InkOp.AddMedia(transformedMedia(it, t))) }
         page.cards.withIndex().filter { ElementRef(ElementRef.Kind.CARD, it.value.id) in refs }
             .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveCard(it.value, it.index)) }
         page.cards.filter { ElementRef(ElementRef.Kind.CARD, it.id) in refs }
@@ -592,6 +648,8 @@ class InkController {
             .sortedByDescending { it.index }.forEach { ops.add(InkOp.Remove(it.value, it.index)) }
         page.images.withIndex().filter { ElementRef(ElementRef.Kind.IMAGE, it.value.id) in refs }
             .sortedByDescending { it.index }.forEach { ops.add(InkOp.RemoveImage(it.value, it.index)) }
+        page.media.withIndex().filter { ElementRef(ElementRef.Kind.MEDIA, it.value.id) in refs }
+            .sortedByDescending { it.index }.forEach { ops.add(InkOp.RemoveMedia(it.value, it.index)) }
         page.cards.withIndex().filter { ElementRef(ElementRef.Kind.CARD, it.value.id) in refs }
             .sortedByDescending { it.index }.forEach { ops.add(InkOp.RemoveCard(it.value, it.index)) }
         if (ops.isEmpty()) { clearSelection(); return false }
@@ -634,6 +692,25 @@ class InkController {
         emitForward(op)
         notifyInvalidate()
         return true
+    }
+
+    /** 当前页全部内容随纸张顺时针旋转 90°，作为单个可撤销 Batch。 */
+    fun rotateAllContent(pageWidth: Float, pageHeight: Float): Boolean {
+        val refs = page.orderedElements().map { it.ref }.toCollection(LinkedHashSet())
+        if (refs.isEmpty()) return false
+        clearSelection()
+        selectionRefs = refs
+        selectionBox = boundsForSelection(refs)
+        transformStarted = SelectionHandle.ROTATE
+        transformRotationDeg = 90f
+        transformScale = 1f
+        transformPivotX = pageWidth / 2f
+        transformPivotY = pageHeight / 2f
+        dragDx = (pageHeight - pageWidth) / 2f
+        dragDy = (pageWidth - pageHeight) / 2f
+        val changed = commitSelectionTransform()
+        clearSelection()
+        return changed
     }
 
     fun clearSelection() {
@@ -719,6 +796,7 @@ class InkController {
             zIndex = page.nextZIndex(),
         )
         when (t.tool) {
+            InkTool.LASER -> notifyInvalidate() // 仅活动轨迹；不进入 InkOp、文件或撤销栈
             InkTool.ERASER -> {
                 page.eraseStrokes(stroke)?.let { op ->
                     page.apply(op)
@@ -813,6 +891,28 @@ class InkController {
         notifyInvalidate()
     }
 
+    fun selectedAnnotationCard(): AnnotationCard? {
+        val refs = selectionRefs ?: return null
+        val ref = refs.singleOrNull() ?: return null
+        if (ref.kind != ElementRef.Kind.CARD) return null
+        return page.cards.firstOrNull { it.id == ref.id }
+    }
+
+    fun updateAnnotationCard(updated: AnnotationCard): Boolean {
+        val index = page.cards.indexOfFirst { it.id == updated.id }
+        if (index < 0) return false
+        val old = page.cards[index]
+        val batch = InkOp.Batch(listOf(
+            InkOp.RemoveCard(old, index),
+            InkOp.AddCard(updated.copy(zIndex = old.zIndex)),
+        ))
+        page.apply(batch)
+        emitForward(batch)
+        clearSelection()
+        notifyInvalidate()
+        return true
+    }
+
     fun deleteAnnotationCard(cardId: String): Boolean {
         val index = page.cards.indexOfFirst { it.id == cardId }
         if (index < 0) return false
@@ -844,6 +944,36 @@ class InkController {
         emitForward(op)
         notifyInvalidate()
         return true
+    }
+
+    // ---- 音视频元素(本地录制/导入;页坐标,渲染占位;与图片/卡片同一撤销栈)----
+
+    fun media(): List<MediaElement> = page.media.toList()
+
+    /** 插入音视频元素(进撤销栈;落盘经 onCommit → saveMedia 整表重写) */
+    fun addMediaElement(media: MediaElement) {
+        val op = InkOp.AddMedia(media.copy(zIndex = page.nextZIndex()))
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+    }
+
+    /** 删除音视频元素(RemoveMedia 记录层位,撤销原位恢复;可撤销) */
+    fun deleteMediaElement(mediaId: String): Boolean {
+        val idx = page.media.indexOfFirst { it.id == mediaId }
+        if (idx < 0) return false
+        val op = InkOp.RemoveMedia(page.media[idx], idx)
+        page.apply(op)
+        emitForward(op)
+        notifyInvalidate()
+        return true
+    }
+
+    /** 当前单选正好是一个音视频元素时返回它(UI 播放入口)。 */
+    fun selectedMedia(): MediaElement? {
+        val ref = selectionRefs?.singleOrNull() ?: return null
+        if (ref.kind != ElementRef.Kind.MEDIA) return null
+        return page.media.firstOrNull { it.id == ref.id }
     }
 
     // ---- 图片拖动(与批注卡拖动同构:拖动预览由视图渲染,抬起才落 Batch op)----
@@ -920,6 +1050,8 @@ class InkController {
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardAdded(op.card))
         is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
         is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
+        is InkOp.AddMedia -> onCommit?.invoke(InkCommit.MediaRemoved(op.media.id))
+        is InkOp.RemoveMedia -> onCommit?.invoke(InkCommit.MediaAdded(op.media))
         is InkOp.Reorder -> onCommit?.invoke(InkCommit.LayersChanged)
         is InkOp.Batch -> op.ops.reversed().forEach(::emitInverse)
     }
@@ -931,6 +1063,8 @@ class InkController {
         is InkOp.RemoveCard -> onCommit?.invoke(InkCommit.CardRemoved(op.card.id))
         is InkOp.AddImage -> onCommit?.invoke(InkCommit.ImageAdded(op.image))
         is InkOp.RemoveImage -> onCommit?.invoke(InkCommit.ImageRemoved(op.image.id))
+        is InkOp.AddMedia -> onCommit?.invoke(InkCommit.MediaAdded(op.media))
+        is InkOp.RemoveMedia -> onCommit?.invoke(InkCommit.MediaRemoved(op.media.id))
         is InkOp.Reorder -> onCommit?.invoke(InkCommit.LayersChanged)
         is InkOp.Batch -> op.ops.forEach(::emitForward)
     }
@@ -939,18 +1073,42 @@ class InkController {
         page.strokes.clear()
         page.cards.clear()
         page.images.clear()
+        page.media.clear()
         clearSelection()
         notifyInvalidate()
     }
 
-    /** 整页加载(切页;批注卡/图片一并) */
+    /**
+     * 清除当前页内容(笔迹/批注卡/图片元素),作为单个 Batch 进撤销栈。
+     * 落盘镜像经 onCommit 走既有规则:笔迹追加 tombstone,批注卡/图片整表重写空表;
+     * 撤销后反向记录恢复内容。返回是否实际清除了内容。
+     */
+    fun clearPageContent(): Boolean {
+        if (page.strokes.isEmpty() && page.cards.isEmpty() && page.images.isEmpty() && page.media.isEmpty()) return false
+        clearSelection()
+        // 从后往前记录删除,保证 Batch 撤销时按原层位逐项插回(与 eraseStrokes 的约定一致)。
+        val ops = buildList {
+            page.strokes.indices.reversed().forEach { add(InkOp.Remove(page.strokes[it], it)) }
+            page.cards.indices.reversed().forEach { add(InkOp.RemoveCard(page.cards[it], it)) }
+            page.images.indices.reversed().forEach { add(InkOp.RemoveImage(page.images[it], it)) }
+            page.media.indices.reversed().forEach { add(InkOp.RemoveMedia(page.media[it], it)) }
+        }
+        val batch = InkOp.Batch(ops)
+        page.apply(batch)
+        emitForward(batch)
+        notifyInvalidate()
+        return true
+    }
+
+    /** 整页加载(切页;批注卡/图片/音视频一并) */
     fun loadStrokes(
-        strokes: List<Stroke>,
+        strokes: List<Stroke> = emptyList(),
         cards: List<AnnotationCard> = emptyList(),
         images: List<ImageElement> = emptyList(),
+        media: List<MediaElement> = emptyList(),
     ) {
         clearSelection()
-        page.reset(strokes, cards, images)
+        page.reset(strokes, cards, images, media)
         notifyInvalidate()
     }
 }

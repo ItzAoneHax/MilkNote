@@ -14,7 +14,7 @@ import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.PressureGamma
 import com.milknote.ink.model.ToolConfig
 
-internal val writingTools = listOf(InkTool.PEN, InkTool.BALL, InkTool.HIGHLIGHTER)
+internal val writingTools = listOf(InkTool.PEN, InkTool.BALL, InkTool.HIGHLIGHTER, InkTool.DOODLE)
 
 /** 书写工具各自独立的样式与色板;只随书写页 ViewModel 保留,不改笔迹数据。 */
 data class WriterToolSettings(
@@ -22,10 +22,11 @@ data class WriterToolSettings(
     val configs: Map<InkTool, ToolConfig> = defaultToolConfigs,
     val palettes: Map<InkTool, List<Long>> = defaultToolPalettes,
     val eraserTemporary: Boolean = false,
+    val eraserWidthMm: Float = 4f,
 ) {
     val current: ToolConfig get() = configs.getValue(currentTool)
     val effective: ToolConfig get() = if (eraserTemporary) {
-        configs.getValue(InkTool.ERASER).copy(baseWidthMm = 4f, pressureGamma = current.pressureGamma)
+        configs.getValue(InkTool.ERASER).copy(baseWidthMm = eraserWidthMm, pressureGamma = current.pressureGamma)
     } else current
 
     fun selectTool(tool: InkTool): WriterToolSettings {
@@ -36,19 +37,24 @@ data class WriterToolSettings(
 
     fun toggleEraser(): WriterToolSettings = copy(eraserTemporary = !eraserTemporary)
 
+    fun selectEraserWidth(mm: Float): WriterToolSettings = copy(
+        eraserWidthMm = mm.coerceIn(2f, 12f),
+        eraserTemporary = true,
+    )
+
     fun selectColor(color: Long): WriterToolSettings {
-        if (currentTool !in writingTools) return this
+        if (currentTool !in writingTools && currentTool != InkTool.LASER) return this
         return updateCurrent(current.copy(color = color))
     }
 
     fun selectWidth(mm: Float): WriterToolSettings {
-        if (currentTool !in writingTools) return this
+        if (currentTool !in writingTools && currentTool != InkTool.LASER) return this
         return updateCurrent(current.copy(baseWidthMm = mm.coerceIn(0.2f, 3f)))
     }
 
     /** 自定义颜色写回当前笔的对应色板槽位,并同步当前墨色。 */
     fun updatePaletteColor(index: Int, color: Long): WriterToolSettings {
-        if (currentTool !in writingTools) return this
+        if (currentTool !in writingTools && currentTool != InkTool.LASER) return this
         val palette = palettes.getValue(currentTool)
         if (index !in palette.indices) return this
         return copy(
@@ -72,6 +78,8 @@ private val defaultToolConfigs = mapOf(
     InkTool.PEN to ToolConfig(tool = InkTool.PEN, color = InkBlackArgb),
     InkTool.BALL to ToolConfig(tool = InkTool.BALL, color = InkBlackArgb),
     InkTool.HIGHLIGHTER to ToolConfig(tool = InkTool.HIGHLIGHTER, color = HighlightYellowArgb),
+    InkTool.DOODLE to ToolConfig(tool = InkTool.DOODLE, color = InkPurpleArgb, baseWidthMm = 2.2f),
+    InkTool.LASER to ToolConfig(tool = InkTool.LASER, color = InkRedArgb, baseWidthMm = 0.9f),
     InkTool.ERASER to ToolConfig(tool = InkTool.ERASER),
 )
 
@@ -79,4 +87,6 @@ private val defaultToolPalettes = mapOf(
     InkTool.PEN to listOf(InkBlackArgb, InkBlueArgb, InkRedArgb, InkGreenArgb),
     InkTool.BALL to listOf(InkBlackArgb, BallBlueArgb, InkRedArgb, InkPurpleArgb),
     InkTool.HIGHLIGHTER to listOf(HighlightYellowArgb, HighlightPinkArgb, HighlightGreenArgb, HighlightBlueArgb),
+    InkTool.DOODLE to listOf(InkPurpleArgb, InkBlueArgb, InkRedArgb, InkGreenArgb),
+    InkTool.LASER to listOf(InkRedArgb, InkGreenArgb, InkBlueArgb, InkPurpleArgb),
 )

@@ -10,7 +10,14 @@ enum class WriterToolbarAction(val id: String, val label: String) {
     NEW_PAGE("new_page", "新建页"),
     EXPORT("export", "导出"),
     COMMAND("command", "命令面板"),
-    DIAGNOSTICS("diagnostics", "笔诊断");
+    DIAGNOSTICS("diagnostics", "笔诊断"),
+    MATERIAL("material", "本地素材"),
+    TAPE("tape", "胶带"),
+    LASER("laser", "激光笔"),
+    RECORD("record", "录音"),
+    VIDEO("video", "插入视频"),
+    READING("reading", "阅读工具"),
+    CONSOLE("console", "K 操作台");
 
     companion object {
         val defaultPins = listOf(LASSO, TEXT, SHAPES, IMAGE, FOCUS)

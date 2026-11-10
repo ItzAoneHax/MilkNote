@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
@@ -60,6 +61,7 @@ import com.milknote.app.ui.theme.CoverPalette
 import com.milknote.app.ui.theme.PillShape
 import com.milknote.notes.model.PAGE_ORIENTATIONS
 import com.milknote.notes.model.PAGE_SIZES_MM
+import com.milknote.notes.model.PAPER_COLORS
 import com.milknote.notes.model.PAPER_KINDS
 import com.milknote.notes.model.PURPOSE_TAGS
 
@@ -71,33 +73,27 @@ import com.milknote.notes.model.PURPOSE_TAGS
 @Composable
 fun NewNotebookDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, coverHex: String, paper: String, purpose: String, pageSize: String, orientation: String) -> Unit,
+    onCreate: (name: String, coverHex: String, paper: String, purpose: String, pageSize: String, orientation: String, paperColor: String) -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     var coverIdx by rememberSaveable { mutableStateOf(0) }
     var paper by rememberSaveable { mutableStateOf("dot") }
+    var paperColor by rememberSaveable { mutableStateOf(PAPER_COLORS.first().first) }
     var pageSize by rememberSaveable { mutableStateOf("B5") }        // 默认 B5
     var orientation by rememberSaveable { mutableStateOf("landscape") } // 默认横向
     var purpose by rememberSaveable { mutableStateOf(PURPOSE_TAGS.first()) }
     val focus = remember { FocusRequester() }
 
     fun submit() {
-        onCreate(name.trim().ifBlank { "未命名笔记" }, CoverPalette[coverIdx].toArgbHex(), paper, purpose, pageSize, orientation)
+        onCreate(name.trim().ifBlank { "未命名笔记" }, CoverPalette[coverIdx].toArgbHex(), paper, purpose, pageSize, orientation, paperColor)
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    MilkCenterPanel(title = "新建笔记本", onDismiss = onDismiss, maxWidth = 600.dp, maxHeight = 680.dp) {
         Column(
-            modifier = Modifier
-                .widthIn(max = 600.dp)   // 先限宽再 fill(顺序反了会通栏,实测像素验证)
-                .fillMaxWidth()
-                .imePadding()
-                .heightIn(max = 620.dp)
-                .milkDialogSurface()
-                .padding(horizontal = 28.dp, vertical = 24.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("新建笔记本", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
 
             // 内容区可滚动:小窗口/IME 打开时不裁切(A-08);CTA 固定在底部
             Column(
@@ -187,12 +183,31 @@ fun NewNotebookDialog(
 
                 Text("纸张", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PAPER_KINDS.forEach { (id, label) ->
-                        OptionChip(
-                            label = label,
-                            selected = paper == id,
-                        ) { paper = id }
+                PAPER_KINDS.chunked(3).forEach { group ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        group.forEach { (id, label) ->
+                            OptionChip(label = label, selected = paper == id) { paper = id }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("纸色", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    PAPER_COLORS.forEach { (hex, label) ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        Box(
+                            Modifier.size(48.dp).clickable { paperColor = hex },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier.size(30.dp).clip(CircleShape).background(color).border(
+                                    if (paperColor == hex) 3.dp else 1.dp,
+                                    if (paperColor == hex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    CircleShape,
+                                ),
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(18.dp))

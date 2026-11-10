@@ -2,6 +2,14 @@ package com.milknote.notes.model
 
 import kotlinx.serialization.Serializable
 
+@Serializable
+data class PageSpec(
+    val widthMm: Float = 210f,
+    val heightMm: Float = 297f,
+    val paper: String = "dot",
+    val paperColor: String = "#FAF9F5",
+)
+
 /** 笔记本元数据(notebook.json;DESIGN-V0 §6.2) */
 @Serializable
 data class NotebookMeta(
@@ -14,12 +22,31 @@ data class NotebookMeta(
     val orientation: String = "portrait", // portrait | landscape(同上,旧数据保持竖向)
     val createdAt: Long,
     val updatedAt: Long,
+    /**
+     * 显式页序(页面管理「之前/之后」插入用;旧 .milk 缺字段 → 空,回退按 pageId 排序)。
+     * 只记录仍存在的 p*.pb id;新增页 insert 到目标位置,不重命名既有页面文件。
+     */
+    val pageOrder: List<String> = emptyList(),
+    val lastOpened: Long = 0L,
+    val tagColor: String = "",
+    val folder: String = "",
+    val paperColor: String = "#FAF9F5",
+    /** PDF 等逐页尺寸；普通页缺省沿用笔记本级尺寸/纸张，旧数据无需迁移。 */
+    val pageSpecs: Map<String, PageSpec> = emptyMap(),
 ) {
     /** 页面物理尺寸(px @ mmToPx;方向生效) */
     fun pageMm(mmToPx: Float): Pair<Float, Float> {
         val (w, h) = PAGE_SIZES_MM[pageSize] ?: PAGE_SIZES_MM.getValue("A4")
         return if (orientation == "landscape") h * mmToPx to w * mmToPx else w * mmToPx to h * mmToPx
     }
+
+    fun pageSpec(pageId: String): PageSpec = pageSpecs[pageId] ?: run {
+        val (w, h) = pageMm(1f)
+        PageSpec(w, h, paper, paperColor)
+    }
+
+    fun pageMm(pageId: String, mmToPx: Float): Pair<Float, Float> =
+        pageSpec(pageId).let { it.widthMm * mmToPx to it.heightMm * mmToPx }
 }
 
 /** 页面条目(由 p*.pb 文件扫描得出,不单独存表) */
@@ -40,7 +67,15 @@ val COVER_COLORS = listOf(
 )
 
 /** 纸张模板 */
-val PAPER_KINDS = listOf("dot" to "点阵", "line" to "横线", "grid" to "方格", "blank" to "空白")
+val PAPER_KINDS = listOf(
+    "dot" to "点阵", "line" to "横线", "grid" to "方格", "blank" to "空白",
+    "english" to "英文", "tian" to "田字格",
+)
+
+val PAPER_COLORS = listOf(
+    "#FAF9F5" to "奶白", "#FFFFFF" to "纯白", "#F4F1DE" to "米黄",
+    "#EAF2F8" to "浅蓝", "#F3EAF4" to "浅紫", "#EAF4EA" to "浅绿",
+)
 
 /** 纸张尺寸(mm) */
 val PAGE_SIZES_MM = mapOf(

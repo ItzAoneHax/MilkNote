@@ -14,6 +14,8 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.CardTextAlign
+import com.milknote.ink.model.CardTextStyle
 
 /**
  * 批注卡渲染(Agent 结果贴回;AGENT-BACKEND §9):
@@ -42,19 +44,39 @@ object AnnotationCardRenderer {
     }
 
     private fun layoutKey(card: AnnotationCard, expanded: Boolean): String =
-        "${card.id}:${card.width.toInt()}:${card.kind}:${expanded}:${card.text.hashCode()}"
+        "${card.id}:${card.width.toInt()}:${card.kind}:${expanded}:${card.text.hashCode()}:${card.textStyle.hashCode()}"
 
     fun layout(card: AnnotationCard, expanded: Boolean): StaticLayout {
         val key = layoutKey(card, expanded)
         layoutKeys[card.id]?.let { if (it == key) return layouts[card.id]!! }
         if (layouts.size >= CACHE_MAX) { layouts.clear(); layoutKeys.clear() }
-        textPaint.typeface = if (card.kind == AnnotationCard.Kind.LATEX) Typeface.MONOSPACE else Typeface.DEFAULT
+        val paint = TextPaint().apply {
+            isAntiAlias = true
+            textSize = card.textStyle.fontSizePx.coerceIn(12f, 96f)
+            typeface = if (card.kind == AnnotationCard.Kind.LATEX) Typeface.MONOSPACE else Typeface.DEFAULT
+        }
         val widthPx = (card.width - PAD_H_PX * 2 - ACCENT_W_PX).toInt().coerceAtLeast(40)
         val maxLines = if (expanded) Int.MAX_VALUE else COLLAPSE_LINES
-        val content = if (card.kind == AnnotationCard.Kind.LATEX) card.text else styledText(card.text)
+        val content = if (card.kind == AnnotationCard.Kind.LATEX) {
+            SpannableStringBuilder(card.text)
+        } else {
+            SpannableStringBuilder(styledText(card.text, card.textStyle))
+        }
+        if (card.textStyle.bold || card.textStyle.italic) {
+            val typefaceStyle = if (card.textStyle.bold && card.textStyle.italic) Typeface.BOLD_ITALIC
+            else if (card.textStyle.bold) Typeface.BOLD else Typeface.ITALIC
+            content.setSpan(StyleSpan(typefaceStyle), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        if (card.textStyle.underline) content.setSpan(android.text.style.UnderlineSpan(), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (card.textStyle.strikethrough) content.setSpan(android.text.style.StrikethroughSpan(), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val alignment = when (card.textStyle.align) {
+            CardTextAlign.START -> Layout.Alignment.ALIGN_NORMAL
+            CardTextAlign.CENTER -> Layout.Alignment.ALIGN_CENTER
+            CardTextAlign.END -> Layout.Alignment.ALIGN_OPPOSITE
+        }
         val l = StaticLayout.Builder
-            .obtain(content, 0, content.length, textPaint, widthPx)
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .obtain(content, 0, content.length, paint, widthPx)
+            .setAlignment(alignment)
             .setLineSpacing(0f, LINE_SPACING)
             .setMaxLines(maxLines)
             .setEllipsize(if (expanded) null else android.text.TextUtils.TruncateAt.END)
@@ -65,7 +87,7 @@ object AnnotationCardRenderer {
     }
 
     /** markdown-lite → Spannable(行级:标题/列表/标签行/公式块;行内:加粗/代码/$公式$) */
-    internal fun styledText(src: String): CharSequence {
+    internal fun styledText(src: String, style: CardTextStyle = CardTextStyle()): CharSequence {
         val sb = SpannableStringBuilder()
         var first = true
         for (rawLine in src.split('\n')) {
@@ -83,7 +105,7 @@ object AnnotationCardRenderer {
                     val m = Regex("^#{1,6}\\s+").find(line)!!
                     sb.append(line.substring(m.value.length))
                     sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(AbsoluteSizeSpan((TEXT_SIZE_PX * 1.12f).toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(AbsoluteSizeSpan((style.fontSizePx * 1.12f).toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 line.startsWith("#") && line.matches(Regex("(#[\\w\\u4e00-\\u9fff-]+\\s*)+")) -> {
                     sb.append(line)
@@ -170,7 +192,10 @@ object AnnotationCardRenderer {
         canvas.drawRoundRect(rect, ACCENT_W_PX / 2f, ACCENT_W_PX / 2f, accentPaint)
 
         val l = layout(card, expanded)
-        (l.paint as TextPaint).color = if (dark) 0xFFE8E6E0.toInt() else 0xFF23221E.toInt()
+        (l.paint as TextPaint).color = when {
+            dark && card.textStyle.colorArgb == 0xFF23221EL -> 0xFFE8E6E0.toInt()
+            else -> card.textStyle.colorArgb.toInt()
+        }
         canvas.translate(x + PAD_H_PX + ACCENT_W_PX, y + PAD_V_PX)
         l.draw(canvas)
         canvas.restore()

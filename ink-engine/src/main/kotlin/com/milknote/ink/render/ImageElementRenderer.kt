@@ -30,8 +30,14 @@ object ImageElementRenderer {
     /** 解析 src → 绝对文件(imageDir 为空或 src 为空返回 null) */
     fun fileOf(image: ImageElement, imageDir: File?): File? {
         if (imageDir == null || image.src.isBlank()) return null
-        val f = File(imageDir, image.src)
-        return if (f.isFile) f else null
+        return runCatching {
+            if (image.src.startsWith('/') || image.src.startsWith('\\') ||
+                image.src.replace('\\', '/').split('/').any { it == ".." || it == "." }
+            ) return@runCatching null
+            val root = imageDir.canonicalFile
+            val f = File(imageDir, image.src).canonicalFile
+            if (f.toPath().startsWith(root.toPath()) && f != root && f.isFile) f else null
+        }.getOrNull()
     }
 
     /** 取解码后的位图(带缓存;解码失败/文件缺失返回 null) */

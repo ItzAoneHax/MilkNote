@@ -13,6 +13,8 @@ object PaperRenderer {
             "dot" -> drawDots(canvas, w, h, lineColor)
             "line" -> drawLines(canvas, w, h, lineColor)
             "grid" -> { drawDots(canvas, w, h, lineColor, sparse = true); drawLines(canvas, w, h, lineColor) }
+            "english" -> drawEnglish(canvas, w, h, lineColor)
+            "tian" -> drawTian(canvas, w, h, lineColor)
             else -> {} // blank
         }
     }
@@ -37,6 +39,35 @@ object PaperRenderer {
         while (y < h - 1) {
             canvas.drawLine(0f, y, w, y, paint)
             y += GRID_SPACING_PX
+        }
+    }
+
+    private fun drawEnglish(canvas: Canvas, w: Float, h: Float, color: Int) {
+        val solid = Paint().apply { this.color = color; strokeWidth = 1f }
+        val dashed = Paint(solid).apply { pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f, 5f), 0f) }
+        var y = GRID_SPACING_PX * 2f
+        while (y < h - GRID_SPACING_PX) {
+            canvas.drawLine(0f, y, w, y, solid)
+            canvas.drawLine(0f, y - GRID_SPACING_PX * 0.45f, w, y - GRID_SPACING_PX * 0.45f, dashed)
+            canvas.drawLine(0f, y + GRID_SPACING_PX * 0.45f, w, y + GRID_SPACING_PX * 0.45f, dashed)
+            y += GRID_SPACING_PX * 2f
+        }
+    }
+
+    private fun drawTian(canvas: Canvas, w: Float, h: Float, color: Int) {
+        val cell = GRID_SPACING_PX * 2.5f
+        val paint = Paint().apply { this.color = color; strokeWidth = 1f; style = Paint.Style.STROKE }
+        val dashed = Paint(paint).apply { pathEffect = android.graphics.DashPathEffect(floatArrayOf(4f, 4f), 0f) }
+        var y = cell
+        while (y + cell < h) {
+            var x = cell
+            while (x + cell < w) {
+                canvas.drawRect(x, y, x + cell, y + cell, paint)
+                canvas.drawLine(x + cell / 2f, y, x + cell / 2f, y + cell, dashed)
+                canvas.drawLine(x, y + cell / 2f, x + cell, y + cell / 2f, dashed)
+                x += cell
+            }
+            y += cell
         }
     }
 }

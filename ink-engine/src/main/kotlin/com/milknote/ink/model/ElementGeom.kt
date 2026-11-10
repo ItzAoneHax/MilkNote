@@ -53,6 +53,9 @@ object ElementGeom {
     fun bounds(image: ImageElement): StrokeGeom.Box =
         bounds(rotatedCorners(image.x, image.y, image.width, image.height, image.rotationDeg))
 
+    fun bounds(media: MediaElement): StrokeGeom.Box =
+        bounds(rotatedCorners(media.x, media.y, media.width, media.height, media.rotationDeg))
+
     fun bounds(card: AnnotationCard, height: Float): StrokeGeom.Box = bounds(
         rotatedCorners(card.x, card.y, card.width * card.scale, height * card.scale, card.rotationDeg)
     )
@@ -70,6 +73,9 @@ object ElementGeom {
 
     fun contains(image: ImageElement, x: Float, y: Float): Boolean =
         contains(image.x, image.y, image.width, image.height, image.rotationDeg, x, y)
+
+    fun contains(media: MediaElement, x: Float, y: Float): Boolean =
+        contains(media.x, media.y, media.width, media.height, media.rotationDeg, x, y)
 
     fun contains(card: AnnotationCard, height: Float, x: Float, y: Float): Boolean = contains(
         card.x, card.y, card.width * card.scale, height * card.scale, card.rotationDeg, x, y,

@@ -2,6 +2,7 @@ package com.milknote.app.ui.writer
 
 import com.milknote.ink.model.InkTool
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
@@ -54,6 +55,31 @@ class WriterToolSettingsTest {
         assertEquals(otherPalettes[InkTool.PEN], updated.palettes[InkTool.PEN])
         assertEquals(otherPalettes[InkTool.HIGHLIGHTER], updated.palettes[InkTool.HIGHLIGHTER])
         assertEquals(otherPalettes.getValue(InkTool.BALL)[1], updated.palettes.getValue(InkTool.BALL)[1])
+    }
+
+    @Test
+    fun `橡皮三档保留原笔且实际 effective 宽度生效`() {
+        val pen = WriterToolSettings().selectColor(0xFF102030).selectWidth(1.2f)
+        val small = pen.selectEraserWidth(2f)
+        assertEquals(2f, small.effective.baseWidthMm)
+        assertEquals(InkTool.ERASER, small.effective.tool)
+        val large = small.selectEraserWidth(9f)
+        assertEquals(9f, large.effective.baseWidthMm)
+        assertEquals(0xFF102030, large.current.color)
+        val restored = large.toggleEraser()
+        assertEquals(pen.current, restored.current)
+        assertFalse(restored.eraserTemporary)
+        assertEquals(9f, restored.eraserWidthMm)
+    }
+
+    @Test
+    fun `激光与图案笔可切换且激光有独立色板`() {
+        val laser = WriterToolSettings().selectTool(InkTool.LASER).selectColor(0xFF00FF00)
+        assertEquals(InkTool.LASER, laser.effective.tool)
+        assertEquals(0xFF00FF00, laser.effective.color)
+        val doodle = laser.selectTool(InkTool.DOODLE)
+        assertEquals(InkTool.DOODLE, doodle.effective.tool)
+        assertNotEquals(doodle.palettes[InkTool.DOODLE], doodle.palettes[InkTool.LASER])
     }
 
     @Test

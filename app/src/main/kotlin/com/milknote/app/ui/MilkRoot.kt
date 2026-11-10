@@ -32,6 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.bookshelf.BookshelfScreen
 import com.milknote.app.ui.bookshelf.BookshelfViewModel
+import com.milknote.app.ui.cards.CardsScreen
+import com.milknote.app.ui.cards.CardsViewModel
 import com.milknote.app.ui.common.CommandItem
 import com.milknote.app.ui.common.CommandPalette
 import com.milknote.app.ui.pen.PenDiagnosticsSheet
@@ -50,6 +52,7 @@ import kotlinx.coroutines.flow.first
 /** IA 仅两层 + 设置(DESIGN-V0 §5.3:书架 ↔ 书写页;设置为覆盖层);导出页挂书写会话之下 */
 private sealed interface MilkScreen {
     data object Bookshelf : MilkScreen
+    data object Cards : MilkScreen
     data class Writer(val notebookId: String) : MilkScreen
     data class Export(val notebookId: String) : MilkScreen
     data object Settings : MilkScreen
@@ -78,6 +81,7 @@ fun MilkRoot() {
 
     val bookshelfVm: BookshelfViewModel = viewModel()
     val writerVm: WriterViewModel = viewModel()
+    val cardsVm: CardsViewModel = viewModel()
 
     // 外观:跟随系统 / 浅色 / 深色(设置页可调)
     val appSettings by ServiceLocator.appSettings.flow.collectAsState(initial = AppSettings())
@@ -161,6 +165,9 @@ fun MilkRoot() {
                         showPalette = true   // 书架/设置页:⌥A 降级为面板
                     }
                 }
+                ServiceLocator.UiEvent.OpenConsole -> {
+                    if (screen !is MilkScreen.Writer) showPalette = true
+                }
             }
         }
     }
@@ -196,6 +203,9 @@ fun MilkRoot() {
                 CommandItem("id_export", "导出笔记", hint = "PNG · PDF", section = "笔记") {
                     screen = MilkScreen.Export(s.notebookId)
                 },
+                CommandItem("id_console", "K 操作台", hint = "内容 · 画笔 · 页面", section = "笔记") {
+                    ServiceLocator.uiEvents.tryEmit(ServiceLocator.UiEvent.OpenConsole)
+                },
                 CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
                 CommandItem("id_settings", "设置", section = "通用") { openSettings(true, "appearance") },
             )
@@ -217,6 +227,7 @@ fun MilkRoot() {
 
     BackHandler(
         enabled = screen is MilkScreen.Writer ||
+            screen is MilkScreen.Cards ||
             screen is MilkScreen.Export ||
             screen is MilkScreen.Settings ||
             showPalette,
@@ -224,6 +235,7 @@ fun MilkRoot() {
         when {
             showPalette -> showPalette = false
             screen is MilkScreen.Writer -> { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf }
+            screen is MilkScreen.Cards -> screen = MilkScreen.Bookshelf
             screen is MilkScreen.Export -> {
                 screen = MilkScreen.Writer((screen as MilkScreen.Export).notebookId)
             }
@@ -276,11 +288,26 @@ fun MilkRoot() {
                 is MilkScreen.Bookshelf -> BookshelfScreen(
                     vm = bookshelfVm,
                     onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
+                    onOpenNotebookWithImage = { id, uri ->
+                        writerVm.open(id)
+                        writerVm.insertImage(uri)
+                        screen = MilkScreen.Writer(id)
+                    },
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenSettings = { openSettings(false, "appearance") },
                     onOpenPalette = { showPalette = true },
+                    onOpenCards = { cardsVm.refresh(); screen = MilkScreen.Cards },
                     showNewNotebook = showNewNotebook,
                     onNewNotebookHandled = { showNewNotebook = false },
+                )
+                is MilkScreen.Cards -> CardsScreen(
+                    vm = cardsVm,
+                    onNotes = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
+                    onInsert = { card, notebookId, pageId ->
+                        writerVm.open(notebookId)
+                        writerVm.insertLibraryCard(card, pageId)
+                        screen = MilkScreen.Writer(notebookId)
+                    },
                 )
                 is MilkScreen.Writer -> WriterScreen(
                     vm = writerVm,
@@ -291,6 +318,7 @@ fun MilkRoot() {
                     onOpenSettings = { page -> openSettings(true, page) },
                     // 主线程已在 WriterScreen 增加 onOpenExport 参数(顶栏导出入口接通)
                     onOpenExport = { screen = MilkScreen.Export(s.notebookId) },
+                    onSwitchNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
                 )
                 is MilkScreen.Export -> {
                     // 导出页复用书写页 VM(open 幂等:同 id 早退);返回钮走 onBack → Writer

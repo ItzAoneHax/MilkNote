@@ -2,4 +2,10 @@
 <paths>
     <!-- 应用内更新:下载到 cache 的 APK 交给系统安装器 -->
     <cache-path name="updates" path="updates/" />
+    <!-- 导出回退:MediaStore 不可写时放到 cache/export,交给系统 Sharesheet -->
+    <cache-path name="exports" path="export/" />
+    <!-- 创建动作「拍照」:系统相机写入应用缓存,导入后可清理 -->
+    <cache-path name="camera" path="camera/" />
+    <!-- SAF 导入的 ZIP 临时副本,仅用于安全校验与恢复 -->
+    <cache-path name="imports" path="imports/" />
 </paths>

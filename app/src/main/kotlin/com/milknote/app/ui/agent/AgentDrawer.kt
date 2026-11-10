@@ -88,6 +88,9 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.theme.LocalMilkMotion
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
+import com.milknote.app.ui.common.MilkActionPanel
+import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
@@ -357,18 +360,18 @@ private fun DrawerHeader(
             Icon(Icons.Outlined.Close, "收起", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    AnimatedVisibility(
-        visible = showModels,
-        enter = if (LocalMilkMotion.current) fadeIn(tween(60))
-        else expandVertically(tween(200)) + fadeIn(tween(200)),
-        exit = if (LocalMilkMotion.current) fadeOut(tween(60))
-        else shrinkVertically(tween(180)) + fadeOut(tween(140)),
-    ) {
-        ModelSheet(
-            state,
+    if (showModels) {
+        MilkCenterPanel(
+            title = "模型与思考",
+            subtitle = "仅显示已声明支持视觉输入的模型",
             onDismiss = { showModels = false },
-            onOpenSettings = onOpenSettings,
-        )
+        ) {
+            ModelSheet(
+                state,
+                onDismiss = { showModels = false },
+                onOpenSettings = onOpenSettings,
+            )
+        }
     }
 }
 
@@ -745,28 +748,9 @@ private fun Composer(state: AgentUiState) {
             if ("/清空".startsWith(text)) "/清空" to null else null,
         )
     } else emptyList()
+    var dismissedSlash by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxWidth()) {
-        // 📎 附件面板(ZCode 式:选当前页/整章/任意页,多点累积)
-        if (showAttach) {
-            AttachmentPanel(
-                boundPage = state.boundPage,
-                onPickPage = { ref ->
-                    scope.launch { agent.addPageAttachment(ref) }
-                },
-                onPickCurrent = {
-                    state.boundPage?.let { ref -> scope.launch { agent.addPageAttachment(ref) } }
-                },
-                onPickChapter = {
-                    scope.launch {
-                        val n = agent.addChapterAttachments()
-                        if (n == 0) agent.setDraftText(state.draftText)   // 触发重组提示
-                    }
-                },
-                onClose = { showAttach = false },
-            )
-            Spacer(Modifier.height(6.dp))
-        }
         // 附件卡片行:挂在输入框上方,✕ 可移除,随下一条消息发出
         if (state.draftAttachments.isNotEmpty()) {
             Row(
@@ -788,26 +772,23 @@ private fun Composer(state: AgentUiState) {
             }
             Spacer(Modifier.height(6.dp))
         }
-        if (slashSuggestions.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                slashSuggestions.take(7).forEach { (label, intent) ->
-                    Chip(label, selected = false) {
-                        if (intent != null) {
+        if (slashSuggestions.isNotEmpty() && dismissedSlash != text) {
+            MilkActionPanel(
+                title = "命令",
+                subtitle = "选择笔记意图或清空当前会话",
+                actions = slashSuggestions.take(7).map { (label, intent) ->
+                    MilkPanelAction(
+                        label = label,
+                        icon = Icons.Outlined.Description,
+                        onClick = {
                             text = ""
-                            agent.sendWithIntent(intent)
-                        } else {
-                            text = ""
-                            agent.clearSession()
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
+                            dismissedSlash = null
+                            if (intent != null) agent.sendWithIntent(intent) else agent.clearSession()
+                        },
+                    )
+                },
+                onDismiss = { dismissedSlash = text },
+            )
         }
         var composerFocused by remember { mutableStateOf(false) }
         val composerBorder by animateColorAsState(
@@ -850,7 +831,10 @@ private fun Composer(state: AgentUiState) {
                 }
                 BasicTextField(
                     value = text,
-                    onValueChange = { text = it },
+                    onValueChange = {
+                        text = it
+                        dismissedSlash = null
+                    },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -895,16 +879,36 @@ private fun Composer(state: AgentUiState) {
             }
         }
     }
+    if (showAttach) {
+        MilkCenterPanel(
+            title = "附件",
+            subtitle = "可附加当前页、整章或本笔记本的任意页面",
+            onDismiss = { showAttach = false },
+        ) {
+            AttachmentPanel(
+                boundPage = state.boundPage,
+                onPickPage = { ref -> scope.launch { agent.addPageAttachment(ref) } },
+                onPickCurrent = {
+                    state.boundPage?.let { ref -> scope.launch { agent.addPageAttachment(ref) } }
+                },
+                onPickChapter = {
+                    scope.launch {
+                        val n = agent.addChapterAttachments()
+                        if (n == 0) agent.setDraftText(state.draftText)
+                    }
+                },
+            )
+        }
+    }
 }
 
-/** 📎 附件面板:当前页 / 整章 / 本笔记本任意页(可多点累积;ZCode 式选择列表) */
+/** 📎 附件面板:当前页 / 整章 / 本笔记本任意页(可多点累积;中央面板内容) */
 @Composable
 private fun AttachmentPanel(
     boundPage: com.milknote.agent.PageRef?,
     onPickPage: (com.milknote.agent.PageRef) -> Unit,
     onPickCurrent: () -> Unit,
     onPickChapter: () -> Unit,
-    onClose: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var pages by remember { mutableStateOf<List<com.milknote.agent.PageRef>>(emptyList()) }
@@ -913,29 +917,7 @@ private fun AttachmentPanel(
             pages = runCatching { ServiceLocator.agentSnipSource.pagesOf(it.notebookId) }.getOrDefault(emptyList())
         }
     }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            .innerHighlight(strength = 0.25f)
-            .padding(10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
-            Spacer(Modifier.weight(1f))
-            // 关闭:48dp 命中(A-9)
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("✕", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         // 快捷:当前页 / 整章
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             AttachPick("当前页 ${boundPage?.pageId ?: ""}") { onPickCurrent() }
@@ -1059,18 +1041,7 @@ private fun ModelSheet(
     onOpenSettings: (page: String) -> Unit,
 ) {
     val agent = ServiceLocator.agentController
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .softShadow(8.dp, RoundedCornerShape(14.dp))
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
-            .innerHighlight(strength = 0.25f)
-            .paintedShadow(RoundedCornerShape(14.dp), edge = 10.dp)
-            .padding(vertical = 8.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉)
         Column(
             Modifier

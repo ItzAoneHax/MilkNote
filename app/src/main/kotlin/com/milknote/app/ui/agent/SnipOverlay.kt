@@ -77,6 +77,7 @@ fun SnipOverlay(
     onCancel: () -> Unit,
     onIntent: (Intents.Id) -> Unit,
     onSend: ((Float, Float) -> Pair<Float, Float>) -> Unit,
+    onSaveCard: ((Float, Float) -> Pair<Float, Float>) -> Unit,
 ) {
     val dim = Color(0x8C0E0F14)
     val current by rememberUpdatedState(state)
@@ -239,6 +240,7 @@ fun SnipOverlay(
                     val b = surface()?.pageBoundsView()
                     if (b != null) onFullPage(Rect4(b.left, b.top, b.right, b.bottom))
                 }
+                SnipAction("存卡片") { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
                 SnipAction("取消", muted = true) { onCancel() }
             }
 

@@ -46,7 +46,8 @@ object PressureCurve {
             InkTool.BALL -> 0.55f + 0.45f * r          // 恒定感更强
             InkTool.HIGHLIGHTER -> 1f                   // 恒宽
             InkTool.ERASER -> 1f
-            InkTool.RECT, InkTool.OVAL, InkTool.LINE -> 1f   // 形状:恒定线宽
+            InkTool.RECT, InkTool.OVAL, InkTool.LINE, InkTool.DASHED_LINE, InkTool.ARROW,
+            InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON, InkTool.DOODLE, InkTool.LASER -> 1f
         }
     }
 

@@ -18,14 +18,20 @@ import com.milknote.ink.input.InkAction
 import com.milknote.ink.input.InkCommit
 import com.milknote.ink.input.InkController
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.CardTextStyle
 import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.LassoContent
+import com.milknote.ink.model.MediaElement
+import com.milknote.ink.model.PageImageKind
 import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.render.AnnotationCardRenderer
+import com.milknote.notes.model.NoteCard
 import com.milknote.notes.model.NotebookMeta
 import com.milknote.notes.model.NotebookPage
+import com.milknote.notes.storage.PageInsertPosition
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
@@ -47,6 +53,7 @@ data class WriterUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val lassoArmed: Boolean = false,          // 套索模式(等待圈选)
+    val lassoFilters: Set<LassoContent> = LassoContent.entries.toSet(),
     val selectionCount: Int = 0,              // 混合选中元素数(>0 显示变换菜单)
     val selectionBox: StrokeGeom.Box? = null, // 当前选区(页坐标,含预览)
     val selectionCanMoveUp: Boolean = false,
@@ -75,6 +82,14 @@ enum class SnipPhase { IDLE, FROZEN, CONFIRMED }
 
 /** 轻提示 */
 data class Toast(val text: String)
+
+/** 一页的完整内容快照(切页/删除/导出共用,避免四元组)。 */
+private data class PageContent(
+    val strokes: List<com.milknote.ink.model.Stroke>,
+    val cards: List<AnnotationCard>,
+    val images: List<ImageElement>,
+    val media: List<MediaElement>,
+)
 
 class WriterViewModel : ViewModel() {
 
@@ -145,14 +160,20 @@ class WriterViewModel : ViewModel() {
             controller.annotationCards()
         } else null
         val images = if (pageId == _state.value.currentPageId) controller.images() else null
+        val media = if (pageId == _state.value.currentPageId) controller.media() else null
+        val spec = nb.pageSpec(pageId)
         return AgentBridge.PageData(
             strokes = strokes ?: repo.loadPage(notebookId, pageId),
             cards = cards ?: repo.loadAnnotations(notebookId, pageId),
-            paper = nb.paper,
+            paper = spec.paper,
             pageSize = nb.pageSize,
             orientation = nb.orientation,
             images = images ?: repo.loadImages(notebookId, pageId),
+            media = media ?: repo.loadMedia(notebookId, pageId),
             imageDir = repo.notebookDir(notebookId).absolutePath,
+            paperColor = spec.paperColor,
+            pageWidthMm = spec.widthMm,
+            pageHeightMm = spec.heightMm,
         )
     }
 
@@ -166,7 +187,7 @@ class WriterViewModel : ViewModel() {
     ): String? = withContext(Dispatchers.Main) {
         if (page.notebookId != notebookId || page.pageId != _state.value.currentPageId) return@withContext null
         val nb = _state.value.notebook ?: return@withContext null
-        val (pageW, pageH) = nb.pageMm(PageRenderer.MM_TO_PX)
+        val (pageW, pageH) = nb.pageMm(page.pageId, PageRenderer.MM_TO_PX)
         val width = if (cardWidth > 0f) cardWidth else AnnotationCardRenderer.cardWidthDefault(pageW)
         val id = UUID.randomUUID().toString().substring(0, 8)
         val y = anchor?.let { it.b + 24f } ?: 24f
@@ -187,10 +208,10 @@ class WriterViewModel : ViewModel() {
     }
 
     /** 手动插入文字框:沿用批注卡的拖动、撤销、落盘与导出链路。 */
-    fun createTextCard(text: String) {
+    fun createTextCard(text: String, style: CardTextStyle = CardTextStyle()) {
         val nb = _state.value.notebook ?: return
         val pageId = _state.value.currentPageId
-        val (pageW, pageH) = nb.pageMm(PageRenderer.MM_TO_PX)
+        val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
         val width = AnnotationCardRenderer.cardWidthDefault(pageW)
         val card = AnnotationCard(
             id = UUID.randomUUID().toString().substring(0, 8),
@@ -199,10 +220,71 @@ class WriterViewModel : ViewModel() {
             width = width,
             kind = AnnotationCard.Kind.TEXT,
             text = text,
+            textStyle = style,
             createdAt = System.currentTimeMillis(),
         )
         controller.addAnnotationCard(card)
         viewModelScope.launch { refreshThumbOf(pageId) }
+    }
+
+    fun selectedTextCard(): AnnotationCard? = controller.selectedAnnotationCard()
+
+    /** 单选正好是音视频元素时返回(选中条播放入口);否则 null。 */
+    fun selectedMedia(): MediaElement? = controller.selectedMedia()
+
+    fun updateTextCard(card: AnnotationCard, text: String, style: CardTextStyle) {
+        if (controller.updateAnnotationCard(card.copy(text = text, textStyle = style))) {
+            viewModelScope.launch { refreshThumbOf(_state.value.currentPageId) }
+        }
+    }
+
+    /** 卡片库回插：切到指定页后，文字与图片都走现有 InkOp/撤销/持久化链路。 */
+    fun insertLibraryCard(card: NoteCard, pageId: String) {
+        if (notebookId.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (_state.value.pages.none { it.pageId == pageId }) {
+                withContext(Dispatchers.Main) { toast("插入失败：目标页面不存在") }
+                return@launch
+            }
+            if (_state.value.currentPageId != pageId) openPageOnMain(pageId)
+            val nb = _state.value.notebook ?: return@launch
+            val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
+            var copiedImage: ImageElement? = null
+            card.imageSrc?.let { relative ->
+                val cardsRoot = File(ServiceLocator.appContext.filesDir, "cards")
+                val source = File(cardsRoot, relative)
+                if (source.canonicalFile.toPath().startsWith(cardsRoot.canonicalFile.toPath()) && source.isFile) {
+                    val imageDir = File(repo.notebookDir(notebookId), "images").apply { mkdirs() }
+                    val target = File(imageDir, "card-${UUID.randomUUID()}.${source.extension.ifBlank { "png" }}")
+                    source.copyTo(target, overwrite = false)
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(target.absolutePath, options)
+                    if (options.outWidth > 0 && options.outHeight > 0) {
+                        val scale = minOf(pageW * 0.6f / options.outWidth, pageH * 0.55f / options.outHeight, 1f)
+                        copiedImage = ImageElement(
+                            id = UUID.randomUUID().toString().substring(0, 12), src = "images/${target.name}",
+                            x = (pageW - options.outWidth * scale) / 2f, y = pageH * 0.22f,
+                            width = options.outWidth * scale, height = options.outHeight * scale,
+                            createdAt = System.currentTimeMillis(),
+                        )
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                val text = listOf(card.title, card.body).filter { it.isNotBlank() }.joinToString("\n\n")
+                if (text.isNotBlank()) {
+                    val width = AnnotationCardRenderer.cardWidthDefault(pageW)
+                    controller.addAnnotationCard(AnnotationCard(
+                        id = UUID.randomUUID().toString().substring(0, 12),
+                        x = (pageW - width) / 2f, y = pageH * 0.18f, width = width,
+                        text = text, createdAt = System.currentTimeMillis(),
+                    ))
+                }
+                copiedImage?.let { controller.addImageElement(it) }
+                refreshThumbOf(pageId)
+                toast("已插入到 $pageId")
+            }
+        }
     }
 
     /** 形状使用两点 Stroke,撤销/擦除/套索与 proto 沿用普通笔迹路径。 */
@@ -259,7 +341,11 @@ class WriterViewModel : ViewModel() {
                 toast("插图失败:图片格式不支持")
                 return@launch
             }
-            val (pageW, pageH) = nb.pageMm(PageRenderer.MM_TO_PX)
+            runCatching {
+                val library = File(ServiceLocator.appContext.filesDir, "materials/images").apply { mkdirs() }
+                target.copyTo(File(library, target.name), overwrite = true)
+            }
+            val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
             val scale = minOf(pageW * 0.55f / options.outWidth, pageH * 0.55f / options.outHeight, 1f)
             val width = options.outWidth * scale
             val height = options.outHeight * scale
@@ -276,6 +362,135 @@ class WriterViewModel : ViewModel() {
                 controller.addImageElement(image)
                 refreshThumbOf(pageId)
                 toast("已插入图片")
+            }
+        }
+    }
+
+    /** 本地素材库中的图片/胶带/贴纸复制到当前笔记本，再进入统一 ImageElement 链路。 */
+    fun insertMaterialFile(source: File, kind: PageImageKind) {
+        viewModelScope.launch(Dispatchers.IO) { insertMaterialFileInternal(source, kind) }
+    }
+
+    fun insertMaterial(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val dir = File(ServiceLocator.appContext.filesDir, "materials/images").apply { mkdirs() }
+            val target = File(dir, "image-${UUID.randomUUID()}.img")
+            val ok = runCatching {
+                ServiceLocator.appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().buffered().use { input.copyTo(it) }
+                } ?: error("无法读取图片")
+            }.isSuccess
+            if (ok) insertMaterialFileInternal(target, PageImageKind.IMAGE)
+            else toast("素材导入失败：无法读取图片")
+        }
+    }
+
+    fun insertBuiltinMaterial(kind: PageImageKind, variant: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val dir = File(ServiceLocator.appContext.filesDir, "materials/builtin").apply { mkdirs() }
+            val file = File(dir, "${kind.name.lowercase()}-$variant.png")
+            if (!file.exists()) {
+                val tape = kind == PageImageKind.TAPE
+                val bitmap = Bitmap.createBitmap(if (tape) 320 else 220, if (tape) 120 else 220, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                val colors = listOf(0xCC3B5BEC.toInt(), 0xCCD2483C.toInt(), 0xCC2E9E6B.toInt(), 0xCCD98E04.toInt())
+                paint.color = colors[variant.mod(colors.size)]
+                if (tape) {
+                    canvas.save()
+                    canvas.rotate(-5f, 160f, 60f)
+                    canvas.drawRoundRect(8f, 18f, 312f, 102f, 12f, 12f, paint)
+                    paint.color = 0x55FFFFFF
+                    for (x in 20..300 step 34) canvas.drawLine(x.toFloat(), 22f, x - 24f, 98f, paint)
+                    canvas.restore()
+                } else {
+                    val path = android.graphics.Path()
+                    val cx = 110f; val cy = 110f
+                    for (i in 0 until 10) {
+                        val radius = if (i % 2 == 0) 88f else 40f
+                        val angle = -Math.PI / 2 + i * Math.PI / 5
+                        val x = cx + radius * kotlin.math.cos(angle).toFloat()
+                        val y = cy + radius * kotlin.math.sin(angle).toFloat()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    path.close(); canvas.drawPath(path, paint)
+                    paint.color = 0xCCFFFFFF.toInt()
+                    canvas.drawCircle(82f, 102f, 8f, paint); canvas.drawCircle(138f, 102f, 8f, paint)
+                }
+                file.outputStream().buffered().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            insertMaterialFileInternal(file, kind)
+        }
+    }
+
+    private suspend fun insertMaterialFileInternal(source: File, kind: PageImageKind) {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(source.absolutePath, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) {
+            withContext(Dispatchers.Main) { toast("素材格式不支持") }
+            return
+        }
+        val dir = File(repo.notebookDir(notebookId), "images/materials").apply { mkdirs() }
+        val target = File(dir, "${UUID.randomUUID()}.${if (source.extension == "png") "png" else "img"}")
+        source.copyTo(target, overwrite = false)
+        val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
+        val scale = minOf(pageW * 0.45f / options.outWidth, pageH * 0.35f / options.outHeight, 1f)
+        val image = ImageElement(
+            id = UUID.randomUUID().toString().substring(0, 12), src = "images/materials/${target.name}",
+            x = (pageW - options.outWidth * scale) / 2f, y = (pageH - options.outHeight * scale) / 2f,
+            width = options.outWidth * scale, height = options.outHeight * scale,
+            kind = kind, createdAt = System.currentTimeMillis(),
+        )
+        withContext(Dispatchers.Main) {
+            controller.addImageElement(image)
+            refreshThumbOf(pageId)
+            toast("已插入${when (kind) { PageImageKind.TAPE -> "胶带"; PageImageKind.STICKER -> "贴纸"; else -> "图片" }}")
+        }
+    }
+
+    /** 视频经 SAF 选择后复制进 notebook media 目录,再作为可选中/变换/导出的媒体元素插入。 */
+    fun insertVideo(uri: Uri) {
+        if (notebookId.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val nb = _state.value.notebook ?: return@launch
+            val pageId = _state.value.currentPageId
+            val imported = MediaImport.copyVideo(
+                ServiceLocator.appContext, uri, repo.mediaDir(notebookId),
+            )
+            if (imported == null) {
+                withContext(Dispatchers.Main) { toast("插入视频失败:无法读取该文件") }
+                return@launch
+            }
+            val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
+            val element = MediaImport.videoElement(pageW, pageH, imported, System.currentTimeMillis())
+            withContext(Dispatchers.Main) {
+                controller.addMediaElement(element)
+                refreshThumbOf(pageId)
+                toast("已插入视频")
+            }
+        }
+    }
+
+    /** 停止录音后的 m4a → notebook media 目录,插入为音频元素(时长探测失败用录音计时兜底)。 */
+    fun insertRecordedAudio(tempFile: File, elapsedMs: Long) {
+        if (notebookId.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val nb = _state.value.notebook ?: return@launch
+            val pageId = _state.value.currentPageId
+            val imported = MediaImport.importRecordedAudio(tempFile, repo.mediaDir(notebookId), elapsedMs)
+            if (imported == null) {
+                withContext(Dispatchers.Main) { toast("保存录音失败") }
+                return@launch
+            }
+            val (pageW, pageH) = nb.pageMm(pageId, PageRenderer.MM_TO_PX)
+            val element = MediaImport.audioElement(pageW, pageH, imported, System.currentTimeMillis())
+            withContext(Dispatchers.Main) {
+                controller.addMediaElement(element)
+                refreshThumbOf(pageId)
+                toast("已插入录音")
             }
         }
     }
@@ -297,6 +512,14 @@ class WriterViewModel : ViewModel() {
 
     fun toggleLasso() {
         if (controller.lassoArmed) controller.disarmLasso() else controller.armLasso()
+    }
+
+    fun toggleLassoFilter(filter: LassoContent) {
+        val next = controller.lassoFiltersSnapshot().toMutableSet().apply {
+            if (!add(filter)) remove(filter)
+        }
+        controller.setLassoFilters(next)
+        syncToolbarState()
     }
 
     fun deleteSelection() = controller.deleteSelection() // 落盘经 onCommit 镜像
@@ -403,6 +626,37 @@ class WriterViewModel : ViewModel() {
         }
     }
 
+    /** 摘取保存为独立卡片：位图复制到 cards/assets，不依赖 Agent 或外部服务。 */
+    fun snipSaveCard(viewToPage: (Float, Float) -> Pair<Float, Float>) {
+        val s = _state.value.snip
+        val r = s.rect ?: return
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val rect = r.normalized().let {
+            val (l, t) = viewToPage(it.l, it.t)
+            val (rr, b) = viewToPage(it.r, it.b)
+            Rect4(l, t, rr, b)
+        }
+        exitSnip()
+        viewModelScope.launch(Dispatchers.IO) {
+            val saved = runCatching {
+                val bitmap = PageRenderer.render(PageRef(nb.id, pageId), rect) ?: error("选区渲染不可用")
+                val dir = File(ServiceLocator.appContext.filesDir, "cards/assets").apply { mkdirs() }
+                val file = File(dir, "${UUID.randomUUID()}.png")
+                file.outputStream().buffered().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                val now = System.currentTimeMillis()
+                ServiceLocator.cardRepository.upsert(NoteCard(
+                    id = UUID.randomUUID().toString().substring(0, 12),
+                    title = "页面摘取 $pageId", body = "", imageSrc = "assets/${file.name}",
+                    sourceNotebookId = nb.id, sourcePageId = pageId, createdAt = now, updatedAt = now,
+                ))
+            }
+            withContext(Dispatchers.Main) {
+                toast(if (saved.isSuccess) "已保存到卡片" else "保存卡片失败：${saved.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
     // ---- 打开/切页 ----
 
     /** 设置快照(open() 整体重建 UiState 时保留,避免清掉已生效的设置) */
@@ -413,6 +667,7 @@ class WriterViewModel : ViewModel() {
         pageSwitchJob?.cancel()
         pendingPageId = null
         notebookId = nbId
+        repo.markOpened(nbId)
         val nb = repo.listNotebooks().firstOrNull { it.id == nbId } ?: return
         val pages = repo.listPages(nbId)
         val cur = pages.lastOrNull()?.pageId ?: repo.newPage(nbId)
@@ -424,7 +679,12 @@ class WriterViewModel : ViewModel() {
             frontBufferEnabled = frontBufferFlag,
             toolbarPins = _state.value.toolbarPins,
         )
-        controller.loadStrokes(repo.loadPage(nbId, cur), repo.loadAnnotations(nbId, cur), repo.loadImages(nbId, cur))
+        controller.loadStrokes(
+            repo.loadPage(nbId, cur),
+            repo.loadAnnotations(nbId, cur),
+            repo.loadImages(nbId, cur),
+            repo.loadMedia(nbId, cur),
+        )
         bindAgent(nb.id, cur)
         refreshAllThumbs()
     }
@@ -447,11 +707,12 @@ class WriterViewModel : ViewModel() {
             val strokes = repo.loadPage(notebookId, pageId)
             val cards = repo.loadAnnotations(notebookId, pageId)
             val images = repo.loadImages(notebookId, pageId)
+            val media = repo.loadMedia(notebookId, pageId)
             withContext(Dispatchers.Main) {
                 if (pendingPageId != pageId) return@withContext
                 pendingPageId = null
                 _state.value = _state.value.copy(currentPageId = pageId)
-                controller.loadStrokes(strokes, cards, images)
+                controller.loadStrokes(strokes, cards, images, media)
                 bindAgent(notebookId, pageId)
             }
         }
@@ -467,14 +728,143 @@ class WriterViewModel : ViewModel() {
         adjacentPageId(st.pages, basePageId, delta)?.let(::switchPage)
     }
 
-    fun newPage() {
+    /** 追加空白页(工具栏/笔键快捷入口)。 */
+    fun newPage() = insertPage(PageInsertPosition.END, _state.value.currentPageId)
+
+    /**
+     * 新建空白页并切过去:位置相对 [anchorPageId],纸张沿用笔记本元数据,
+     * 不实现「替换页面」(无数据模型支持,宁可暂缺也不伪造)。
+     */
+    fun insertPage(position: PageInsertPosition, anchorPageId: String? = _state.value.currentPageId) {
+        if (notebookId.isEmpty()) return
         pageSwitchJob?.cancel()
         pendingPageId = null
-        val pageId = repo.newPage(notebookId)
-        _state.value = _state.value.copy(pages = repo.listPages(notebookId), currentPageId = pageId)
-        controller.loadStrokes(emptyList())
-        bindAgent(notebookId, pageId)
+        viewModelScope.launch(Dispatchers.IO) {
+            val newPageId = repo.insertPage(notebookId, position, anchorPageId)
+            openPageOnMain(newPageId)
+        }
+    }
+
+    /** 复制页面(pb/ann/img + 共享图片资产引用)并切到副本。 */
+    fun duplicatePage(pageId: String) {
+        if (notebookId.isEmpty()) return
+        pageSwitchJob?.cancel()
+        pendingPageId = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val copyId = repo.duplicatePage(notebookId, pageId)
+            if (copyId == null) {
+                withContext(Dispatchers.Main) { toast("复制失败:页面不存在") }
+                return@launch
+            }
+            openPageOnMain(copyId)
+            withContext(Dispatchers.Main) { toast("已复制页面 $pageId") }
+        }
+    }
+
+    /**
+     * 清除页面内容。当前页走 InkController 的 Batch 撤销栈(可撤销,落盘走既有 InkCommit);
+     * 非当前页没有跨页撤销栈,直接截断磁盘并二次确认前由 UI 说明。
+     */
+    fun clearPage(pageId: String) {
+        if (pageId == _state.value.currentPageId) {
+            val cleared = controller.clearPageContent()
+            if (cleared) {
+                toast("已清除当前页,可撤销")
+                viewModelScope.launch { refreshThumbOf(pageId) }
+            } else {
+                toast("当前页已是空白")
+            }
+            return
+        }
+        if (notebookId.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val cleared = repo.clearPage(notebookId, pageId)
+            withContext(Dispatchers.Main) {
+                if (cleared) toast("已清除页面 $pageId") else toast("页面 $pageId 不存在")
+            }
+            if (cleared) refreshAllThumbs()
+        }
+    }
+
+    /**
+     * 删除页面文件与 sidecar(图片资产文件保留)。没有封面页语义,允许删除任意页;
+     * 若删到一本空本则补一张空白页,避免书写页落到无页状态。
+     */
+    fun deletePage(pageId: String) {
+        if (notebookId.isEmpty()) return
+        pageSwitchJob?.cancel()
+        pendingPageId = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val before = repo.listPages(notebookId)
+            val fallback = pageIdAfterDelete(before, pageId)
+            if (!repo.deletePage(notebookId, pageId)) {
+                withContext(Dispatchers.Main) { toast("删除失败:页面不存在") }
+                return@launch
+            }
+            var pages = repo.listPages(notebookId)
+            if (pages.isEmpty()) {
+                repo.newPage(notebookId)
+                pages = repo.listPages(notebookId)
+            }
+            val currentBefore = _state.value.currentPageId
+            val currentMissing = pages.none { it.pageId == currentBefore }
+            val target = if (currentMissing) {
+                fallback?.takeIf { id -> pages.any { it.pageId == id } } ?: pages.first().pageId
+            } else {
+                currentBefore
+            }
+            val targetData = if (currentMissing) {
+                PageContent(
+                    repo.loadPage(notebookId, target),
+                    repo.loadAnnotations(notebookId, target),
+                    repo.loadImages(notebookId, target),
+                    repo.loadMedia(notebookId, target),
+                )
+            } else {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(pages = pages, currentPageId = target)
+                if (targetData != null) {
+                    controller.loadStrokes(
+                        targetData.strokes, targetData.cards, targetData.images, targetData.media,
+                    )
+                    bindAgent(notebookId, target)
+                }
+                thumbs.value = thumbs.value - pageId
+                toast("已删除页面 $pageId")
+            }
+            refreshAllThumbs()
+        }
+    }
+
+    /** IO 线程读页 → 主线程替换页状态与控制器(页面管理共用)。 */
+    private suspend fun openPageOnMain(pageId: String) {
+        val pages = repo.listPages(notebookId)
+        val strokes = repo.loadPage(notebookId, pageId)
+        val cards = repo.loadAnnotations(notebookId, pageId)
+        val images = repo.loadImages(notebookId, pageId)
+        val media = repo.loadMedia(notebookId, pageId)
+        withContext(Dispatchers.Main) {
+            _state.value = _state.value.copy(pages = pages, currentPageId = pageId)
+            controller.loadStrokes(strokes, cards, images, media)
+            bindAgent(notebookId, pageId)
+        }
         refreshAllThumbs()
+    }
+
+    fun rotateCurrentPage() {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val spec = nb.pageSpec(pageId)
+        controller.rotateAllContent(spec.widthMm * PageRenderer.MM_TO_PX, spec.heightMm * PageRenderer.MM_TO_PX)
+        val rotated = spec.copy(widthMm = spec.heightMm, heightMm = spec.widthMm)
+        repo.updatePageSpec(notebookId, pageId, rotated)
+        _state.value = _state.value.copy(
+            notebook = nb.copy(pageSpecs = nb.pageSpecs + (pageId to rotated)),
+        )
+        viewModelScope.launch { refreshThumbOf(pageId) }
+        toast("当前页已顺时针旋转 90°")
     }
 
     // ---- 工具 ----
@@ -491,7 +881,10 @@ class WriterViewModel : ViewModel() {
 
     fun setWidth(mm: Float) = applyToolSettings(_state.value.toolSettings.selectWidth(mm))
 
+    fun setEraserWidth(mm: Float) = applyToolSettings(_state.value.toolSettings.selectEraserWidth(mm))
+
     private fun applyToolSettings(settings: WriterToolSettings) {
+        controller.eraserWidthMm = settings.eraserWidthMm
         controller.tool = settings.effective
         _state.value = _state.value.copy(toolSettings = settings)
     }
@@ -509,10 +902,13 @@ class WriterViewModel : ViewModel() {
                 repo.saveAnnotations(notebookId, page, controller.annotationCards())
             is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
                 repo.saveImages(notebookId, page, controller.images())
+            is InkCommit.MediaAdded, is InkCommit.MediaRemoved ->
+                repo.saveMedia(notebookId, page, controller.media())
             is InkCommit.LayersChanged -> {
                 repo.appendLayerStates(notebookId, page, controller.page.strokes.toList())
                 repo.saveAnnotations(notebookId, page, controller.annotationCards())
                 repo.saveImages(notebookId, page, controller.images())
+                repo.saveMedia(notebookId, page, controller.media())
             }
         }
         scheduleFlush()
@@ -534,6 +930,7 @@ class WriterViewModel : ViewModel() {
             canUndo = controller.page.canUndo,
             canRedo = controller.page.canRedo,
             lassoArmed = controller.lassoArmed,
+            lassoFilters = controller.lassoFiltersSnapshot(),
             selectionCount = selection?.count ?: 0,
             selectionBox = selection?.box,
             selectionCanMoveUp = selection?.canMoveUp ?: false,
@@ -549,9 +946,12 @@ class WriterViewModel : ViewModel() {
             val nbId = notebookId
             val nb = _state.value.notebook ?: return@launch
             val map = repo.listPages(nbId).associate { p ->
+                val spec = nb.pageSpec(p.pageId)
                 p.pageId to renderPageThumb(
-                    repo.loadPage(nbId, p.pageId), repo.loadAnnotations(nbId, p.pageId), nb.paper, nb.pageSize, nb.orientation,
-                    images = repo.loadImages(nbId, p.pageId), imageDir = repo.notebookDir(nbId).absolutePath,
+                    repo.loadPage(nbId, p.pageId), repo.loadAnnotations(nbId, p.pageId), spec.paper, nb.pageSize, nb.orientation,
+                    images = repo.loadImages(nbId, p.pageId), media = repo.loadMedia(nbId, p.pageId),
+                    imageDir = repo.notebookDir(nbId).absolutePath,
+                    paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
                 )
             }
             thumbs.value = map
@@ -568,12 +968,15 @@ class WriterViewModel : ViewModel() {
 
     private suspend fun renderThumbOf(pageId: String) {
         val nb = _state.value.notebook ?: return
+        val spec = nb.pageSpec(pageId)
         val strokes = controller.page.strokes.toList()
         val cards = controller.annotationCards()
         val bmp = withContext(Dispatchers.Default) {
             renderPageThumb(
-                strokes, cards, nb.paper, nb.pageSize, nb.orientation,
-                images = controller.images(), imageDir = repo.notebookDir(notebookId).absolutePath,
+                strokes, cards, spec.paper, nb.pageSize, nb.orientation,
+                images = controller.images(), media = controller.media(),
+                imageDir = repo.notebookDir(notebookId).absolutePath,
+                paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
             )
         }
         thumbs.value = thumbs.value + (pageId to bmp)
@@ -589,12 +992,15 @@ class WriterViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val pageId = _state.value.currentPageId
             val nb = _state.value.notebook ?: return@launch
+            val spec = nb.pageSpec(pageId)
             val data = AgentBridge.PageData(
                 repo.loadPage(notebookId, pageId),
                 repo.loadAnnotations(notebookId, pageId),
-                nb.paper, nb.pageSize, nb.orientation,
+                spec.paper, nb.pageSize, nb.orientation,
                 images = repo.loadImages(notebookId, pageId),
+                media = repo.loadMedia(notebookId, pageId),
                 imageDir = repo.notebookDir(notebookId).absolutePath,
+                paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
             )
             val bmp = PageRenderer.renderFull(data)
             val uri = PageExporter.savePng(ServiceLocator.appContext, bmp, "${nb.name}-$pageId")
@@ -613,6 +1019,8 @@ class WriterViewModel : ViewModel() {
                 nb.pageSize, nb.orientation,
                 imageDir = repo.notebookDir(notebookId).absolutePath,
                 imagesOf = { pageId -> repo.loadImages(notebookId, pageId) },
+                mediaOf = { pageId -> repo.loadMedia(notebookId, pageId) },
+                pageSpecOf = { pageId -> nb.pageSpec(pageId) },
             )
             withContext(Dispatchers.Main) { onDone(uri) }
         }
@@ -628,9 +1036,17 @@ internal fun renderPageThumb(
     pageSize: String = "A4",
     orientation: String = "portrait",
     images: List<ImageElement> = emptyList(),
+    media: List<MediaElement> = emptyList(),
     imageDir: String? = null,
+    paperColor: String = "#FAF9F5",
+    pageWidthMm: Float? = null,
+    pageHeightMm: Float? = null,
 ): ImageBitmap {
-    val (pageW, pageH) = PageRenderer.pageDimsPx(pageSize, orientation)
+    val data = AgentBridge.PageData(
+        strokes, cards, paper, pageSize, orientation, images = images, media = media, imageDir = imageDir,
+        paperColor = paperColor, pageWidthMm = pageWidthMm, pageHeightMm = pageHeightMm,
+    )
+    val (pageW, pageH) = PageRenderer.pageDimsPx(data)
     val w = 132
     val bmp = Bitmap.createBitmap(w, (pageH / pageW * w).toInt(), Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bmp)
@@ -638,7 +1054,7 @@ internal fun renderPageThumb(
     canvas.scale(scale, scale)
     PageRenderer.drawAll(
         canvas,
-        AgentBridge.PageData(strokes, cards, paper, pageSize, orientation, images = images, imageDir = imageDir),
+        data,
         pageW, pageH, clip = null,
     )
     return bmp.asImageBitmap()

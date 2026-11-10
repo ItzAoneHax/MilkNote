@@ -4,6 +4,7 @@
     <!-- 应用内更新:局域网下载 + 系统安装器覆盖安装 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- 应用内「最近图片」选择(插入照片到笔记):打开选择器时才动态请求。
          33+ 用细粒度媒体权限;31–32 用旧版读存储(maxSdkVersion 圈定,33+ 系统自动忽略) -->
@@ -11,6 +12,10 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+
+    <!-- 前台录音(书写页录音面板):仅用户按下开始且面板在前台时采集,
+         关闭面板/退后台立即停止;无后台服务、无外部上传 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- 笔键长按接管(写 Secure 表 gb_boosting;signature 权限,一次性
          adb shell pm grant com.milknote.app android.permission.WRITE_SECURE_SETTINGS) -->

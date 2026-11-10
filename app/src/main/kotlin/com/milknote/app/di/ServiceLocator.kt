@@ -12,6 +12,7 @@ import com.milknote.device.pen.DefaultPenInputPort
 import com.milknote.device.pen.PenActionRouter
 import com.milknote.device.pen.PenBatteryMonitor
 import com.milknote.device.pen.PenInputPort
+import com.milknote.notes.storage.CardRepository
 import com.milknote.notes.storage.NotebookRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ object ServiceLocator {
     sealed interface UiEvent {
         data object OpenPalette : UiEvent
         data object OpenAgent : UiEvent
+        data object OpenConsole : UiEvent
     }
 
     val uiEvents = kotlinx.coroutines.flow.MutableSharedFlow<UiEvent>(extraBufferCapacity = 4)
@@ -39,6 +41,8 @@ object ServiceLocator {
     val repository: NotebookRepository by lazy {
         NotebookRepository(appContext.filesDir, appScope)
     }
+
+    val cardRepository: CardRepository by lazy { CardRepository(appContext.filesDir) }
 
     val penRouter: PenActionRouter by lazy { PenActionRouter(appContext, appScope) }
 

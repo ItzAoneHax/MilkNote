@@ -1,6 +1,7 @@
 package com.milknote.ink.model
 
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /** 笔迹几何:包围盒 + 相交测试(整笔划橡皮擦除用) */
@@ -35,7 +36,30 @@ object StrokeGeom {
         val b = s.points.last()
         val t0 = a.timeMs
         return when (s.tool) {
-            InkTool.LINE -> listOf(a, b)
+            InkTool.LINE, InkTool.DASHED_LINE -> listOf(a, b)
+            InkTool.ARROW -> {
+                val angle = kotlin.math.atan2(b.y - a.y, b.x - a.x)
+                val head = hypot(b.x - a.x, b.y - a.y).coerceAtMost(48f).coerceAtLeast(12f) * 0.35f
+                val wing1 = pt(b.x - head * cos(angle - 0.55f).toFloat(), b.y - head * sin(angle - 0.55f).toFloat(), t0 + 1)
+                val wing2 = pt(b.x - head * cos(angle + 0.55f).toFloat(), b.y - head * sin(angle + 0.55f).toFloat(), t0 + 2)
+                listOf(a, b, wing1, b, wing2)
+            }
+            InkTool.TRIANGLE -> {
+                val l = minOf(a.x, b.x); val r = maxOf(a.x, b.x)
+                val t = minOf(a.y, b.y); val bo = maxOf(a.y, b.y)
+                listOf(pt((l + r) / 2f, t, t0), pt(r, bo, t0 + 1), pt(l, bo, t0 + 2), pt((l + r) / 2f, t, t0 + 3))
+            }
+            InkTool.STAR, InkTool.POLYGON -> {
+                val cx = (a.x + b.x) / 2f; val cy = (a.y + b.y) / 2f
+                val rx = kotlin.math.abs(b.x - a.x) / 2f; val ry = kotlin.math.abs(b.y - a.y) / 2f
+                val count = if (s.tool == InkTool.STAR) 10 else 6
+                (0..count).map { i ->
+                    val step = i % count
+                    val radius = if (s.tool == InkTool.STAR && step % 2 == 1) 0.45f else 1f
+                    val angle = -Math.PI / 2 + step * 2 * Math.PI / count
+                    pt(cx + rx * radius * cos(angle).toFloat(), cy + ry * radius * sin(angle).toFloat(), t0 + i.toLong())
+                }
+            }
             InkTool.RECT -> {
                 val l = minOf(a.x, b.x); val t = minOf(a.y, b.y)
                 val r = maxOf(a.x, b.x); val bo = maxOf(a.y, b.y)

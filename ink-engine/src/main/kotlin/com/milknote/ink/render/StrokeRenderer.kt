@@ -51,6 +51,7 @@ object StrokeRenderer {
     /** 构建填充路径。空/单点退化为圆点;形状工具走 [buildShapePath]。 */
     fun buildPath(stroke: Stroke, mmToPx: Float, gamma: PressureGamma): Path {
         if (stroke.tool.isShape) return buildShapePath(stroke, mmToPx)
+        if (stroke.tool == InkTool.DOODLE) return buildDoodlePath(stroke, mmToPx)
         val pts = stroke.points
         val path = Path()
         if (pts.isEmpty()) return path
@@ -71,6 +72,39 @@ object StrokeRenderer {
         }
         path.close()
         return path
+    }
+
+    private fun buildDoodlePath(stroke: Stroke, mmToPx: Float): Path {
+        val path = Path()
+        val radius = (stroke.baseWidthMm * mmToPx).coerceIn(2f, 18f)
+        var previous: InkPoint? = null
+        var remaining = 0f
+        for (point in stroke.points) {
+            val prev = previous
+            if (prev == null) {
+                addDoodleStamp(path, point.x, point.y, radius)
+            } else {
+                val distance = hypot(point.x - prev.x, point.y - prev.y)
+                if (distance >= remaining) {
+                    addDoodleStamp(path, point.x, point.y, radius)
+                    remaining = radius * 2.4f
+                } else remaining -= distance
+            }
+            previous = point
+        }
+        return path
+    }
+
+    private fun addDoodleStamp(path: Path, x: Float, y: Float, radius: Float) {
+        path.addCircle(x, y, radius * 0.42f, Path.Direction.CW)
+        for (i in 0 until 5) {
+            val angle = i * Math.PI * 2 / 5
+            path.addCircle(
+                x + kotlin.math.cos(angle).toFloat() * radius * 0.75f,
+                y + kotlin.math.sin(angle).toFloat() * radius * 0.75f,
+                radius * 0.34f, Path.Direction.CW,
+            )
+        }
     }
 
     /**
@@ -128,9 +162,55 @@ object StrokeRenderer {
                 path.addOval(rect, Path.Direction.CW)
                 path.addOval(RectF(l + inset, t + inset, r - inset, bo - inset), Path.Direction.CW)
             }
+            InkTool.DASHED_LINE -> addDashedLine(path, a, b, half)
+            InkTool.ARROW -> {
+                addSegment(path, a, b, half)
+                val angle = kotlin.math.atan2(b.y - a.y, b.x - a.x)
+                val head = hypot(b.x - a.x, b.y - a.y).coerceAtMost(60f).coerceAtLeast(half * 8f) * 0.45f
+                val leftX = b.x - head * kotlin.math.cos(angle - 0.55f).toFloat()
+                val leftY = b.y - head * kotlin.math.sin(angle - 0.55f).toFloat()
+                val rightX = b.x - head * kotlin.math.cos(angle + 0.55f).toFloat()
+                val rightY = b.y - head * kotlin.math.sin(angle + 0.55f).toFloat()
+                path.moveTo(b.x, b.y); path.lineTo(leftX, leftY); path.lineTo(rightX, rightY); path.close()
+            }
+            InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON -> {
+                val points = com.milknote.ink.model.StrokeGeom.polyline(stroke)
+                for (i in 1 until points.size) addSegment(path, points[i - 1], points[i], half)
+            }
             else -> {}
         }
         return path
+    }
+
+    private fun addSegment(path: Path, a: InkPoint, b: InkPoint, half: Float) {
+        val dx = b.x - a.x; val dy = b.y - a.y
+        val len = hypot(dx, dy)
+        if (len < 0.001f) {
+            path.addCircle(a.x, a.y, half.coerceAtLeast(0.4f), Path.Direction.CW)
+            return
+        }
+        val nx = -dy / len * half; val ny = dx / len * half
+        path.moveTo(a.x + nx, a.y + ny)
+        path.lineTo(b.x + nx, b.y + ny)
+        path.lineTo(b.x - nx, b.y - ny)
+        path.lineTo(a.x - nx, a.y - ny)
+        path.close()
+    }
+
+    private fun addDashedLine(path: Path, a: InkPoint, b: InkPoint, half: Float) {
+        val dx = b.x - a.x; val dy = b.y - a.y
+        val length = hypot(dx, dy)
+        if (length < 0.001f) return
+        val dash = (half * 6f).coerceAtLeast(8f)
+        val gap = (half * 4f).coerceAtLeast(5f)
+        var distance = 0f
+        while (distance < length) {
+            val end = (distance + dash).coerceAtMost(length)
+            val startPoint = InkPoint(a.x + dx * distance / length, a.y + dy * distance / length, 1f, 0f, 0f, 0L)
+            val endPoint = InkPoint(a.x + dx * end / length, a.y + dy * end / length, 1f, 0f, 0f, 0L)
+            addSegment(path, startPoint, endPoint, half)
+            distance += dash + gap
+        }
     }
 
     /** i 点的法向偏移(±半径);端点取邻段方向 */
