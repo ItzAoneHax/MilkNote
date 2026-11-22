@@ -9,6 +9,7 @@ import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.LassoGeom
+import com.milknote.ink.model.LassoMode
 import com.milknote.ink.model.LayerState
 import com.milknote.ink.model.MediaElement
 import com.milknote.ink.model.PageElement
@@ -72,6 +73,13 @@ class InkController {
         set(value) { field = value; notifyInvalidate() }
     var eraserWidthMm: Float = 4f
 
+    /** 橡皮可擦除的笔迹类型;null = 全部(千本笔记橡皮内容开关 P019) */
+    var eraserTargets: Set<InkTool>? = null
+
+    /** 擦除一笔后自动切回书写笔(千本「自动取消」);回调由 VM 装配以复用工具状态机 */
+    var eraserAutoRevert: Boolean = false
+    var onEraserUsed: (() -> Unit)? = null
+
     /** 活动笔迹(书写中);点列表可变以避免每点拷贝 */
     private var activePoints: MutableList<InkPoint>? = null
     /** 本笔工具覆盖(倒置笔 TOOL_TYPE_ERASER → 橡皮;副键按住书写 = 临时橡皮) */
@@ -112,7 +120,22 @@ class InkController {
 
     fun lassoFiltersSnapshot(): Set<LassoContent> = lassoFilters
 
+    /** 圈选方式;切模式清选区并放弃进行中的圈选 */
+    @Volatile var lassoMode: LassoMode = LassoMode.FREEHAND
+        private set
+
+    fun setLassoMode(mode: LassoMode) {
+        if (lassoMode == mode) return
+        lassoMode = mode
+        lassoLoop = null
+        lassoStart = null
+        clearSelection()
+        notifyInvalidate()
+    }
+
     private var lassoLoop: MutableList<InkPoint>? = null
+    /** 本轮圈选起点(RECTANGLE 用于重算矩形) */
+    private var lassoStart: InkPoint? = null
     private var selectionRefs: LinkedHashSet<ElementRef>? = null
     private var selectionBox: StrokeGeom.Box? = null
     private var selectionStamp = 0L
@@ -151,12 +174,25 @@ class InkController {
 
     fun beginLasso(first: InkPoint) {
         clearSelection()
+        lassoStart = first
         lassoLoop = mutableListOf(first)
         notifyInvalidate()
     }
 
     fun extendLasso(point: InkPoint) {
-        lassoLoop?.add(point)
+        val start = lassoStart
+        if (lassoMode == LassoMode.RECTANGLE && start != null) {
+            // 闭合矩形五点:起点 → 右上 → 当前点 → 左下 → 起点
+            lassoLoop = mutableListOf(
+                start,
+                point.copy(y = start.y),
+                point,
+                point.copy(x = start.x),
+                start,
+            )
+        } else {
+            lassoLoop?.add(point)
+        }
         notifyInvalidate()
     }
 
@@ -164,6 +200,7 @@ class InkController {
     fun endLasso(): Boolean {
         val loop = lassoLoop
         lassoLoop = null
+        lassoStart = null
         lassoArmed = false
         val refs = LinkedHashSet<ElementRef>()
         if (loop != null) {
@@ -213,6 +250,7 @@ class InkController {
 
     fun cancelLasso() {
         lassoLoop = null
+        lassoStart = null
         notifyInvalidate()
     }
 
@@ -798,12 +836,13 @@ class InkController {
         when (t.tool) {
             InkTool.LASER -> notifyInvalidate() // 仅活动轨迹；不进入 InkOp、文件或撤销栈
             InkTool.ERASER -> {
-                page.eraseStrokes(stroke)?.let { op ->
+                page.eraseStrokes(stroke, eraserTargets)?.let { op ->
                     page.apply(op)
                     op.ops.filterIsInstance<InkOp.Remove>()
                         .forEach { onCommit?.invoke(InkCommit.Tombstoned(it.stroke.id)) }
                     notifyInvalidate()
                 }
+                if (eraserAutoRevert) onEraserUsed?.invoke()
             }
             else -> {
                 page.apply(InkOp.Add(stroke))

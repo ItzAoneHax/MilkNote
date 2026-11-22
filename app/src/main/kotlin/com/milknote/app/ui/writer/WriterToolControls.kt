@@ -35,90 +35,6 @@ import com.milknote.app.R
 import com.milknote.ink.model.InkTool
 
 @Composable
-internal fun PenToolButton(
-    tool: InkTool,
-    label: String,
-    color: Long,
-    active: Boolean,
-    enabled: Boolean,
-    squeezed: Boolean = false,
-    onHoverChanged: (Boolean) -> Unit = {},
-    onClick: () -> Unit,
-) {
-    val ink = Color(color.toInt())
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    LaunchedEffect(hovered, enabled) { onHoverChanged(hovered && enabled) }
-    val border by animateColorAsState(
-        when {
-            active && enabled -> MaterialTheme.colorScheme.onSurface
-            hovered && enabled -> ink.copy(alpha = 0.82f)
-            else -> ink.copy(alpha = 0.45f)
-        },
-        tween(200), label = "penBorder",
-    )
-    val bg by animateColorAsState(
-        if ((active || hovered) && enabled) ink.copy(alpha = 0.14f) else Color.Transparent,
-        tween(200), label = "penBg",
-    )
-    val scale by animateFloatAsState(
-        when {
-            hovered && enabled -> 1.22f
-            active && enabled -> 1.16f
-            squeezed -> 0.94f
-            else -> 1f
-        },
-        tween(160), label = "penScale",
-    )
-    val slot by animateFloatAsState(
-        when {
-            hovered && enabled -> 1.10f
-            active && enabled -> 1.06f
-            squeezed -> 0.96f
-            else -> 1f
-        },
-        tween(160), label = "penSlot",
-    )
-    Box(
-        Modifier
-            .size(52.dp * slot)
-            .clip(CircleShape)
-            .hoverable(interaction)
-            .clickable(
-                interactionSource = interaction,
-                indication = androidx.compose.foundation.LocalIndication.current,
-                enabled = enabled,
-                onClick = onClick,
-            )
-            .semantics {
-                contentDescription = when {
-                    active && tool == InkTool.ERASER -> "$label，再次点击恢复原笔"
-                    active -> "$label，再次点击打开详细设置"
-                    else -> label
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(46.dp)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(CircleShape)
-                .background(bg)
-                .border(1.dp, border, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            RealPenIcon(
-                tool = tool,
-                color = color,
-                enabled = enabled,
-                modifier = Modifier.size(44.dp),
-            )
-        }
-    }
-}
-
-@Composable
 internal fun InkColorDot(
     color: Long,
     label: String,
@@ -126,6 +42,7 @@ internal fun InkColorDot(
     enabled: Boolean = true,
     squeezed: Boolean = false,
     onHoverChanged: (Boolean) -> Unit = {},
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -154,7 +71,7 @@ internal fun InkColorDot(
         tween(200), label = "inkRing",
     )
     Box(
-        Modifier
+        modifier
             .size(48.dp * slot)
             .clip(CircleShape)
             .hoverable(interaction)
@@ -169,7 +86,7 @@ internal fun InkColorDot(
     ) {
         Box(
             Modifier
-                .size(19.dp)
+                .size(22.dp)
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale

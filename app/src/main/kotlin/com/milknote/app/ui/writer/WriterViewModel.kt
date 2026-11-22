@@ -23,8 +23,10 @@ import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.InkPoint
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.LassoContent
+import com.milknote.ink.model.LassoMode
 import com.milknote.ink.model.MediaElement
 import com.milknote.ink.model.PageImageKind
+import com.milknote.ink.model.PressureGamma
 import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.render.AnnotationCardRenderer
@@ -53,6 +55,7 @@ data class WriterUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val lassoArmed: Boolean = false,          // 套索模式(等待圈选)
+    val lassoMode: LassoMode = LassoMode.FREEHAND,
     val lassoFilters: Set<LassoContent> = LassoContent.entries.toSet(),
     val selectionCount: Int = 0,              // 混合选中元素数(>0 显示变换菜单)
     val selectionBox: StrokeGeom.Box? = null, // 当前选区(页坐标,含预览)
@@ -60,8 +63,6 @@ data class WriterUiState(
     val selectionCanMoveDown: Boolean = false,
     val selectionSnapEnabled: Boolean = true,
     val frontBufferEnabled: Boolean = false,  // 前置缓冲出墨(设置)
-    val toolbarPins: List<WriterToolbarAction> = WriterToolbarAction.defaultPins,
-    val sidebarVisible: Boolean = true,
     val snip: SnipUiState = SnipUiState(),    // ④ 框选模式(AGENT-BACKEND §4.2)
 ) {
     val tool: ToolConfig get() = toolSettings.current
@@ -99,6 +100,11 @@ class WriterViewModel : ViewModel() {
     val controller = InkController().apply {
         onCommit = { commit -> persistCommit(commit) }
         addInvalidator { syncToolbarState() }
+        // 橡皮「自动切回画笔」(千本 P019 自动取消):擦完一笔回到原书写笔
+        onEraserUsed = {
+            val s = _state.value.toolSettings
+            if (s.eraserAutoRevert && s.eraserTemporary) toggleEraser()
+        }
     }
 
     private val _state = MutableStateFlow(WriterUiState())
@@ -123,18 +129,10 @@ class WriterViewModel : ViewModel() {
                 applyToolSettings(settings)
                 _state.value = _state.value.copy(
                     frontBufferEnabled = s.frontBufferInk,
-                    toolbarPins = s.writerToolbarPins,
-                    sidebarVisible = s.writerSidebarVisible,
                 )
             }
         }
         registerAgentBridge()
-    }
-
-    fun toggleSidebar() {
-        val visible = !_state.value.sidebarVisible
-        _state.value = _state.value.copy(sidebarVisible = visible)
-        viewModelScope.launch { ServiceLocator.appSettings.setWriterSidebarVisible(visible) }
     }
 
     // ---- Agent 桥(渲染源 / 批注落点 / 整章页序;AGENT-BACKEND §2.1 装配) ----
@@ -514,6 +512,11 @@ class WriterViewModel : ViewModel() {
         if (controller.lassoArmed) controller.disarmLasso() else controller.armLasso()
     }
 
+    fun setLassoMode(mode: LassoMode) {
+        controller.setLassoMode(mode)
+        syncToolbarState()
+    }
+
     fun toggleLassoFilter(filter: LassoContent) {
         val next = controller.lassoFiltersSnapshot().toMutableSet().apply {
             if (!add(filter)) remove(filter)
@@ -677,7 +680,6 @@ class WriterViewModel : ViewModel() {
             currentPageId = cur,
             toolSettings = _state.value.toolSettings,
             frontBufferEnabled = frontBufferFlag,
-            toolbarPins = _state.value.toolbarPins,
         )
         controller.loadStrokes(
             repo.loadPage(nbId, cur),
@@ -726,6 +728,32 @@ class WriterViewModel : ViewModel() {
         val st = _state.value
         val basePageId = pendingPageId ?: st.currentPageId
         adjacentPageId(st.pages, basePageId, delta)?.let(::switchPage)
+    }
+
+    /** 缘滑到末页后继续翻页(千本:滑过末页自动新建空白页);仅缘滑路径进入,按钮不受影响 */
+    fun appendPageAtEnd() {
+        val st = _state.value
+        if (st.pages.isEmpty()) return
+        val basePageId = pendingPageId ?: st.currentPageId
+        if (st.pages.last().pageId != basePageId) return
+        insertPage(PageInsertPosition.END, basePageId)
+        toast("已新建第 ${st.pages.size + 1} 页")
+    }
+
+    /** 页面重排(千本缩略图长按拖拽):落盘 pageOrder 后按新序刷新列表与缩略图。 */
+    fun movePage(pageId: String, toIndex: Int) {
+        if (notebookId.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val order = repo.reorderPage(notebookId, pageId, toIndex)
+            withContext(Dispatchers.Main) {
+                if (order == null) {
+                    toast("移动失败:页面不存在")
+                } else {
+                    _state.value = _state.value.copy(pages = repo.listPages(notebookId))
+                    toast("已移动到第 ${(toIndex.coerceAtLeast(0)) + 1} 页")
+                }
+            }
+        }
     }
 
     /** 追加空白页(工具栏/笔键快捷入口)。 */
@@ -883,8 +911,21 @@ class WriterViewModel : ViewModel() {
 
     fun setEraserWidth(mm: Float) = applyToolSettings(_state.value.toolSettings.selectEraserWidth(mm))
 
+    /** 橡皮内容开关(千本 P019);切换时保持临时橡皮态不跳笔 */
+    fun setEraserTarget(tool: InkTool, enabled: Boolean) =
+        applyToolSettings(_state.value.toolSettings.setEraserTarget(tool, enabled))
+
+    fun setEraserAutoRevert(enabled: Boolean) =
+        applyToolSettings(_state.value.toolSettings.setEraserAutoRevert(enabled))
+
+    /** 当前笔压感档(千本钢笔「笔尖」/画笔「压感灵敏度」) */
+    fun setPenGamma(gamma: PressureGamma) =
+        applyToolSettings(_state.value.toolSettings.selectPressureGamma(gamma))
+
     private fun applyToolSettings(settings: WriterToolSettings) {
         controller.eraserWidthMm = settings.eraserWidthMm
+        controller.eraserTargets = settings.eraserTargets
+        controller.eraserAutoRevert = settings.eraserAutoRevert
         controller.tool = settings.effective
         _state.value = _state.value.copy(toolSettings = settings)
     }
@@ -930,6 +971,7 @@ class WriterViewModel : ViewModel() {
             canUndo = controller.page.canUndo,
             canRedo = controller.page.canRedo,
             lassoArmed = controller.lassoArmed,
+            lassoMode = controller.lassoMode,
             lassoFilters = controller.lassoFiltersSnapshot(),
             selectionCount = selection?.count ?: 0,
             selectionBox = selection?.box,

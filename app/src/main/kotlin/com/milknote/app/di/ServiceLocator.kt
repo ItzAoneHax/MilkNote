@@ -33,7 +33,6 @@ object ServiceLocator {
     sealed interface UiEvent {
         data object OpenPalette : UiEvent
         data object OpenAgent : UiEvent
-        data object OpenConsole : UiEvent
     }
 
     val uiEvents = kotlinx.coroutines.flow.MutableSharedFlow<UiEvent>(extraBufferCapacity = 4)

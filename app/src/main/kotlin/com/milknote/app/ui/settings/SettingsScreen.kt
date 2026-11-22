@@ -39,9 +39,6 @@ import androidx.compose.ui.unit.sp
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.theme.LocalMilkWarning
-import com.milknote.app.ui.writer.WriterToolbarAction
-import com.milknote.app.ui.writer.moveWriterToolbarPin
-import com.milknote.app.ui.writer.setWriterToolbarPin
 import com.milknote.app.ui.theme.Mono
 import com.milknote.device.pen.PenAction
 import com.milknote.device.pen.PenTrigger
@@ -119,7 +116,6 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                         appSettings = appSettings,
                         setPressure = { scope.launch { settings.setPressureGamma(it) } },
                         setFrontBuffer = { scope.launch { settings.setFrontBufferInk(it) } },
-                        setToolbarPins = { scope.launch { settings.setWriterToolbarPins(it) } },
                     )
                     "pen" -> PenPage(mapping = mapping, caps = caps, battery = battery, batterySource = batterySource, permLauncher = permLauncher)
                     "agent" -> {
@@ -162,49 +158,8 @@ private fun WritingPage(
     appSettings: AppSettings,
     setPressure: (PressureGamma) -> Unit,
     setFrontBuffer: (Boolean) -> Unit,
-    setToolbarPins: (List<WriterToolbarAction>) -> Unit,
 ) {
-    SettingsPageHeader("书写", "工具栏、压感与出墨路径;更改即时生效")
-
-    SettingsSectionHeader("顶部工具栏", "选择固定功能并调整顺序;空间不足时末尾功能自动进入更多")
-    SettingsCard {
-        val orderedActions = appSettings.writerToolbarPins +
-            WriterToolbarAction.entries.filter { it !in appSettings.writerToolbarPins }
-        orderedActions.forEachIndexed { index, action ->
-            if (index > 0) Hairline()
-            val pins = appSettings.writerToolbarPins
-            val pinIndex = pins.indexOf(action)
-            val pinned = pinIndex >= 0
-            SettingsRow(
-                title = action.label,
-                subtitle = if (pinned) "已固定 · 第 ${pinIndex + 1} 位" else "在更多菜单中",
-                onClick = { setToolbarPins(setWriterToolbarPin(pins, action, !pinned)) },
-                trailing = {
-                    if (pinned) {
-                        MilkIconButton(
-                            Icons.Outlined.ArrowUpward,
-                            "上移${action.label}",
-                            enabled = pinIndex > 0,
-                            onClick = { setToolbarPins(moveWriterToolbarPin(pins, action, -1)) },
-                        )
-                        MilkIconButton(
-                            Icons.Outlined.ArrowDownward,
-                            "下移${action.label}",
-                            enabled = pinIndex < pins.lastIndex,
-                            onClick = { setToolbarPins(moveWriterToolbarPin(pins, action, 1)) },
-                        )
-                    }
-                    MilkSwitch(
-                        checked = pinned,
-                        onChange = { setToolbarPins(setWriterToolbarPin(pins, action, it)) },
-                    )
-                },
-            )
-        }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        TextAction("恢复默认工具栏", onClick = { setToolbarPins(WriterToolbarAction.defaultPins) })
-    }
+    SettingsPageHeader("书写", "压感与出墨路径;更改即时生效")
 
     SettingsSectionHeader("压感曲线", "轻触 0.3mm → 重按 2.2mm")
     SettingsCard {

@@ -68,4 +68,21 @@ class InkModelTest {
         assertFalse(page.canUndo)
         assertEquals(listOf("x"), page.strokes.map { it.id })
     }
+
+    @Test fun `擦除目标过滤 只擦集合内类型`() {
+        val page = PageInkState()
+        page.apply(InkOp.Add(s("pen")))
+        val hl = s("hl").copy(tool = InkTool.HIGHLIGHTER)
+        page.apply(InkOp.Add(hl))
+        // targets 只含 HIGHLIGHTER:PEN 笔迹保留
+        val op = page.eraseStrokes(eraser(10f to 10f, 20f to 20f), targets = setOf(InkTool.HIGHLIGHTER))
+        assertEquals(1, op!!.ops.size)
+        page.apply(op)
+        assertEquals(listOf("pen"), page.strokes.map { it.id })
+        // targets 为 null = 全擦
+        val all = page.eraseStrokes(eraser(10f to 10f, 20f to 20f))
+        assertEquals(1, all!!.ops.size)
+        page.apply(all)
+        assertEquals(emptyList<String>(), page.strokes.map { it.id })
+    }
 }

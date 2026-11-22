@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -126,7 +127,8 @@ fun MilkActionPanel(
                 .fillMaxWidth()
                 .padding(top = 12.dp)
                 .heightIn(max = 480.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll"),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             actions.forEach { action ->
@@ -188,7 +190,8 @@ fun <T> MilkChoicePanel(
                 .fillMaxWidth()
                 .padding(top = 12.dp)
                 .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll"),
         ) {
             items.forEach { item ->
                 val isSelected = item == selected

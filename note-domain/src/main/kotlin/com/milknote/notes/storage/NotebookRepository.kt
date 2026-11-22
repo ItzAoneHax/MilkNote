@@ -214,6 +214,22 @@ class NotebookRepository(
     }
 
     /**
+     * 页面重排(千本笔记缩略图长按拖拽 P058 对齐):把 [pageId] 移动到目标下标。
+     * 通过 pageOrder 落盘,不改名页面文件;页面不存在返回 null,成功返回新页序。
+     */
+    fun reorderPage(notebookId: String, pageId: String, toIndex: Int): List<String>? = withPageWrite {
+        val dir = dirOf(notebookId)
+        val existing = pageIds(dir)
+        val order = orderedPageIds(dir, existing).toMutableList()
+        val from = order.indexOf(pageId)
+        if (from < 0) return@withPageWrite null
+        order.removeAt(from)
+        order.add(toIndex.coerceIn(0, order.size), pageId)
+        writePageOrderLocked(notebookId, order)
+        order.toList()
+    }
+
+    /**
      * 清除页面内容(笔迹/批注卡/图片元素/音视频元素)但保留页面文件。
      * 直接截断 pb 并删除三份 sidecar,不可撤销;需要撤销时应由当前页走 InkController。
      * 图片/音视频资产文件保留(可能被其他页面共享引用)。

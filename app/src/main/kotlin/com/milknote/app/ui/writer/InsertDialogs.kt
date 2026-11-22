@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -57,13 +58,14 @@ import com.milknote.ink.model.InkTool
 @Composable
 internal fun TextBoxDialog(
     existing: com.milknote.ink.model.AnnotationCard? = null,
+    initialStyle: CardTextStyle = CardTextStyle(),
     onDismiss: () -> Unit,
     onCreate: (String, CardTextStyle) -> Unit,
 ) {
     var text by remember(existing?.id) { mutableStateOf(existing?.text.orEmpty()) }
-    var style by remember(existing?.id) { mutableStateOf(existing?.textStyle ?: CardTextStyle()) }
+    var style by remember(existing?.id) { mutableStateOf(existing?.textStyle ?: initialStyle) }
     MilkCenterPanel(title = if (existing == null) "插入文字框" else "编辑文字", onDismiss = onDismiss, maxWidth = 520.dp) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 450.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 450.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
             Spacer(Modifier.height(12.dp))
             Box(
                 Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(12.dp))
@@ -133,28 +135,25 @@ data class ShapeConfig(val tool: InkTool, val color: Long, val widthMm: Float)
 
 @Composable
 internal fun ShapeSettingsDialog(
+    initialTool: InkTool = InkTool.RECT,
     initialColor: Long,
     initialWidth: Float,
     onDismiss: () -> Unit,
     onStart: (ShapeConfig) -> Unit,
 ) {
-    var tool by remember { mutableStateOf(InkTool.RECT) }
+    var tool by remember { mutableStateOf(initialTool) }
     var color by remember { mutableStateOf(initialColor) }
     var width by remember { mutableStateOf(initialWidth) }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val form: @Composable () -> Unit = {
         Column(
             Modifier
-                .width(430.dp)
-                .milkDialogSurface()
-                .padding(24.dp),
+                .fillMaxWidth()
+                .heightIn(max = 430.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll"),
         ) {
-            Text("图形绘制", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(16.dp))
-            val shapes = listOf(
-                InkTool.LINE to "直线", InkTool.DASHED_LINE to "虚线", InkTool.ARROW to "箭头", InkTool.RECT to "矩形",
-                InkTool.OVAL to "椭圆", InkTool.TRIANGLE to "三角形", InkTool.STAR to "星形", InkTool.POLYGON to "六边形",
-            )
-            shapes.chunked(4).forEach { group ->
+            Spacer(Modifier.height(12.dp))
+            writerShapeToolOrder.chunked(4).forEach { group ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                     group.forEach { (candidate, label) ->
                         val active = tool == candidate
@@ -180,12 +179,7 @@ internal fun ShapeSettingsDialog(
             Spacer(Modifier.height(8.dp))
             Row {
                 listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { candidate ->
-                    InkColorDot(
-                        color = candidate,
-                        label = "图形颜色",
-                        active = color == candidate,
-                        onClick = { color = candidate },
-                    )
+                    InkColorDot(color = candidate, label = "图形颜色", active = color == candidate, onClick = { color = candidate })
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -194,6 +188,18 @@ internal fun ShapeSettingsDialog(
                 Spacer(Modifier.width(8.dp))
                 MilkButton(label = "开始绘制", onClick = { onStart(ShapeConfig(tool, color, width)) })
             }
+        }
+    }
+    WriterFloatingPanel(onDismiss = onDismiss, width = 420.dp, maxHeight = 600.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Text("图形绘制", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Text(
+                "选择图形、描边与颜色",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            form()
         }
     }
 }

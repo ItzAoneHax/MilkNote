@@ -7,6 +7,9 @@ enum class LassoContent(val label: String) {
     DOODLE("图案笔"), TAPE("胶带"), STICKER("贴纸"), MEDIA("音视频"),
 }
 
+/** 套索圈选方式:FREEHAND = 自由轨迹;RECTANGLE = 起点与当前点构成的轴对齐矩形 */
+enum class LassoMode { FREEHAND, RECTANGLE }
+
 /** 工具(DESIGN-V0 §6.1 Stroke.tool) */
 enum class InkTool(val id: String) {
     PEN("pen"),           // 钢笔:压感变宽 + 倾斜笔锋
@@ -198,12 +201,14 @@ class PageInkState {
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
 
-    /** 整笔划擦除:与 eraser 轨迹包围盒/轨迹相交的笔迹全部移除,返回产生的 Batch op */
-    fun eraseStrokes(eraser: Stroke): InkOp.Batch? {
+    /** 整笔划擦除:与 eraser 轨迹包围盒/轨迹相交的笔迹全部移除,返回产生的 Batch op;
+     *  [targets] 非空时只擦除命中集合内 tool 的笔迹(千本笔记 P019「擦除画笔/荧光笔/涂鸦笔」对齐)。 */
+    fun eraseStrokes(eraser: Stroke, targets: Set<InkTool>? = null): InkOp.Batch? {
         val ops = mutableListOf<InkOp>()
         val it = strokes.listIterator()
         while (it.hasNext()) {
             val s = it.next()
+            if (targets != null && s.tool !in targets) continue
             if (StrokeGeom.intersects(s, eraser)) {
                 ops.add(InkOp.Remove(s, it.previousIndex()))
             }

@@ -23,8 +23,14 @@ data class WriterToolSettings(
     val palettes: Map<InkTool, List<Long>> = defaultToolPalettes,
     val eraserTemporary: Boolean = false,
     val eraserWidthMm: Float = 4f,
+    val eraserTargets: Set<InkTool> = defaultEraseTargets,
+    val eraserAutoRevert: Boolean = false,
+    /** 单笔压感档覆盖(千本「笔尖/压感灵敏度」);缺省用全局设置档 */
+    val gammaOverrides: Map<InkTool, PressureGamma> = emptyMap(),
 ) {
-    val current: ToolConfig get() = configs.getValue(currentTool)
+    val current: ToolConfig get() = configs.getValue(currentTool).let { config ->
+        gammaOverrides[currentTool]?.let { config.copy(pressureGamma = it) } ?: config
+    }
     val effective: ToolConfig get() = if (eraserTemporary) {
         configs.getValue(InkTool.ERASER).copy(baseWidthMm = eraserWidthMm, pressureGamma = current.pressureGamma)
     } else current
@@ -41,6 +47,22 @@ data class WriterToolSettings(
         eraserWidthMm = mm.coerceIn(2f, 12f),
         eraserTemporary = true,
     )
+
+    /** 橡皮内容开关(千本 P019:擦除画笔/荧光笔/涂鸦笔…);不可关闭最后一类,避免橡皮失效难排查 */
+    fun setEraserTarget(tool: InkTool, enabled: Boolean): WriterToolSettings {
+        val updated = (if (enabled) eraserTargets + tool else eraserTargets - tool)
+        if (updated.isEmpty()) return this
+        return copy(eraserTargets = updated)
+    }
+
+    fun setEraserAutoRevert(enabled: Boolean): WriterToolSettings = copy(eraserAutoRevert = enabled)
+
+    /** 当前笔的压感档覆盖(千本钢笔「笔尖」/画笔「压感灵敏度」);LASER 无笔锋不响应 */
+    fun selectPressureGamma(gamma: PressureGamma): WriterToolSettings {
+        if (currentTool !in writingTools) return this
+        if (gammaOverrides[currentTool] == gamma) return this
+        return copy(gammaOverrides = gammaOverrides + (currentTool to gamma))
+    }
 
     fun selectColor(color: Long): WriterToolSettings {
         if (currentTool !in writingTools && currentTool != InkTool.LASER) return this
@@ -83,10 +105,32 @@ private val defaultToolConfigs = mapOf(
     InkTool.ERASER to ToolConfig(tool = InkTool.ERASER),
 )
 
+/** 橡皮默认可擦全部笔迹类(画笔/圆珠/荧光/图案/图形);胶带/图片/文本卡不走橡皮(千本胶带擦除为有意差异) */
+private val defaultEraseTargets: Set<InkTool> = setOf(
+    InkTool.PEN, InkTool.BALL, InkTool.HIGHLIGHTER, InkTool.DOODLE,
+    InkTool.LINE, InkTool.DASHED_LINE, InkTool.ARROW,
+    InkTool.RECT, InkTool.OVAL, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON,
+)
+
 private val defaultToolPalettes = mapOf(
-    InkTool.PEN to listOf(InkBlackArgb, InkBlueArgb, InkRedArgb, InkGreenArgb),
-    InkTool.BALL to listOf(InkBlackArgb, BallBlueArgb, InkRedArgb, InkPurpleArgb),
-    InkTool.HIGHLIGHTER to listOf(HighlightYellowArgb, HighlightPinkArgb, HighlightGreenArgb, HighlightBlueArgb),
-    InkTool.DOODLE to listOf(InkPurpleArgb, InkBlueArgb, InkRedArgb, InkGreenArgb),
-    InkTool.LASER to listOf(InkRedArgb, InkGreenArgb, InkBlueArgb, InkPurpleArgb),
+    InkTool.PEN to listOf(
+        InkBlackArgb, 0xFFF44336, 0xFFFFB300, 0xFF2F80ED, 0xFF4CAF50,
+        InkPurpleArgb, 0xFFD98E04, 0xFF858585,
+    ),
+    InkTool.BALL to listOf(
+        InkBlackArgb, BallBlueArgb, InkRedArgb, InkPurpleArgb,
+        InkGreenArgb, 0xFFD98E04, 0xFF2C8CC8, 0xFF858585,
+    ),
+    InkTool.HIGHLIGHTER to listOf(
+        HighlightYellowArgb, HighlightPinkArgb, HighlightGreenArgb, HighlightBlueArgb,
+        0xFF7C5CE0, 0xFFD98E04, 0xFF2C8CC8, 0xFF858585,
+    ),
+    InkTool.DOODLE to listOf(
+        InkPurpleArgb, InkBlueArgb, InkRedArgb, InkGreenArgb,
+        0xFFD98E04, 0xFF2C8CC8, InkBlackArgb, 0xFF858585,
+    ),
+    InkTool.LASER to listOf(
+        InkRedArgb, InkGreenArgb, InkBlueArgb, InkPurpleArgb,
+        0xFFD98E04, 0xFF2C8CC8, InkBlackArgb, 0xFF858585,
+    ),
 )

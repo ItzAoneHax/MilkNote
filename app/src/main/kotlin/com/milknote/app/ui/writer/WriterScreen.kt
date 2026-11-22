@@ -92,6 +92,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.style.TextAlign
@@ -104,6 +105,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.agent.SnipOverlay
+import com.milknote.app.ui.cards.CardsViewModel
 import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
@@ -121,19 +123,17 @@ import com.milknote.ink.model.MediaElement
 import com.milknote.ink.render.InkSurfaceView
 import com.milknote.notes.storage.PageInsertPosition
 
-internal val WriterTopBarHeight = 72.dp
-
-/** ③ 书写页:顶栏 / 侧栏(页面缩略) / 纸面画布(DESIGN-V0 §5.3–5.4) */
+/** 书写页：固定纸面坐标 + P016 两级 chrome + 覆盖式页面/摘取栏。 */
 @Composable
 fun WriterScreen(
     vm: WriterViewModel,
+    cardsVm: CardsViewModel,
     dark: Boolean,
     onBack: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenPalette: () -> Unit = {},
     onOpenSettings: (page: String) -> Unit = {},
     onOpenExport: () -> Unit = {},
-    onSwitchNotebook: (String) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val thumbs by vm.thumbs.collectAsState()
@@ -152,7 +152,6 @@ fun WriterScreen(
     }.collectAsState(false)
     // 专注模式(F-07):chrome 以「同尺寸背景占位」退出,纸张 bounds/坐标严格不变
     var focusMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var readingMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -199,31 +198,71 @@ fun WriterScreen(
 
     // 画布引用(④ 框选遮罩需要视口↔页坐标变换)
     val surfaceRef = remember { mutableStateOf<InkSurfaceView?>(null) }
-    var motionIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedMajorTool by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(WriterMajorTool.BRUSH)
+    }
+    var railMode by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf<WriterRailMode?>(null)
+    }
+    var minorCollapsed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var minorDock by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(MinorDock.TOP) }
+    var centralPanelState by remember { mutableStateOf(WriterPanelState()) }
     var detailTool by remember { mutableStateOf<InkTool?>(null) }
     var detailColor by remember { mutableStateOf<Int?>(null) }
-    var showTextEditor by remember { mutableStateOf(false) }
     var editingText by remember { mutableStateOf<com.milknote.ink.model.AnnotationCard?>(null) }
-    var showShapeSettings by remember { mutableStateOf(false) }
+    var textToolStyle by remember { mutableStateOf(com.milknote.ink.model.CardTextStyle()) }
     var shapeConfig by remember { mutableStateOf<ShapeConfig?>(null) }
-    var showRecentImages by remember { mutableStateOf(false) }
-    var centralPanelState by remember { mutableStateOf(WriterPanelState()) }
-    var showLassoSettings by remember { mutableStateOf(false) }
-    var showMaterials by remember { mutableStateOf(false) }
-    var showConsole by remember { mutableStateOf(false) }
+    var shapeTool by remember { mutableStateOf(InkTool.RECT) }
+    var shapeColor by remember { mutableStateOf(state.tool.color) }
+    var shapeWidth by remember { mutableStateOf(state.tool.baseWidthMm) }
+    var newPageAnchor by remember { mutableStateOf<String?>(null) }
+    var playbackElement by remember { mutableStateOf<MediaElement?>(null) }
+
     fun setCentralPanel(panel: WriterPanel, visible: Boolean) {
         centralPanelState = if (visible) centralPanelState.open(panel) else centralPanelState.dismiss()
-        showLassoSettings = centralPanelState.open == WriterPanel.LASSO
-        showMaterials = centralPanelState.open == WriterPanel.MATERIAL
-        showConsole = centralPanelState.open == WriterPanel.CONSOLE
+        if (!visible) detailColor = null
     }
-    var playbackElement by remember { mutableStateOf<MediaElement?>(null) }
-    LaunchedEffect(Unit) {
-        ServiceLocator.uiEvents.collect { event ->
-            if (event == ServiceLocator.UiEvent.OpenConsole) {
-                setCentralPanel(WriterPanel.CONSOLE, true)
+    fun closeCentralPanel() {
+        centralPanelState = centralPanelState.dismiss()
+        detailColor = null
+    }
+    fun openToolPanel(tool: InkTool, colorIndex: Int? = null) {
+        detailTool = tool
+        detailColor = colorIndex
+        setCentralPanel(WriterPanel.TOOL, true)
+    }
+    fun openTextPanel(card: com.milknote.ink.model.AnnotationCard? = null) {
+        editingText = card
+        setCentralPanel(WriterPanel.TEXT, true)
+    }
+    val openNewPage: (String?) -> Unit = { anchor ->
+        newPageAnchor = anchor
+        setCentralPanel(WriterPanel.NEW_PAGE, true)
+    }
+    androidx.activity.compose.BackHandler(enabled = centralPanelState.open != null) {
+        closeCentralPanel()
+    }
+    LaunchedEffect(railMode) {
+        if (railMode == WriterRailMode.SNIPPETS) cardsVm.refresh()
+    }
+    LaunchedEffect(state.toolSettings.currentTool, state.toolSettings.eraserTemporary) {
+        if (state.toolSettings.eraserTemporary) {
+            selectedMajorTool = WriterMajorTool.ERASER
+        } else {
+            when (state.toolSettings.currentTool) {
+                InkTool.HIGHLIGHTER -> selectedMajorTool = WriterMajorTool.HIGHLIGHTER
+                InkTool.DOODLE -> selectedMajorTool = WriterMajorTool.DOODLE
+                InkTool.LASER -> selectedMajorTool = WriterMajorTool.LASER
+                InkTool.PEN, InkTool.BALL -> if (selectedMajorTool in listOf(
+                    WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER, WriterMajorTool.ERASER,
+                    WriterMajorTool.DOODLE, WriterMajorTool.LASER,
+                )) selectedMajorTool = WriterMajorTool.BRUSH
+                else -> Unit
             }
         }
+    }
+    LaunchedEffect(state.lassoArmed) {
+        if (state.lassoArmed) selectedMajorTool = WriterMajorTool.LASSO
     }
     var recordPermission by remember {
         mutableStateOf(
@@ -264,69 +303,83 @@ fun WriterScreen(
     val materialImageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) vm.insertMaterial(uri) }
-    // 新建页中央面板(位置 + 复用当前纸张);替换页面未实现,不展示伪造入口。
-    var showNewPage by remember { mutableStateOf(false) }
-    var newPageAnchor by remember { mutableStateOf<String?>(null) }
-    val openNewPage: (String?) -> Unit = { anchor ->
-        newPageAnchor = anchor
-        showNewPage = true
+    val onMajorTool: (WriterMajorTool) -> Unit = { tool ->
+        val active = isMajorToolActive(tool, selectedMajorTool, state)
+        val settingsOpen = when (tool) {
+            WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER, WriterMajorTool.ERASER,
+            WriterMajorTool.DOODLE, WriterMajorTool.LASER -> centralPanelState.open == WriterPanel.TOOL
+            WriterMajorTool.LASSO -> centralPanelState.open == WriterPanel.LASSO
+            WriterMajorTool.IMAGE -> centralPanelState.open == WriterPanel.IMAGE
+            WriterMajorTool.TEXT -> centralPanelState.open == WriterPanel.TEXT
+            WriterMajorTool.SHAPE -> centralPanelState.open == WriterPanel.SHAPE
+            WriterMajorTool.TAPE -> centralPanelState.open == WriterPanel.MATERIAL
+            else -> false
+        }
+        when (resolveToolTap(active, settingsOpen)) {
+            ToolTapOutcome.CLOSE_SETTINGS -> closeCentralPanel()
+            ToolTapOutcome.OPEN_SETTINGS -> {
+                closeCentralPanel()
+                when (tool) {
+                    WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER, WriterMajorTool.ERASER,
+                    WriterMajorTool.DOODLE, WriterMajorTool.LASER -> openToolPanel(writerInkTool(tool, state.toolSettings))
+                    WriterMajorTool.LASSO -> setCentralPanel(WriterPanel.LASSO, true)
+                    WriterMajorTool.IMAGE -> setCentralPanel(WriterPanel.IMAGE, true)
+                    WriterMajorTool.TEXT -> openTextPanel()
+                    WriterMajorTool.SHAPE -> setCentralPanel(WriterPanel.SHAPE, true)
+                    WriterMajorTool.SNIP -> if (state.snip.phase == SnipPhase.IDLE) vm.enterSnip()
+                    WriterMajorTool.TAPE -> setCentralPanel(WriterPanel.MATERIAL, true)
+                    WriterMajorTool.READING -> {
+                        selectedMajorTool = WriterMajorTool.BRUSH
+                        minorCollapsed = false
+                    }
+                }
+            }
+            ToolTapOutcome.ACTIVATE -> {
+                closeCentralPanel()
+                detailTool = null
+                if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
+                selectedMajorTool = tool
+                if (tool != WriterMajorTool.SHAPE) shapeConfig = null
+                if (tool != WriterMajorTool.LASSO && state.lassoArmed) vm.toggleLasso()
+                when (tool) {
+                    WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER,
+                    WriterMajorTool.DOODLE, WriterMajorTool.LASER -> vm.setTool(writerInkTool(tool, state.toolSettings))
+                    WriterMajorTool.ERASER -> if (!state.toolSettings.eraserTemporary) vm.toggleEraser()
+                    WriterMajorTool.LASSO -> if (!state.lassoArmed) vm.toggleLasso()
+                    WriterMajorTool.SNIP -> vm.enterSnip()
+                    WriterMajorTool.READING -> {
+                        railMode = null
+                        minorCollapsed = true
+                        vm.toast("阅读工具：拖动画布平移，双指缩放")
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
-    val onMotion: (Int, Boolean) -> Unit = { index, hovered ->
-        if (hovered) motionIndex = index else if (motionIndex == index) motionIndex = null
+    val showRail: (WriterRailMode) -> Unit = { target ->
+        closeCentralPanel()
+        railMode = toggleWriterRail(railMode, target)
     }
 
-    Box(Modifier.fillMaxSize()) {
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)   // 背景先铺满(含状态栏区域)
-            .windowInsetsPadding(WindowInsets.safeDrawing),     // 内容再避开 insets
+            .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        // 画布延伸至顶部,工具岛仅作为覆盖层悬浮;隐藏 chrome 不会改变纸面 bounds。
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-        Row(
+        val chromeHeight = when {
+            focusMode -> 0.dp
+            minorCollapsed || selectedMajorTool == WriterMajorTool.READING || minorDock != MinorDock.TOP ->
+                WriterMajorToolbarHeight
+            else -> WriterChromeHeight
+        }
+        BoxWithConstraints(
             Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(),
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
         ) {
-            // 专注模式:侧栏/竖轨换成同宽背景占位,画布 bounds 不变
-            if (focusMode || readingMode) {
-                if (state.sidebarVisible) {
-                    Spacer(Modifier.width(148.dp).fillMaxHeight().background(MaterialTheme.colorScheme.background))
-                }
-                Spacer(Modifier.width(64.dp).fillMaxHeight().background(MaterialTheme.colorScheme.background))
-            } else {
-                androidx.compose.animation.AnimatedVisibility(visible = state.sidebarVisible) {
-                    PageSidebar(
-                        state = state,
-                        thumbs = thumbs,
-                        onBack = onBack,
-                        onSwitch = vm::switchPage,
-                        onNewPage = openNewPage,
-                        onDuplicatePage = vm::duplicatePage,
-                        onClearPage = vm::clearPage,
-                        onDeletePage = vm::deletePage,
-                    )
-                }
-            WriterLeftRail(
-                state = state,
-                enabled = state.snip.phase == SnipPhase.IDLE,
-                motionIndex = motionIndex,
-                onMotion = onMotion,
-                onUndo = vm::undo,
-                onRedo = vm::redo,
-                onColor = vm::setColor,
-                onColorDetail = { detailColor = it },
-            )
-            }
-            // ---- 纸面画布 ----
-            BoxWithConstraints(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            ) {
-                PaperCanvas(vm, state, dark, penConnected, surfaceRef)
+                PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
                 // 纸面暗角(纯显示层,不参与导出)
                 Box(Modifier.matchParentSize().paperVignette(dark))
                 shapeConfig?.let { config ->
@@ -364,7 +417,7 @@ fun WriterScreen(
                     onSnip = vm::enterSnip,
                     onExplainPage = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.EXPLAIN) },
                     onSummarizeChapter = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.SUMMARIZE) },
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(top = WriterTopBarHeight),
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(top = chromeHeight),
                 )
                 // 混合选区操作条:锚定当前选框,空间不足时自动换到下方。
                 SelectionBar(
@@ -394,572 +447,287 @@ fun WriterScreen(
                         }
                     } else null,
                 )
-                if (state.snip.phase == SnipPhase.IDLE) {
-                    PageTurnControls(
-                        state = state,
-                        onPrevious = vm::previousPage,
-                        onNext = vm::nextPage,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
-                    )
-                }
                 // 轻提示 toast:底部滑入
                 var lastToast by remember { mutableStateOf("") }
                 toast?.let { lastToast = it }
                 ToastBar(
                     visible = toast != null,
                     text = lastToast,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 82.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
                 )
             }
-        }
 
         if (!focusMode) {
-            WriterTopBar(
-                state = state,
-                vm = vm,
-                battery = battery,
-                onBack = onBack,
-                onOpenDiagnostics = onOpenDiagnostics,
-                onAgent = {
-                    if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
-                },
-                onOpenPalette = onOpenPalette,
-                sidebarVisible = state.sidebarVisible,
-                onToggleSidebar = vm::toggleSidebar,
-                motionIndex = motionIndex,
-                onMotion = onMotion,
-                onPenDetail = { detailTool = it },
-                onText = { showTextEditor = true },
-                onShapes = { showShapeSettings = true },
-                onImages = { showRecentImages = true },
-                onLassoSettings = { setCentralPanel(WriterPanel.LASSO, true) },
-                onMaterials = { setCentralPanel(WriterPanel.MATERIAL, true) },
-                onConsole = { setCentralPanel(WriterPanel.CONSOLE, true) },
-                onRecord = openRecord,
-                onVideo = openVideo,
-                onReading = {
-                    readingMode = !readingMode
-                    vm.toast(if (readingMode) "阅读工具：辅助栏已隐藏，再次点击恢复" else "已恢复辅助栏")
-                },
-                onExport = onOpenExport,
-                onNewPage = openNewPage,
-                onCustomize = { onOpenSettings("writing") },
-                onEnterFocus = { focusMode = true },
-                agentOpen = agentDrawerOpen,
-                agentBusy = agentBusy,
-            )
-        }
-        }
-    }
-
-    // 专注模式退出:显式 48dp 触控按钮(F-07:不把双击纸面当主路径);系统 BACK 同效
-    if (focusMode) {
-        Row(
-            Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 10.dp, end = 14.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                .softClickable { focusMode = false }
-                .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("专注中", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(4.dp))
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .clickable { focusMode = false },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("退出", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            when (railMode) {
+                WriterRailMode.PAGES -> WriterPageRail(
+                    state = state,
+                    thumbs = thumbs,
+                    onSwitch = vm::switchPage,
+                    onNewPage = openNewPage,
+                    onDuplicatePage = vm::duplicatePage,
+                    onClearPage = vm::clearPage,
+                    onDeletePage = vm::deletePage,
+                    onMovePage = vm::movePage,
+                    onPrevious = vm::previousPage,
+                    onNext = vm::nextPage,
+                    onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
+                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
+                )
+                WriterRailMode.SNIPPETS -> WriterSnippetRail(
+                    vm = cardsVm,
+                    currentNotebookId = state.notebook?.id,
+                    currentPageId = state.currentPageId,
+                    onInsert = { vm.insertLibraryCard(it, state.currentPageId) },
+                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
+                )
+                null -> WriterClosedRail(
+                    state = state,
+                    onPrevious = vm::previousPage,
+                    onNext = vm::nextPage,
+                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
+                )
+            }
+            // 千本 drag_point(本轮实测):拖拽松手后按指针最近边吸附,四边均可停靠
+            val windowSize = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+            val onDockDrop: (Offset, Offset) -> Unit = { dragged, handleCenter ->
+                val x = handleCenter.x + dragged.x
+                val y = handleCenter.y + dragged.y
+                minorDock = listOf(
+                    MinorDock.TOP to y,
+                    MinorDock.BOTTOM to windowSize.height - y,
+                    MinorDock.LEFT to x,
+                    MinorDock.RIGHT to windowSize.width - x,
+                ).minByOrNull { it.second }?.first ?: MinorDock.TOP
+            }
+            val minorBar: @Composable (MinorDock) -> Unit = { dock ->
+                WriterMinorToolbar(
+                    state = state,
+                    selectedTool = selectedMajorTool,
+                    textStyle = textToolStyle,
+                    shapeTool = shapeTool,
+                    shapeColor = shapeColor,
+                    shapeWidth = shapeWidth,
+                    dock = dock,
+                    onDockDrop = onDockDrop,
+                    onUndo = vm::undo,
+                    onRedo = vm::redo,
+                    onCollapse = { minorCollapsed = true },
+                    onColor = vm::setColor,
+                    onWidth = vm::setWidth,
+                    onEraserWidth = vm::setEraserWidth,
+                    onLassoMode = vm::setLassoMode,
+                    onLassoFilter = vm::toggleLassoFilter,
+                    onLassoSettings = { setCentralPanel(WriterPanel.LASSO, true) },
+                    onImage = { setCentralPanel(WriterPanel.IMAGE, true) },
+                    onTextEditor = { openTextPanel() },
+                    onTextStyle = { textToolStyle = it },
+                    onShapeTool = { shapeTool = it },
+                    onShapeColor = { shapeColor = it },
+                    onShapeWidth = { shapeWidth = it },
+                    onStartShape = { shapeConfig = ShapeConfig(shapeTool, shapeColor, shapeWidth) },
+                    onSnip = vm::enterSnip,
+                    onTape = { vm.insertBuiltinMaterial(com.milknote.ink.model.PageImageKind.TAPE, it) },
+                    onMaterials = { setCentralPanel(WriterPanel.MATERIAL, true) },
+                )
+            }
+            Column(Modifier.fillMaxWidth().align(Alignment.TopStart)) {
+                WriterMajorToolbar(
+                    state = state,
+                    selectedTool = selectedMajorTool,
+                    railMode = railMode,
+                    onBack = onBack,
+                    onShowPages = { showRail(WriterRailMode.PAGES) },
+                    onShowSnippets = { showRail(WriterRailMode.SNIPPETS) },
+                    onTool = onMajorTool,
+                    onRecord = openRecord,
+                    onVideo = openVideo,
+                    onAgent = {
+                        if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
+                    },
+                    onMaterials = { setCentralPanel(WriterPanel.MATERIAL, true) },
+                    onNewPage = { openNewPage(state.currentPageId) },
+                    onMore = { setCentralPanel(WriterPanel.MORE, true) },
+                    agentOpen = agentDrawerOpen,
+                    agentBusy = agentBusy,
+                )
+                if (!minorCollapsed && selectedMajorTool != WriterMajorTool.READING && minorDock == MinorDock.TOP) {
+                    minorBar(MinorDock.TOP)
+                }
+            }
+            if (!minorCollapsed && selectedMajorTool != WriterMajorTool.READING && minorDock != MinorDock.TOP) {
+                when (minorDock) {
+                    MinorDock.BOTTOM -> Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) { minorBar(MinorDock.BOTTOM) }
+                    MinorDock.LEFT -> Box(
+                        Modifier.align(Alignment.CenterStart).padding(
+                            start = if (railMode == null) WriterClosedRailWidth else WriterExpandedRailWidth,
+                        ),
+                    ) { minorBar(MinorDock.LEFT) }
+                    MinorDock.RIGHT -> Box(Modifier.align(Alignment.CenterEnd)) { minorBar(MinorDock.RIGHT) }
+                    MinorDock.TOP -> Unit
+                }
+            }
+            if (minorCollapsed) {
+                val railWidth = when (railMode) {
+                    null -> WriterClosedRailWidth
+                    else -> WriterExpandedRailWidth
+                }
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = railWidth + 4.dp, bottom = 12.dp)
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .clickable { minorCollapsed = false }
+                        .testTag("writer-restore-minor"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.KeyboardArrowDown, "展开辅助栏", tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
-        androidx.activity.compose.BackHandler(enabled = true) { focusMode = false }
-    }
 
-    if (readingMode && !focusMode) {
-        androidx.activity.compose.BackHandler(enabled = true) { readingMode = false }
-    }
+        if (focusMode) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 12.dp)
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .clickable { focusMode = false }
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("退出专注", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            }
+            androidx.activity.compose.BackHandler(enabled = true) { focusMode = false }
+        }
 
-    if (detailColor == null) detailTool?.let { tool ->
-        PenSettingsDialog(
-            tool = tool,
-            settings = state.toolSettings,
-            onDismiss = { detailTool = null },
-            onWidth = vm::setWidth,
-            onSelectColor = vm::setColor,
-            onColorDetail = { detailColor = it },
-            onEraserWidth = vm::setEraserWidth,
-        )
-    }
-    detailColor?.let { index ->
-        state.toolSettings.palettes[state.tool.tool]?.getOrNull(index)?.let { color ->
-            ColorSettingsDialog(
-                initialColor = color,
-                onDismiss = { detailColor = null },
-                onColorChange = { vm.setPaletteColor(index, it) },
+    when (centralPanelState.open) {
+        WriterPanel.TOOL -> {
+            val colorIndex = detailColor
+            if (colorIndex == null) {
+                detailTool?.let { tool ->
+                    PenSettingsDialog(
+                        tool = tool,
+                        settings = state.toolSettings,
+                        onDismiss = ::closeCentralPanel,
+                        onWidth = vm::setWidth,
+                        onSelectColor = vm::setColor,
+                        onColorDetail = { detailColor = it },
+                        onEraserWidth = vm::setEraserWidth,
+                        onEraseTarget = vm::setEraserTarget,
+                        onAutoRevert = vm::setEraserAutoRevert,
+                        onGamma = vm::setPenGamma,
+                    )
+                }
+            } else {
+                val tool = detailTool
+                state.toolSettings.palettes[tool]?.getOrNull(colorIndex)?.let { color ->
+                    ColorSettingsDialog(
+                        initialColor = color,
+                        onDismiss = { detailColor = null },
+                        onColorChange = { vm.setPaletteColor(colorIndex, it) },
+                    )
+                }
+            }
+        }
+        WriterPanel.TEXT -> {
+            val existing = editingText
+            TextBoxDialog(
+                existing = existing,
+                initialStyle = textToolStyle,
+                onDismiss = ::closeCentralPanel,
+                onCreate = { text, style ->
+                    textToolStyle = style
+                    if (existing == null) vm.createTextCard(text, style) else vm.updateTextCard(existing, text, style)
+                    closeCentralPanel()
+                },
             )
         }
-    }
-    if (showTextEditor) {
-        TextBoxDialog(
-            onDismiss = { showTextEditor = false },
-            onCreate = { text, style ->
-                vm.createTextCard(text, style)
-                showTextEditor = false
-            },
-        )
-    }
-    editingText?.let { card ->
-        TextBoxDialog(
-            existing = card,
-            onDismiss = { editingText = null },
-            onCreate = { text, style -> vm.updateTextCard(card, text, style); editingText = null },
-        )
-    }
-    if (showShapeSettings) {
-        ShapeSettingsDialog(
-            initialColor = state.tool.color,
-            initialWidth = state.tool.baseWidthMm,
-            onDismiss = { showShapeSettings = false },
+        WriterPanel.SHAPE -> ShapeSettingsDialog(
+            initialTool = shapeTool,
+            initialColor = shapeColor,
+            initialWidth = shapeWidth,
+            onDismiss = ::closeCentralPanel,
             onStart = {
                 shapeConfig = it
-                showShapeSettings = false
+                shapeTool = it.tool
+                shapeColor = it.color
+                shapeWidth = it.widthMm
+                closeCentralPanel()
             },
         )
-    }
-    if (showRecentImages) {
-        RecentImagesDialog(
-            onDismiss = { showRecentImages = false },
-            onSelect = vm::insertImage,
+        WriterPanel.IMAGE -> RecentImagesDialog(
+            onDismiss = ::closeCentralPanel,
+            onSelect = { vm.insertImage(it); closeCentralPanel() },
         )
-    }
-    if (showLassoSettings) {
-        LassoFilterPanel(
+        WriterPanel.LASSO -> LassoFilterPanel(
             selected = state.lassoFilters,
             onToggle = vm::toggleLassoFilter,
-            onDismiss = { setCentralPanel(WriterPanel.LASSO, false) },
+            onDismiss = ::closeCentralPanel,
         )
-    }
-    if (showMaterials) {
-        MaterialLibraryPanel(
-            onDismiss = { setCentralPanel(WriterPanel.MATERIAL, false) },
-            onImportImage = { setCentralPanel(WriterPanel.MATERIAL, false); materialImageLauncher.launch("image/*") },
-            onDoodle = { setCentralPanel(WriterPanel.MATERIAL, false); vm.setTool(InkTool.DOODLE) },
-            onBuiltin = { kind, variant -> setCentralPanel(WriterPanel.MATERIAL, false); vm.insertBuiltinMaterial(kind, variant) },
-            onMaterial = { file, kind -> setCentralPanel(WriterPanel.MATERIAL, false); vm.insertMaterialFile(file, kind) },
-        )
-    }
-    if (showConsole) {
-        WriterConsole(
-            state = state,
-            onDismiss = { setCentralPanel(WriterPanel.CONSOLE, false) },
-            onTool = { vm.setTool(it); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onEraser = { vm.toggleEraser(); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onDeleteSelection = { vm.deleteSelection(); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onSendSelection = { vm.sendSelectionToAgent(); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onClearSelection = vm::clearSelection,
-            onNotebook = { id -> setCentralPanel(WriterPanel.CONSOLE, false); onSwitchNotebook(id) },
-            onPage = { vm.switchPage(it); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onPrevious = vm::previousPage,
-            onNext = vm::nextPage,
-            onRotate = { vm.rotateCurrentPage(); setCentralPanel(WriterPanel.CONSOLE, false) },
-            onReading = {
-                setCentralPanel(WriterPanel.CONSOLE, false)
-                readingMode = !readingMode
+        WriterPanel.MATERIAL -> MaterialLibraryPanel(
+            onDismiss = ::closeCentralPanel,
+            onImportImage = { closeCentralPanel(); materialImageLauncher.launch("image/*") },
+            onDoodle = {
+                closeCentralPanel()
+                selectedMajorTool = WriterMajorTool.DOODLE
+                vm.setTool(InkTool.DOODLE)
             },
+            onBuiltin = { kind, variant -> closeCentralPanel(); vm.insertBuiltinMaterial(kind, variant) },
+            onMaterial = { file, kind -> closeCentralPanel(); vm.insertMaterialFile(file, kind) },
         )
-    }
-    if (showNewPage) {
-        NewPagePanel(
+        WriterPanel.NEW_PAGE -> NewPagePanel(
             anchorPageId = newPageAnchor,
             paperDescription = paperDescription(state),
-            onDismiss = { showNewPage = false },
+            onDismiss = ::closeCentralPanel,
             onInsert = { position ->
-                showNewPage = false
+                closeCentralPanel()
                 vm.insertPage(position, newPageAnchor)
             },
         )
-    }
-    when (centralPanelState.open) {
         WriterPanel.RECORD -> AudioRecordPanel(
             permission = recordPermission,
-            onRequestPermission = {
-                audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-            },
+            onRequestPermission = { audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO) },
             onInserted = vm::insertRecordedAudio,
-            onDismiss = { setCentralPanel(WriterPanel.RECORD, false) },
+            onDismiss = ::closeCentralPanel,
         )
         WriterPanel.VIDEO -> VideoInsertPanel(
             onChoose = {
-                setCentralPanel(WriterPanel.VIDEO, false)
+                closeCentralPanel()
                 videoLauncher.launch("video/*")
             },
-            onDismiss = { setCentralPanel(WriterPanel.VIDEO, false) },
+            onDismiss = ::closeCentralPanel,
         )
         WriterPanel.PLAYBACK -> {
             val element = playbackElement
             val notebook = state.notebook
             if (element == null || notebook == null) {
-                LaunchedEffect(Unit) { setCentralPanel(WriterPanel.PLAYBACK, false) }
+                LaunchedEffect(Unit) { closeCentralPanel() }
             } else {
                 MediaPlaybackPanel(
                     element = element,
                     notebookDir = ServiceLocator.repository.notebookDir(notebook.id),
                     onDismiss = {
                         playbackElement = null
-                        setCentralPanel(WriterPanel.PLAYBACK, false)
+                        closeCentralPanel()
                     },
                 )
             }
         }
-        else -> Unit
+        WriterPanel.MORE -> WriterMorePanel(
+            onDismiss = ::closeCentralPanel,
+            onExport = { closeCentralPanel(); onOpenExport() },
+            onEnterFocus = { closeCentralPanel(); focusMode = true },
+            onOpenPalette = { closeCentralPanel(); onOpenPalette() },
+            onOpenDiagnostics = { closeCentralPanel(); onOpenDiagnostics() },
+        )
+        null -> Unit
     }
     }
-}
-
-/** 顶栏:浅色悬浮导航岛 / 原笔具与粗细书写岛 / 创作·状态·Agent。 */
-@Composable
-private fun WriterTopBar(
-    state: WriterUiState,
-    vm: WriterViewModel,
-    battery: Int,
-    onBack: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
-    onAgent: () -> Unit,
-    onOpenPalette: () -> Unit = {},
-    sidebarVisible: Boolean,
-    onToggleSidebar: () -> Unit,
-    motionIndex: Int?,
-    onMotion: (Int, Boolean) -> Unit,
-    onPenDetail: (InkTool) -> Unit,
-    onText: () -> Unit,
-    onShapes: () -> Unit,
-    onImages: () -> Unit,
-    onLassoSettings: () -> Unit,
-    onMaterials: () -> Unit,
-    onConsole: () -> Unit,
-    onRecord: () -> Unit,
-    onVideo: () -> Unit,
-    onReading: () -> Unit,
-    onExport: () -> Unit,
-    onNewPage: (String?) -> Unit,
-    onCustomize: () -> Unit,
-    onEnterFocus: () -> Unit = {},
-    agentOpen: Boolean = false,
-    agentBusy: Boolean = false,
-) {
-    val snipActive = state.snip.phase != SnipPhase.IDLE
-    var moreMenuOpen by remember { mutableStateOf(false) }
-
-    BoxWithConstraints(
-        Modifier
-            .fillMaxWidth()
-            .height(WriterTopBarHeight)
-            .padding(horizontal = 16.dp),
-    ) {
-        val showNotebookName = maxWidth >= 1080.dp
-        val leftWidth = 113.dp + (if (showNotebookName) 192.dp else 0.dp)
-        val pinCapacity = (state.toolbarPins.size downTo 0).firstOrNull { count ->
-            val rightWidth = 108.dp + 52.dp * count
-            393.dp + maxOf(leftWidth, rightWidth) * 2 <= maxWidth
-        } ?: 0
-        val visibleActions = state.toolbarPins.take(pinCapacity)
-        val rightWidth = 108.dp + 52.dp * pinCapacity
-        val balance = rightWidth - leftWidth
-        val menuActions = WriterToolbarAction.entries.filter { it !in visibleActions }
-        val performAction: (WriterToolbarAction) -> Unit = { action ->
-            when (action) {
-                WriterToolbarAction.LASSO -> when (resolveToolTap(state.lassoArmed)) {
-                    ToolTapOutcome.ACTIVATE -> vm.toggleLasso()
-                    ToolTapOutcome.OPEN_SETTINGS -> onLassoSettings()
-                }
-                WriterToolbarAction.TEXT -> onText()
-                WriterToolbarAction.SHAPES -> onShapes()
-                WriterToolbarAction.IMAGE -> onImages()
-                WriterToolbarAction.FOCUS -> onEnterFocus()
-                WriterToolbarAction.NEW_PAGE -> onNewPage(state.currentPageId)
-                WriterToolbarAction.EXPORT -> onExport()
-                WriterToolbarAction.COMMAND -> onOpenPalette()
-                WriterToolbarAction.DIAGNOSTICS -> onOpenDiagnostics()
-                WriterToolbarAction.MATERIAL, WriterToolbarAction.TAPE -> onMaterials()
-                WriterToolbarAction.LASER -> {
-                    val active = state.tool.tool == InkTool.LASER && !state.toolSettings.eraserTemporary
-                    when (resolveToolTap(active)) {
-                        ToolTapOutcome.ACTIVATE -> vm.setTool(InkTool.LASER)
-                        ToolTapOutcome.OPEN_SETTINGS -> onPenDetail(InkTool.LASER)
-                    }
-                }
-                WriterToolbarAction.READING -> onReading()
-                WriterToolbarAction.CONSOLE -> onConsole()
-                WriterToolbarAction.RECORD -> onRecord()
-                WriterToolbarAction.VIDEO -> onVideo()
-            }
-        }
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            WriterToolIsland(Modifier.height(48.dp)) {
-                IconToggleButton(
-                    icon = { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回书架", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                    enabled = true, onClick = onBack,
-                )
-                Spacer(Modifier.width(4.dp))
-                WriterTopBarDivider()
-                Spacer(Modifier.width(4.dp))
-                IconToggleButton(
-                    icon = { Icon(Icons.Outlined.ViewSidebar, if (sidebarVisible) "收起页面侧栏" else "展开页面侧栏", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                    enabled = true, onClick = onToggleSidebar,
-                )
-                // 本名收进左侧导航岛,返回/侧栏/本名同处一个悬浮元素。
-                if (showNotebookName) {
-                    Spacer(Modifier.width(4.dp))
-                    WriterTopBarDivider()
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        state.notebook?.name ?: "",
-                        modifier = Modifier.widthIn(max = 168.dp).padding(end = 10.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (balance > 0.dp) Spacer(Modifier.width(balance))
-
-            Spacer(Modifier.width(8.dp))
-            Spacer(Modifier.weight(1f))
-
-            // 原笔具组件与交互不变,只增加悬浮托盘;粗细仍保持三个直接入口。
-            WriterToolIsland(Modifier.height(60.dp), containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-                val modeActive = state.lassoArmed || state.selectionCount > 0
-                writingTools.forEachIndexed { index, tool ->
-                    val active = !modeActive && !state.toolSettings.eraserTemporary && state.tool.tool == tool
-                    val label = when (tool) {
-                        InkTool.PEN -> "钢笔"
-                        InkTool.BALL -> "圆珠笔"
-                        InkTool.HIGHLIGHTER -> "荧光笔"
-                        InkTool.DOODLE -> "图案笔"
-                        else -> ""
-                    }
-                    PenToolButton(
-                        tool = tool,
-                        label = label,
-                        color = state.toolSettings.configs.getValue(tool).color,
-                        active = active,
-                        enabled = !snipActive,
-                        squeezed = motionIndex != null && kotlin.math.abs(motionIndex - index) == 1,
-                        onHoverChanged = { onMotion(index, it) },
-                        onClick = {
-                            when (resolveToolTap(active)) {
-                                ToolTapOutcome.ACTIVATE -> vm.setTool(tool)
-                                ToolTapOutcome.OPEN_SETTINGS -> onPenDetail(tool)
-                            }
-                        },
-                    )
-                }
-                PenToolButton(
-                    tool = InkTool.ERASER,
-                    label = "橡皮",
-                    color = if (com.milknote.app.ui.theme.LocalMilkDark.current) 0xFFFFFFFF else 0xFF626262,
-                    active = !modeActive && state.toolSettings.eraserTemporary,
-                    enabled = !snipActive,
-                    squeezed = motionIndex != null && kotlin.math.abs(motionIndex - 3) == 1,
-                    onHoverChanged = { onMotion(3, it) },
-                    onClick = {
-                        when (resolveToolTap(state.toolSettings.eraserTemporary && !modeActive)) {
-                            ToolTapOutcome.ACTIVATE -> vm.toggleEraser()
-                            ToolTapOutcome.OPEN_SETTINGS -> onPenDetail(InkTool.ERASER)
-                        }
-                    },
-                )
-                Spacer(Modifier.width(4.dp))
-                WriterTopBarDivider()
-                Spacer(Modifier.width(4.dp))
-                listOf(0.4f, 0.7f, 1.2f).forEachIndexed { index, mm ->
-                    val active = (state.tool.baseWidthMm - mm).let { it > -0.05f && it < 0.05f }
-                    val wBg by animateColorAsState(
-                        if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent,
-                        tween(200), label = "widthBg",
-                    )
-                    Box(
-                        Modifier
-                            .size(48.dp)
-                            .clickable(enabled = !snipActive) { vm.setWidth(mm) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier
-                                .clip(CircleShape)
-                                .background(wBg)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                                .padding(horizontal = 9.dp, vertical = 5.dp)
-                                .alpha(if (snipActive) 0.38f else 1f),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(width = if (mm > 0.9f) 14.dp else if (mm > 0.5f) 10.dp else 7.dp, height = (mm * 4).dp.coerceAtLeast(2.dp))
-                                    .background(if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground, CircleShape),
-                            )
-                        }
-                    }
-                    if (index < 2) Spacer(Modifier.width(4.dp))
-                }
-            }
-            if (balance < 0.dp) Spacer(Modifier.width(-balance))
-
-            Spacer(Modifier.width(8.dp))
-            Spacer(Modifier.weight(1f))
-
-            WriterToolIsland(Modifier.height(48.dp)) {
-                visibleActions.forEach { action ->
-                    WriterToolbarActionButton(
-                        action = action,
-                        state = state,
-                        battery = battery,
-                        snipActive = snipActive,
-                        onClick = { performAction(action) },
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                Box {
-                    IconToggleButton(
-                        icon = { Icon(Icons.Outlined.MoreHoriz, "更多功能", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        enabled = true, onClick = { moreMenuOpen = true },
-                    )
-                    if (moreMenuOpen) {
-                        MilkActionPanel(
-                            title = "更多功能",
-                            subtitle = "工具与文档操作",
-                            actions = menuActions.map { action ->
-                                MilkPanelAction(
-                                    label = action.label,
-                                    icon = action.icon(),
-                                    trailingText = when (action) {
-                                        WriterToolbarAction.COMMAND -> "⌘K"
-                                        WriterToolbarAction.DIAGNOSTICS -> if (battery < 0) "--%" else "$battery%"
-                                        else -> null
-                                    },
-                                    enabled = action.isEnabled(snipActive),
-                                    onClick = {
-                                        moreMenuOpen = false
-                                        performAction(action)
-                                    },
-                                )
-                            } + MilkPanelAction(
-                                label = "自定义工具栏",
-                                icon = Icons.Outlined.Settings,
-                                onClick = {
-                                    moreMenuOpen = false
-                                    onCustomize()
-                                },
-                            ),
-                            onDismiss = { moreMenuOpen = false },
-                        )
-                    }
-                }
-                Spacer(Modifier.width(4.dp))
-                IconToggleButton(
-                    icon = { Icon(Icons.Outlined.AutoAwesome, if (agentOpen) "收起 Agent" else "打开 Agent", modifier = Modifier.size(20.dp), tint = if (agentOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
-                    enabled = true,
-                    active = agentOpen,
-                    onClick = onAgent,
-                    badge = agentBusy,
-                )
-            }
-        }
-    }
-}
-
-private fun WriterToolbarAction.icon(): ImageVector = when (this) {
-    WriterToolbarAction.LASSO -> Icons.Outlined.Gesture
-    WriterToolbarAction.TEXT -> Icons.Outlined.Title
-    WriterToolbarAction.SHAPES -> Icons.Outlined.Category
-    WriterToolbarAction.IMAGE -> Icons.Outlined.Image
-    WriterToolbarAction.FOCUS -> Icons.Outlined.CropFree
-    WriterToolbarAction.NEW_PAGE -> Icons.Outlined.Add
-    WriterToolbarAction.EXPORT -> Icons.Outlined.FileDownload
-    WriterToolbarAction.COMMAND -> Icons.Outlined.Search
-    WriterToolbarAction.DIAGNOSTICS -> Icons.Outlined.Edit
-    WriterToolbarAction.MATERIAL -> Icons.Outlined.Image
-    WriterToolbarAction.TAPE -> Icons.Outlined.Category
-    WriterToolbarAction.LASER -> Icons.Outlined.MyLocation
-    WriterToolbarAction.READING -> Icons.Outlined.CropFree
-    WriterToolbarAction.CONSOLE -> Icons.Outlined.Search
-    WriterToolbarAction.RECORD -> Icons.Outlined.Mic
-    WriterToolbarAction.VIDEO -> Icons.Outlined.Videocam
-}
-
-private fun WriterToolbarAction.isEnabled(snipActive: Boolean): Boolean =
-    this == WriterToolbarAction.COMMAND || this == WriterToolbarAction.DIAGNOSTICS || !snipActive
-
-@Composable
-private fun WriterToolbarActionButton(
-    action: WriterToolbarAction,
-    state: WriterUiState,
-    battery: Int,
-    snipActive: Boolean,
-    onClick: () -> Unit,
-) {
-    val active = (action == WriterToolbarAction.LASSO && state.lassoArmed) ||
-        (action == WriterToolbarAction.LASER && state.tool.tool == InkTool.LASER)
-    val tint = when {
-        action == WriterToolbarAction.DIAGNOSTICS && battery in 0..19 -> com.milknote.app.ui.theme.LocalMilkWarning.current
-        active -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    IconToggleButton(
-        icon = { Icon(action.icon(), action.label, modifier = Modifier.size(19.dp), tint = tint) },
-        enabled = action.isEnabled(snipActive),
-        active = active,
-        onClick = onClick,
-    )
-}
-
-@Composable
-private fun WriterToolIsland(
-    modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surface,
-    content: @Composable () -> Unit,
-) {
-    val shape = RoundedCornerShape(16.dp)
-    Row(
-        modifier
-            .softShadow(4.dp, shape)
-            .clip(shape)
-            .background(containerColor)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) { content() }
-}
-
-@Composable
-private fun WriterTopBarDivider() {
-    Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outline))
-}
-
-@Composable
-private fun WriterTopMenuItem(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    trailingText: String? = null,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    DropdownMenuItem(
-        text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-        leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp)) },
-        trailingIcon = if (trailingText == null) null else {
-            { Text(trailingText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        },
-        enabled = enabled,
-        onClick = onClick,
-        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
-    )
 }
 
 /** 选区悬浮菜单:48dp 图标钮 + 深胶囊;上方优先、下方回退、横向边界钳制。 */
@@ -991,7 +759,7 @@ private fun SelectionBar(
         val (r, b) = surface.pageToView(box.r, box.b)
         val gap = with(density) { 12.dp.roundToPx() }
         val edge = with(density) { 8.dp.roundToPx() }
-        val topSafe = with(density) { (WriterTopBarHeight + 8.dp).roundToPx() }
+        val topSafe = with(density) { (WriterChromeHeight + 8.dp).roundToPx() }
         val x = ((l + r) / 2f - menuSize.width / 2f).toInt()
             .coerceIn(edge, (availableWidthPx - menuSize.width - edge).coerceAtLeast(edge))
         val rotationClearance = with(density) { 64.dp.roundToPx() }
@@ -1109,7 +877,7 @@ private fun Modifier.paperVignette(dark: Boolean): Modifier {
 }
 
 /** chrome 带边缘 hairline(1px,随主题;§5.1 顶栏/状态条/侧栏分界) */
-private fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Boolean = false, right: Boolean = false, bottom: Boolean = false): Modifier = drawBehind {
+internal fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Boolean = false, right: Boolean = false, bottom: Boolean = false): Modifier = drawBehind {
     val t = 1.dp.toPx()
     if (left) drawRect(color, topLeft = Offset(0f, 0f), size = Size(t, size.height))
     if (top) drawRect(color, topLeft = Offset(0f, 0f), size = Size(size.width, t))
@@ -1119,17 +887,18 @@ private fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Bool
 
 /** 顶栏图标钮:48dp 命中(A-09),图标保持 18dp;单击语义——不注册空双击/长按(A-34) */
 @Composable
-private fun IconToggleButton(
+internal fun IconToggleButton(
     icon: @Composable () -> Unit,
     enabled: Boolean,
     active: Boolean = false,
     onClick: () -> Unit,
     badge: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        Modifier
+        modifier
             .size(48.dp)
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(8.dp))
             .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
             .alpha(if (enabled) 1f else 0.38f)
             .clickable(enabled = enabled, onClick = onClick),
@@ -1145,243 +914,6 @@ private fun IconToggleButton(
                     .background(MaterialTheme.colorScheme.primary, CircleShape),
             )
         }
-    }
-}
-
-/** 画布翻页:侧栏收起/专注模式也保留，首尾页禁用对应方向。 */
-@Composable
-private fun PageTurnControls(
-    state: WriterUiState,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    WriterToolIsland(modifier.height(48.dp), containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = state.canPreviousPage,
-            onClick = onPrevious,
-        )
-        Text(
-            "${state.currentPageIndex + 1} / ${state.pages.size}",
-            modifier = Modifier.width(64.dp),
-            fontFamily = Mono,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            enabled = state.canNextPage,
-            onClick = onNext,
-        )
-    }
-}
-
-/** 侧栏:‹ 书架 + 本章页面缩略图(DESIGN-V0 §5.3:只放页面缩略,不放笔记本列表) */
-@Composable
-private fun PageSidebar(
-    state: WriterUiState,
-    thumbs: Map<String, androidx.compose.ui.graphics.ImageBitmap>,
-    onBack: () -> Unit,
-    onSwitch: (String) -> Unit,
-    onNewPage: (String?) -> Unit,
-    onDuplicatePage: (String) -> Unit,
-    onClearPage: (String) -> Unit,
-    onDeletePage: (String) -> Unit,
-) {
-    val nb = state.notebook
-    val listState = rememberLazyListState()
-    var menuPageId by remember { mutableStateOf<String?>(null) }
-    var clearTarget by remember { mutableStateOf<String?>(null) }
-    var deleteTarget by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state.currentPageId, state.pages.size) {
-        val index = state.currentPageIndex
-        if (index >= 0) listState.scrollToItem(index)
-    }
-    Column(
-        Modifier
-            .width(148.dp)
-            .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.75f), right = true)
-            .padding(top = WriterTopBarHeight)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onBack)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("‹", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(4.dp))
-            Text("书架", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.height(6.dp))
-
-        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(state.pages, key = { it.pageId }) { p ->
-                val spec = nb?.pageSpec(p.pageId)
-                val pageAspect = if (spec != null) spec.widthMm / spec.heightMm else 0.707f
-                val active = p.pageId == state.currentPageId
-                val thumbBg by animateColorAsState(
-                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
-                    tween(200), label = "thumbBg",
-                )
-                val thumbBorder by animateColorAsState(
-                    if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    tween(200), label = "thumbBorder",
-                )
-                Box(Modifier.fillMaxWidth().animateItem()) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(thumbBg)
-                            .border(
-                                width = if (active) 1.5.dp else 1.dp,
-                                color = thumbBorder,
-                                shape = RoundedCornerShape(10.dp),
-                            )
-                            .clickable { onSwitch(p.pageId) }
-                            .padding(5.dp),
-                    ) {
-                        val bmp = thumbs[p.pageId]
-                        if (bmp != null) {
-                            Image(
-                                bmp, contentDescription = p.pageId,
-                                modifier = Modifier.fillMaxWidth().aspectRatio(pageAspect),
-                                contentScale = ContentScale.Crop,
-                            )
-                        } else {
-                            Box(Modifier.fillMaxWidth().aspectRatio(pageAspect).background(MaterialTheme.colorScheme.surface))
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            p.pageId, fontFamily = Mono, fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        )
-                    }
-                    // 每页 48dp 更多入口:独立命中区,不触发整卡切页。
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .size(48.dp)
-                            .clickable { menuPageId = p.pageId },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Outlined.MoreHoriz,
-                                "页面 ${p.pageId} 操作",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-            item(key = "__add__") {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .animateItem()
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                        .clickable { onNewPage(state.currentPageId) }
-                        .padding(vertical = 9.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Outlined.Add, "新页", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-
-    menuPageId?.let { pageId ->
-        MilkActionPanel(
-            title = "页面 $pageId",
-            subtitle = "页面操作",
-            actions = listOf(
-                MilkPanelAction(
-                    label = "添加页面",
-                    icon = Icons.Outlined.Add,
-                    onClick = {
-                        menuPageId = null
-                        onNewPage(pageId)
-                    },
-                ),
-                MilkPanelAction(
-                    label = "复制页面",
-                    icon = Icons.Outlined.ContentCopy,
-                    onClick = {
-                        menuPageId = null
-                        onDuplicatePage(pageId)
-                    },
-                ),
-                MilkPanelAction(
-                    label = "清除页面",
-                    icon = Icons.Outlined.Clear,
-                    destructive = true,
-                    onClick = {
-                        menuPageId = null
-                        clearTarget = pageId
-                    },
-                ),
-                MilkPanelAction(
-                    label = "删除页面",
-                    icon = Icons.Outlined.Delete,
-                    destructive = true,
-                    onClick = {
-                        menuPageId = null
-                        deleteTarget = pageId
-                    },
-                ),
-            ),
-            onDismiss = { menuPageId = null },
-        )
-    }
-
-    clearTarget?.let { pageId ->
-        val current = pageId == state.currentPageId
-        ConfirmPagePanel(
-            title = "清除页面 $pageId？",
-            message = if (current) {
-                "将清除本页的笔迹、批注卡和图片元素。当前页清理进撤销栈，可在本页撤销恢复。"
-            } else {
-                "页面 $pageId 不是当前页，跨页清除无法撤销。笔迹、批注卡和图片元素会清空，图片资产文件保留。"
-            },
-            confirmLabel = "清除页面",
-            onConfirm = {
-                clearTarget = null
-                onClearPage(pageId)
-            },
-            onDismiss = { clearTarget = null },
-        )
-    }
-
-    deleteTarget?.let { pageId ->
-        ConfirmPagePanel(
-            title = "删除页面 $pageId？",
-            message = "将删除该页的页面文件、批注卡和图片元素，图片资产文件保留。此操作无法撤销。" +
-                if (state.pages.size <= 1) "删除后会新建一张空白页。" else "",
-            confirmLabel = "删除页面",
-            onConfirm = {
-                deleteTarget = null
-                onDeletePage(pageId)
-            },
-            onDismiss = { deleteTarget = null },
-        )
     }
 }
 
@@ -1423,7 +955,7 @@ private fun NewPagePanel(
 
 /** 中央二次确认(删除/跨页清除);不使用系统 AlertDialog,保持统一表面。 */
 @Composable
-private fun ConfirmPagePanel(
+internal fun ConfirmPagePanel(
     title: String,
     message: String,
     confirmLabel: String,
@@ -1476,6 +1008,7 @@ private fun PaperCanvas(
     dark: Boolean,
     penConnected: Boolean,
     surfaceRef: androidx.compose.runtime.MutableState<InkSurfaceView?>,
+    readingMode: Boolean,
 ) {
     AndroidView(
         factory = { ctx ->
@@ -1485,6 +1018,7 @@ private fun PaperCanvas(
                 onViewportChanged = vm::refreshSelectionOverlay
                 onPreviousPage = vm::previousPage
                 onNextPage = vm::nextPage
+                onNextPageAtEnd = vm::appendPageAtEnd
                 // 按住+书写修饰(PEN-ADAPTATION §4.3):落笔瞬间同步查询
                 // 「主/副键按住」触发器 → 映射动作 → 套索圈选/临时橡皮
                 holdActionProvider = {
@@ -1503,6 +1037,7 @@ private fun PaperCanvas(
             view.paperStyle = spec?.paper ?: "dot"
             view.imageDir = state.notebook?.id?.let { ServiceLocator.repository.notebookDir(it) }
             view.frontBufferEnabled = state.frontBufferEnabled
+            view.readingMode = readingMode
             view.darkTheme = dark
             if (!dark && spec != null) {
                 view.paperColor = runCatching { android.graphics.Color.parseColor(spec.paperColor) }

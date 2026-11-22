@@ -1,9 +1,11 @@
 package com.milknote.app.ui.writer
 
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.PressureGamma
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WriterToolSettingsTest {
@@ -112,5 +114,38 @@ class WriterToolSettingsTest {
         assertEquals(false, updated.eraserTemporary)
         assertEquals(InkTool.PEN, updated.effective.tool)
         assertEquals(0xFF123ABC, updated.current.color)
+    }
+
+    @Test
+    fun `橡皮内容开关可关类型但不可全部关闭`() {
+        val off = WriterToolSettings().setEraserTarget(InkTool.HIGHLIGHTER, false)
+        assertFalse(InkTool.HIGHLIGHTER in off.eraserTargets)
+        assertTrue(InkTool.PEN in off.eraserTargets)
+        // 再关掉剩余所有类别也应被拒绝,保留最后一类
+        var s = off
+        for (tool in listOf(
+            InkTool.PEN, InkTool.BALL, InkTool.DOODLE, InkTool.LINE, InkTool.DASHED_LINE,
+            InkTool.ARROW, InkTool.RECT, InkTool.OVAL, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON,
+        )) s = s.setEraserTarget(tool, false)
+        assertFalse(s.eraserTargets.isEmpty())
+    }
+
+    @Test
+    fun `自动切回开关可切换`() {
+        assertTrue(!WriterToolSettings().eraserAutoRevert)
+        assertTrue(WriterToolSettings().setEraserAutoRevert(true).eraserAutoRevert)
+    }
+
+    @Test
+    fun `压感档只覆盖当前笔且激光不响应`() {
+        val pen = WriterToolSettings().selectPressureGamma(PressureGamma.SENSITIVE)
+        assertEquals(PressureGamma.SENSITIVE, pen.current.pressureGamma)
+        // 其它笔保持默认
+        assertEquals(PressureGamma.STANDARD, pen.copy(currentTool = InkTool.BALL).current.pressureGamma)
+        // 激光不响应
+        val laser = pen.copy(currentTool = InkTool.LASER).selectPressureGamma(PressureGamma.SENSITIVE)
+        assertEquals(PressureGamma.STANDARD, laser.current.pressureGamma)
+        // 相同档不产生新对象
+        assertEquals(pen, pen.selectPressureGamma(PressureGamma.SENSITIVE))
     }
 }

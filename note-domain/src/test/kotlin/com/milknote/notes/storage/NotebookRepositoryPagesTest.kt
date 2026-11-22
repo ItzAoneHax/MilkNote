@@ -155,4 +155,27 @@ class NotebookRepositoryPagesTest {
         assertTrue(repo.deletePage(nb.id, only))
         assertEquals(emptyList<String>(), ids(nb.id))
     }
+
+    @Test fun `重排页写入 pageOrder 并在重开后保持`() {
+        val nb = repo.create("重排", "#3B5BEC", "dot", "课堂笔记")
+        val first = ids(nb.id).first()
+        val second = repo.newPage(nb.id)
+        val third = repo.newPage(nb.id)
+        assertEquals(listOf(first, second, third), ids(nb.id))
+
+        // 千本缩略图长按拖拽:把第 3 页移到最前,第 1 页自动变为封面
+        val order = repo.reorderPage(nb.id, third, 0)
+        assertEquals(listOf(third, first, second), order)
+        assertEquals(listOf(third, first, second), ids(nb.id))
+
+        val reopened = NotebookRepository(root, CoroutineScope(SupervisorJob() + Dispatchers.IO))
+        assertEquals(listOf(third, first, second), reopened.listPages(nb.id).map { it.pageId })
+    }
+
+    @Test fun `重排不存在的页返回 null 且原页序不变`() {
+        val nb = repo.create("重排守卫", "#D2483C", "grid", "错题本")
+        val first = ids(nb.id).first()
+        assertNull(repo.reorderPage(nb.id, "p9999", 0))
+        assertEquals(listOf(first), ids(nb.id))
+    }
 }

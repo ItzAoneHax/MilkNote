@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkActionPanel
@@ -43,7 +44,11 @@ internal fun LassoFilterPanel(
     onDismiss: () -> Unit,
 ) {
     MilkCenterPanel(title = "套索内容筛选", subtitle = "默认混合选择；取消的类型不会被圈入", onDismiss = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll").padding(top = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             LassoContent.entries.chunked(3).forEach { group ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     group.forEach { filter ->
@@ -83,7 +88,7 @@ internal fun MaterialLibraryPanel(
         }
     }
     MilkCenterPanel(title = "本地素材", subtitle = "图片、图案笔、胶带与贴纸；无商店或云端下载", onDismiss = onDismiss) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MaterialAction("导入图片", onImportImage)
@@ -91,11 +96,11 @@ internal fun MaterialLibraryPanel(
             }
             Spacer(Modifier.height(16.dp))
             Text("胶带", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-tapes").padding(vertical = 8.dp)) {
                 (0..3).forEach { MaterialAction("胶带 ${it + 1}") { onBuiltin(PageImageKind.TAPE, it) } }
             }
             Text("贴纸", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-stickers").padding(vertical = 8.dp)) {
                 (0..3).forEach { MaterialAction("星形贴纸 ${it + 1}") { onBuiltin(PageImageKind.STICKER, it) } }
             }
             Text("我的素材", style = MaterialTheme.typography.labelLarge)

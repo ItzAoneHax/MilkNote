@@ -87,6 +87,9 @@ class InkSurfaceView @JvmOverloads constructor(
     /** 左右边缘单指横滑翻页；边界由书写页状态注入。 */
     var onPreviousPage: (() -> Unit)? = null
     var onNextPage: (() -> Unit)? = null
+
+    /** 已在最后一页时仍向右缘滑动翻页(千本 P0xx:滑过末页自动新建);仅缘滑触发,按钮不受影响 */
+    var onNextPageAtEnd: (() -> Unit)? = null
     var canTurnPrevious: Boolean = false
     var canTurnNext: Boolean = false
 
@@ -172,6 +175,18 @@ class InkSurfaceView @JvmOverloads constructor(
             if (field == value) return
             field = value
             if (value) stylusSeen = true
+        }
+
+    /** 阅读/手型工具：只平移与缩放，不产生笔迹或套索。 */
+    var readingMode: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            if (value) {
+                controller?.cancelStroke()
+                fingerDrawing = false
+                cancelFrontStroke()
+            }
         }
 
     // 本笔是否倒置橡皮
@@ -502,6 +517,11 @@ class InkSurfaceView @JvmOverloads constructor(
                 zoomEndDebounce.reset()
                 clearEdgeSwipe()
                 val tool = event.getToolType(0)
+                if (readingMode) {
+                    lastPanX = event.x; lastPanY = event.y
+                    scaleDetector.onTouchEvent(event)
+                    return true
+                }
                 if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
                     stylusSeen = true
                     invertedEraser = tool == MotionEvent.TOOL_TYPE_ERASER
@@ -675,7 +695,7 @@ class InkSurfaceView @JvmOverloads constructor(
                         clearEdgeSwipe()
                         when (turn) {
                             PageTurn.PREVIOUS -> if (canTurnPrevious) onPreviousPage?.invoke()
-                            PageTurn.NEXT -> if (canTurnNext) onNextPage?.invoke()
+                            PageTurn.NEXT -> if (canTurnNext) onNextPage?.invoke() else onNextPageAtEnd?.invoke()
                             null -> Unit
                         }
                     }

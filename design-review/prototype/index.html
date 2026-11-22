@@ -1,0 +1,257 @@
+<!doctype html>
+<!--
+MilkNote Quiet Layers R2 · 独立高保真原型
+预览：直接打开本文件；或在仓库根目录运行
+  python -I -m http.server 4173 --directory design-review/prototype
+然后访问 http://127.0.0.1:4173 。无依赖、无网络请求、不接入主 App。
+演示：等高书架/可见管理、600dp 新建预览、稳定纸面、专注模式、框选、Agent 空态与附件、
+      触控按压/拖动优先的 ⌘K、Provider 设置、暗色、减弱动效；外接键盘仅作增强。所有内容均为静态本地示例。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MilkNote · Quiet Layers 原型</title>
+<style>
+  :root{font-family:Inter,MiSans,"PingFang SC","Microsoft YaHei",sans-serif;color:#23221e;background:#e7e5df;font-synthesis:none}
+  *{box-sizing:border-box}button,input{font:inherit}button{color:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}button:focus-visible,input:focus-visible{outline:2px solid #3b5bec;outline-offset:3px}
+  .mono{font-family:ui-monospace,"Cascadia Mono","JetBrains Mono",monospace}.muted{color:var(--muted)}
+  .review-bar{height:66px;max-width:1500px;margin:auto;display:flex;align-items:center;gap:8px;padding:10px 22px}
+  .review-brand{margin-right:auto;display:flex;align-items:baseline;gap:10px}.review-brand strong{font-size:14px}.review-brand span{font-size:11px;color:#6b675e}
+  .review-bar button{border:1px solid #d4d0c7;background:#f7f5ef;border-radius:999px;padding:8px 13px;cursor:pointer;font-size:12px;min-height:48px}
+  .review-bar button[aria-pressed=true]{background:#e5e9fb;color:#2948cc;border-color:#b7c2f3}
+  .device{--paper:#faf9f5;--chrome:#f3f1ea;--surface:#fff;--ink:#23221e;--muted:#666256;--line:#e5e1d6;--blue:#3b5bec;--blue-soft:rgba(59,91,236,.10);--on-blue:#fff;--dot:#d8d4c8;--warn:#a66c00;--console:#14161b;
+    position:relative;overflow:hidden;max-width:1500px;height:calc(100vh - 92px);min-height:660px;margin:0 auto 18px;background:var(--paper);color:var(--ink);border:1px solid #d2cfc7;border-radius:22px;box-shadow:0 24px 70px #3833271c,0 2px 8px #38332712;isolation:isolate}
+  .device[data-theme=dark]{--paper:#1b1c20;--chrome:#232429;--surface:#26272d;--ink:#e8e6e0;--muted:#b7b3a8;--line:#3a3b43;--blue:#7d92ff;--blue-soft:rgba(125,146,255,.13);--on-blue:#101223;--dot:#34353d;--warn:#e8a838}
+  .systembar{height:25px;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:0 18px;font:10px ui-monospace,monospace;color:var(--muted);transition:background .16s,color .16s}
+  .view{display:none;height:calc(100% - 25px)}.view.active{display:flex;flex-direction:column}
+  .topbar{height:62px;flex:none;display:flex;align-items:center;gap:12px;padding:0 26px;background:var(--chrome);border-bottom:1px solid var(--line);transition:opacity .16s,background .16s}
+  .brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}.brand strong{font-size:20px}.brand small{font:10px ui-monospace,monospace;letter-spacing:2px;color:var(--muted)}
+  .spacer{flex:1}.pill,.search-pill{border:1px solid var(--line);background:transparent;border-radius:999px;min-height:48px;padding:0 13px;display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:var(--muted)}
+  .primary{border:0;border-radius:999px;background:linear-gradient(120deg,#3b5bec,#5c77f2);color:#fff;min-height:48px;padding:0 17px;display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;box-shadow:0 4px 12px #3b5bec24;transition:transform .1s,box-shadow .16s}.primary:active{transform:scale(.98)}
+  .primary:disabled{background:var(--chrome);color:var(--muted);box-shadow:none;cursor:default}.secondary{border:1px solid var(--line);background:var(--surface);border-radius:999px;min-height:48px;padding:0 15px;cursor:pointer}
+  .icon-btn{width:48px;height:48px;flex:none;border:0;border-radius:999px;background:transparent;display:inline-grid;place-items:center;cursor:pointer;color:var(--muted);position:relative;transition:background .08s,color .08s}.icon-btn:active{background:var(--blue-soft)}.icon-btn.active{background:var(--blue-soft);color:var(--blue);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--blue) 35%,transparent)}
+  svg.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.small-svg{width:14px;height:14px}
+  .battery{font:11px ui-monospace,monospace}.battery i{width:6px;height:6px;border-radius:50%;background:#2e9e6b}
+  .grid{padding:30px 34px;display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:24px;overflow:auto;align-content:start}
+  .notebook{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:12px;box-shadow:0 3px 12px #23221e08;cursor:pointer;text-align:left;color:var(--ink);transition:transform .18s,box-shadow .18s;display:flex;flex-direction:column;position:relative}
+  .notebook:active{transform:none;background:var(--blue-soft);box-shadow:0 3px 12px #23221e08}.cover{position:relative;aspect-ratio:1.35;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#3b5bec29,#3b5bec0c);color:#3b5bec}
+  .cover.green{background:linear-gradient(135deg,#2e9e6b29,#2e9e6b0c);color:#2e9e6b}.cover.red{background:linear-gradient(135deg,#d2483c29,#d2483c0c);color:#d2483c}
+  .dots{background-image:radial-gradient(var(--dot) .8px,transparent .8px);background-size:16px 16px}.cover.dots{background-blend-mode:normal}
+  .cover svg{position:absolute;inset:0;width:100%;height:100%;stroke:currentColor;fill:none;stroke-width:1.4;stroke-linecap:round;opacity:.75}
+  .badge{position:absolute;left:9px;top:9px;background:#faf9f5e8;color:#23221e;border:1px solid #e5e1d6;border-radius:999px;padding:4px 8px;font-size:10px}.card-menu{position:absolute;right:7px;top:7px;background:#faf9f5dc;color:#23221e;width:48px;height:48px;border:0}
+  .card-info{padding:12px 2px 2px}.card-title{font-size:16px;font-weight:650;margin:0 0 8px}.card-meta{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted)}.color-dot{width:7px;height:7px;border-radius:50%;background:currentColor}.purpose{margin-left:auto;border-radius:999px;padding:4px 8px;background:var(--blue-soft);color:var(--blue)}
+  .new-card{border-style:dashed;background:color-mix(in srgb,var(--surface) 45%,transparent);align-items:center;justify-content:center;text-align:center;box-shadow:none}.new-card .plus-circle{width:48px;height:48px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;margin-bottom:12px;color:var(--muted)}
+  .context-menu{position:absolute;z-index:80;width:176px;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px #0002}.context-menu button{display:flex;width:100%;border:0;background:transparent;text-align:left;padding:11px 12px;border-radius:8px;cursor:pointer}.context-menu button:active{background:var(--blue-soft)}.context-menu .danger{color:#d2483c}
+
+  .writer-top{height:56px;padding:0 18px;gap:6px}.crumb{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted);margin-right:auto;white-space:nowrap}.crumb strong{color:var(--ink);font-weight:550}.tool-sep{width:1px;height:20px;background:var(--line);margin:0 5px}.ink-dot{width:48px;height:48px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer}.ink-dot:after{content:"";width:15px;height:15px;border-radius:50%;background:var(--c);border:1px solid var(--line)}.ink-dot.active:after{width:19px;height:19px;border:2px solid var(--ink)}
+  .width-btn{width:48px;height:48px;border:0;background:transparent;cursor:pointer;display:grid;place-items:center}.width-btn i{display:block;width:14px;height:var(--w);border-radius:99px;background:var(--ink)}.width-btn.active{background:var(--ink);border-radius:999px}.width-btn.active i{background:var(--paper)}
+  .writer-body{display:flex;flex:1;min-height:0}.sidebar{width:148px;flex:none;background:color-mix(in srgb,var(--chrome) 55%,var(--paper));border-right:1px solid var(--line);padding:10px;overflow:auto;transition:opacity .16s}.back-row{height:48px;width:100%;border:0;background:transparent;color:var(--muted);text-align:left;border-radius:8px;cursor:pointer;padding:0 8px}.back-row:active{background:var(--blue-soft)}
+  .page-thumb{position:relative;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:5px;margin:7px 0;cursor:pointer;color:var(--muted)}.page-thumb.active{border:1.5px solid var(--blue);background:var(--blue-soft)}.page-thumb.active:before{content:"";position:absolute;left:-6px;top:10px;bottom:10px;width:3px;background:var(--blue);border-radius:3px}.thumb-paper{aspect-ratio:210/297;background:#faf9f5;position:relative;overflow:hidden}.thumb-paper svg{width:100%;height:100%;stroke:#858177;fill:none;stroke-width:1}.page-label{text-align:center;font:9px ui-monospace,monospace;padding:5px 0 1px}.annotation-ticks{position:absolute;right:2px;top:25%;height:35%;width:2px;background:repeating-linear-gradient(to bottom,var(--blue) 0 7px,transparent 7px 18px);opacity:.65}.add-page{width:100%;height:48px;background:transparent;border:1px solid var(--line);border-radius:10px;color:var(--muted);cursor:pointer}
+  .canvas-wrap{position:relative;flex:1;min-width:0;overflow:hidden;background:color-mix(in srgb,var(--chrome) 35%,var(--paper));display:flex;justify-content:center}.paper{height:100%;max-width:78%;aspect-ratio:210/297;flex:none;position:relative;background-color:var(--paper);background-image:radial-gradient(var(--dot) .65px,transparent .65px);background-size:25px 25px;box-shadow:0 0 36px #00000005;overflow:hidden;color:var(--ink)}
+  .paper:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at center,transparent 58%,#00000008 100%)}.paper-content{position:absolute;inset:7% 9%;font-family:"KaiTi","STKaiti",serif}.paper-content h2{font-size:21px;font-weight:500;margin:0 0 18px}.paper-content p{font-size:15px;line-height:1.8;margin:6px 0}.paper-content .equation{font-size:23px;margin:28px 0 20px;letter-spacing:2px}.hand-note{color:#d2483c;font-size:13px;transform:rotate(-2deg);display:inline-block}.paper svg{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:var(--ink);stroke-width:1.3;stroke-linecap:round;opacity:.7;pointer-events:none}
+  .statusbar{height:30px;flex:none;background:var(--chrome);border-top:1px solid var(--line);display:flex;align-items:center;gap:15px;padding:0 18px;font-size:11px;color:var(--muted);transition:opacity .16s,background .16s}.statusbar .mono{margin-left:auto}
+  .writer.is-focus .writer-top,.writer.is-focus .sidebar,.writer.is-focus .statusbar{opacity:0;pointer-events:none}.focus-exit{display:none;position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:30}.writer.is-focus .focus-exit{display:inline-flex}
+  .snip-overlay{position:absolute;inset:0;z-index:20;touch-action:none;background:#0e0f148c;animation:fade .12s}.snip-hint{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);text-align:center;color:#faf9f5;pointer-events:none}.snip-hint strong{display:block;font-size:15px;font-weight:500;margin-bottom:9px}.snip-hint span{font-size:11px;opacity:.75}.snip-cancel{position:absolute;left:50%;top:57%;transform:translateX(-50%)}
+  .selection{position:absolute;display:none;border:2px solid #fff;border-radius:3px;box-shadow:0 0 0 3000px #0e0f148c;pointer-events:none}.handle{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #3b5bec}.h1{left:-8px;top:-8px}.h2{right:-8px;top:-8px}.h3{left:-8px;bottom:-8px}.h4{right:-8px;bottom:-8px}.size-label{position:absolute;left:0;top:-34px;background:#23221ef2;color:#faf9f5;border-radius:6px;padding:5px 8px;font:10px ui-monospace,monospace;white-space:nowrap}
+  .snip-top{position:absolute;display:none;top:38px;left:50%;transform:translateX(-50%);background:#23221ef2;padding:5px;border-radius:999px;color:#e8e6e0;gap:3px}.snip-top button,.intent-bar button{border:0;background:transparent;color:inherit;min-height:48px;padding:0 12px;border-radius:999px;cursor:pointer}.snip-top button:active,.intent-bar button:active{background:#ffffff14}
+  .intent-wrap{position:absolute;display:none;bottom:18px;left:50%;transform:translateX(-50%);text-align:center}.intent-note{font-size:10px;color:#faf9f5ba;margin-bottom:7px}.intent-bar{display:flex;align-items:center;background:#23221ef5;border-radius:999px;padding:7px;color:#b7b3a8;white-space:nowrap;box-shadow:0 8px 24px #0003;animation:rise .16s}.intent-bar button.active{color:#9dadff;background:#5c77f222}.intent-bar .send{background:linear-gradient(120deg,#3b5bec,#5c77f2);color:#fff;margin-left:6px}
+
+  .agent{position:absolute;z-index:15;right:0;top:0;bottom:0;width:360px;max-width:48%;background:var(--surface);border-left:1px solid var(--line);box-shadow:-12px 0 30px #0000000d;display:none;flex-direction:column;animation:drawer .18s}.agent.open{display:flex}.agent-head{flex:none;min-height:54px;background:var(--chrome);display:flex;align-items:center;gap:8px;padding:7px 12px}.agent-head strong{font-size:15px}.model-pill{min-width:0;flex:1;border:1px solid var(--line);background:transparent;border-radius:999px;height:48px;color:var(--muted);font:10px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 10px;cursor:pointer}
+  .agent-body{flex:1;min-height:0;overflow:auto;padding:12px}.agent-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}.empty-mark{width:50px;height:50px;border-radius:16px;background:var(--blue-soft);color:var(--blue);display:grid;place-items:center;margin-bottom:15px}.agent-empty h3{font-size:16px;margin:0 0 7px}.agent-empty p{font-size:12px;line-height:1.7;color:var(--muted);margin:0 0 18px}.empty-actions{width:100%;display:grid;gap:8px}.empty-actions button{min-height:52px;text-align:left;padding:0 13px;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;justify-content:space-between;align-items:center}.empty-actions button:active{background:var(--blue-soft);color:var(--blue)}
+  .message-user{margin-left:30px;background:var(--blue-soft);border-radius:14px;padding:9px 12px;font-size:13px;line-height:1.6}.attachment-card{display:flex;align-items:center;gap:8px;background:var(--chrome);border:1px solid var(--line);border-radius:10px;padding:7px 9px;margin-bottom:7px;font-size:10px}.attachment-card .thumb{width:32px;height:48px;background:#faf9f5;border:1px solid #e5e1d6}.assistant{font-size:13px;line-height:1.65;margin-top:12px}.assistant h4{font-size:14px;margin:12px 0 6px}.assistant h4:before{content:"";display:inline-block;width:4px;height:4px;background:var(--blue);border-radius:50%;margin:0 6px 3px 0}.assistant ul{padding-left:20px;margin:5px 0}.assistant li::marker{color:var(--blue)}.math{padding:9px 11px;background:var(--chrome);border-radius:8px;font:11px ui-monospace,monospace;overflow:auto}.meta{font:10px ui-monospace,monospace;color:var(--muted);margin:8px 0}.action-row{display:flex;gap:5px;flex-wrap:wrap}.chip{border:1px solid transparent;background:var(--chrome);color:var(--muted);min-height:48px;border-radius:999px;padding:0 11px;font-size:11px;cursor:pointer}.chip.active{background:var(--blue-soft);color:var(--blue);border-color:color-mix(in srgb,var(--blue) 25%,transparent)}.chip:disabled{opacity:.5;cursor:default}
+  .model-sheet{display:none;margin:8px 12px 0;padding:10px;background:var(--chrome);border:1px solid var(--line);border-radius:14px;max-height:300px;overflow:auto;animation:expand .16s}.model-sheet.open{display:block}.model-row{display:flex;align-items:center;gap:8px;min-height:48px;font:11px ui-monospace,monospace}.model-row .current{color:var(--blue)}.model-note{font-size:10px;line-height:1.5;color:var(--muted);margin:7px 4px}.manage-link{border:0;background:transparent;color:var(--blue);min-height:48px;padding:0 4px;cursor:pointer;font-size:11px}
+  .composer-zone{flex:none;padding:8px 12px 5px}.draft-list{display:none;gap:6px;margin-bottom:6px}.draft-list.visible{display:flex}.draft-item{display:flex;align-items:center;gap:5px;background:var(--chrome);border:1px solid var(--line);border-radius:9px;padding:5px 7px;font:9px ui-monospace,monospace}.draft-item button{border:0;background:transparent;color:var(--muted);cursor:pointer;width:48px;height:48px}.token-note{display:none;font:9px ui-monospace,monospace;color:var(--muted);margin-bottom:6px}.token-note.visible{display:block}
+  .composer{display:flex;align-items:flex-end;gap:5px;border:1px solid var(--line);border-radius:14px;padding:5px;background:var(--surface)}.composer:focus-within{border-color:var(--blue)}.composer textarea{flex:1;min-width:0;resize:none;border:0;outline:0;background:transparent;color:var(--ink);font-size:13px;line-height:1.5;height:48px;padding:9px 3px}.send-btn{width:48px;height:48px;border:0;border-radius:50%;background:linear-gradient(120deg,#3b5bec,#5c77f2);color:#fff;display:grid;place-items:center;cursor:pointer}.send-btn:disabled{background:var(--chrome);color:var(--muted);cursor:default}
+  .drawer-hint{padding:0 14px 8px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between}.attach-panel{display:none;margin:0 12px 8px;padding:11px;background:var(--chrome);border:1px solid var(--line);border-radius:12px;animation:expand .16s}.attach-panel.open{display:block}.attach-title{display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:8px}.page-pick{display:flex;gap:7px;margin:7px 0}.page-pick button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px;color:var(--muted);font-size:11px;cursor:pointer;min-height:52px}.page-pick button.selected{border-color:var(--blue);color:var(--blue);background:var(--blue-soft)}.attach-actions{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--muted)}
+
+  .settings-body{display:flex;flex:1;min-height:0}.settings-nav{width:224px;flex:none;background:var(--chrome);padding:10px 12px}.settings-nav h2{font-size:16px;margin:10px 8px 22px}.nav-label{font-size:11px;color:var(--muted);margin:14px 12px 6px}.settings-nav button{width:100%;min-height:52px;border:0;border-radius:10px;background:transparent;text-align:left;padding:0 12px;color:var(--muted);cursor:pointer}.settings-nav button.active{background:var(--blue-soft);color:var(--blue);font-weight:600}.settings-content{width:min(560px,100%);margin:0 auto;padding:28px 30px;overflow:auto}.settings-content h1{font-size:20px;margin:0 0 5px}.settings-content>p{font-size:12px;color:var(--muted);margin:0 0 26px}.settings-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 3px 12px #00000006}.setting-row{min-height:60px;padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}.setting-row:last-child{border:0}.setting-row strong{display:block;font-size:14px;font-weight:500}.setting-row small{display:block;color:var(--muted);font-size:12px;margin-top:3px}.setting-row .value{margin-left:auto;color:var(--muted);font-size:13px}.setting-row .value:after{content:" ›"}.setting-row button{margin-left:auto}.settings-note{font-size:11px;color:var(--muted);line-height:1.6;margin:12px 0 22px}
+
+  .scrim{position:absolute;inset:0;z-index:60;background:#00000052;display:none;align-items:center;justify-content:center;padding:28px}.scrim.open{display:flex;animation:fade .12s}.dialog{width:min(600px,100%);max-height:100%;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:25px;box-shadow:0 20px 60px #0003;animation:modal .18s}.dialog h2{font-size:20px;margin:0 0 20px}.dialog label{display:block;font-size:12px;color:var(--muted);margin:15px 0 7px}.text-input{width:100%;height:48px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);padding:0 12px}.text-input:focus{border-color:var(--blue)}.create-layout{display:grid;grid-template-columns:140px 1fr;gap:20px;align-items:start}.dialog-preview{aspect-ratio:1.18;border-radius:12px;background:linear-gradient(135deg,#3b5bec29,#3b5bec0c);padding:15px;color:#3b5bec;position:relative;overflow:hidden}.dialog-preview strong{font-size:13px;word-break:break-word}.dialog-preview span{position:absolute;bottom:13px;left:15px;font-size:10px}.choice-row{display:flex;gap:8px;flex-wrap:wrap}.choice{min-height:48px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:0 14px;cursor:pointer}.choice.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}.choice.blue.active{background:var(--blue);color:var(--on-blue);border-color:var(--blue)}.colors{display:flex;gap:11px}.color-choice{width:48px;height:48px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer}.color-choice i{width:28px;height:28px;border-radius:50%;background:var(--c);border:1px solid var(--line)}.color-choice.active i{border:3px solid var(--ink);box-shadow:0 0 0 2px var(--surface)}.dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:24px}
+  .palette-scrim{align-items:flex-start;background:#00000052;padding-top:70px}.palette{width:min(640px,100%);background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 20px 60px #0003;overflow:hidden;animation:modal .16s}.palette-input{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);color:var(--blue);font:12px ui-monospace,monospace}.palette-input input{flex:1;border:0;outline:0;background:transparent;color:var(--ink);font:14px Inter,MiSans,sans-serif}.command-group{padding:7px 8px 3px;font-size:10px;color:var(--muted)}.command{display:flex;width:calc(100% - 16px);margin:0 8px;min-height:52px;align-items:center;border:0;border-radius:8px;background:transparent;text-align:left;padding:0 10px;cursor:pointer;font-size:13px}.command span{margin-left:auto;color:var(--muted);font:10px ui-monospace,monospace}.command.selected{background:var(--blue-soft);color:var(--blue)}.palette-empty{padding:22px 16px;color:var(--muted);font-size:12px}
+  .toast{position:absolute;z-index:100;left:50%;bottom:48px;transform:translateX(-50%);background:#23221ef2;color:#faf9f5;border-radius:999px;padding:11px 18px;font-size:13px;box-shadow:0 8px 24px #0003;display:none;animation:rise .16s;white-space:nowrap}.toast.show{display:block}
+  @keyframes fade{from{opacity:0}to{opacity:1}}@keyframes rise{from{opacity:0;translate:0 8px}to{opacity:1;translate:0 0}}@keyframes drawer{from{opacity:0;translate:24px 0}to{opacity:1;translate:0 0}}@keyframes modal{from{opacity:0;scale:.98}to{opacity:1;scale:1}}@keyframes expand{from{opacity:0;translate:0 -5px}to{opacity:1;translate:0 0}}
+  .device[data-motion=reduced] *{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}.device[data-motion=reduced] .notebook:active{transform:none}
+  @media(max-width:1000px){.device{border-radius:14px;min-height:600px}.review-brand span{display:none}.grid{grid-template-columns:repeat(2,1fr);padding:22px;gap:18px}.writer-top .optional{display:none}.sidebar{width:124px}.agent{width:330px}.topbar{padding:0 16px}.crumb span{display:none}.paper{max-width:92%}.create-layout{grid-template-columns:120px 1fr}.brand small{display:none}}
+  @media(max-width:700px){.review-bar{overflow:auto}.review-brand{display:none}.device{min-height:620px;height:calc(100vh - 88px);margin:0 8px}.grid{grid-template-columns:1fr}.sidebar{display:none}.agent{max-width:88%;width:340px}.settings-nav{width:160px}.create-layout{grid-template-columns:1fr}.dialog-preview{display:none}.intent-bar{max-width:94vw;overflow:auto}.paper{width:88%;height:auto;max-height:100%;align-self:center}.writer-top .hide-narrow{display:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8-8-2Z"/><path d="m11 13 5-5"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16l-1 4Zm11-14 3 3M4 20l4-4"/></symbol>
+  <symbol id="i-eraser" viewBox="0 0 24 24"><path d="m4 15 9-9 7 7-8 8H8l-4-4v-2Z"/><path d="m10 9 7 7"/></symbol>
+  <symbol id="i-lasso" viewBox="0 0 24 24"><path d="M19 13c2-1 3-2 3-4 0-3-4-6-10-6S2 6 2 9s4 6 10 6c2 0 4 0 5-1"/><path d="M12 15c-3 3-2 6 1 6 2 0 3-2 2-4"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5M4 12h9a6 6 0 0 1 6 6"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 7 5 5-5 5m5-5h-9a6 6 0 0 0-6 6"/></symbol>
+  <symbol id="i-focus" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8l9-9"/></symbol>
+  <symbol id="i-agent" viewBox="0 0 24 24"><path d="M12 3v3m-7 4a7 7 0 0 1 14 0v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-7Z"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/></symbol>
+</defs></svg>
+
+<header class="review-bar">
+  <div class="review-brand"><strong>MilkNote / Quiet Layers</strong><span>R2 · 独立交互原型</span></div>
+  <button data-view="shelf" aria-pressed="true">书架</button><button data-view="writer" aria-pressed="false">书写</button><button data-view="settings" aria-pressed="false">设置</button>
+  <button id="theme-toggle" aria-pressed="false">暗色</button><button id="motion-toggle" aria-pressed="false">减弱动效</button>
+</header>
+
+<main class="device" id="device" data-theme="light" data-motion="standard">
+  <div class="systembar"><span>10:30</span><span>MILKNOTE · R2</span><span>▰ 82%</span></div>
+
+  <section class="view active" id="view-shelf" aria-label="书架">
+    <div class="topbar"><div class="brand"><strong>牛奶笔记</strong><small>MILKNOTE</small></div><div class="spacer"></div>
+      <button class="search-pill" data-open-palette><svg class="icon small-svg"><use href="#i-search"/></svg>搜索 <span class="mono">⌘K</span></button>
+      <button class="pill battery"><i></i>82%</button><button class="icon-btn" data-view-target="settings" aria-label="设置"><svg class="icon"><use href="#i-settings"/></svg></button>
+      <button class="primary" data-new><svg class="icon small-svg"><use href="#i-plus"/></svg>新建笔记本</button>
+    </div>
+    <div class="grid" id="notebook-grid">
+      <article class="notebook" data-open-writer tabindex="0">
+        <div class="cover dots"><span class="badge">最近</span><button class="icon-btn card-menu" data-menu aria-label="管理 Math-Ch3"><svg class="icon"><use href="#i-more"/></svg></button>
+          <svg viewBox="0 0 260 190"><path d="M35 48c25 4 44 4 70 0m-61 14 96-3m-80 22c20-12 35-12 54 0s34 12 54 0M54 115l50 42m-38-48 45 47m38-62 56 55m-44-61 51 52"/></svg>
+        </div><div class="card-info"><h3 class="card-title">Math-Ch3</h3><div class="card-meta" style="color:#3b5bec"><span class="color-dot"></span><span class="mono muted">2 页 · 刚刚</span><span class="purpose">课堂笔记</span></div></div>
+      </article>
+      <article class="notebook" data-open-writer tabindex="0">
+        <div class="cover green dots"><button class="icon-btn card-menu" data-menu aria-label="管理 英语精读"><svg class="icon"><use href="#i-more"/></svg></button>
+          <svg viewBox="0 0 260 190"><path d="M38 45c33-12 63-9 91 2s55 12 85-1M39 65c28-7 50-5 74 2m-66 23c31 5 57 5 84 0s48-4 73 4M56 126c27-8 48-4 68 8"/></svg>
+        </div><div class="card-info"><h3 class="card-title">英语精读</h3><div class="card-meta" style="color:#2e9e6b"><span class="color-dot"></span><span class="mono muted">8 页 · 2 小时前</span><span class="purpose" style="color:#247a54;background:#2e9e6b18">阅读摘录</span></div></div>
+      </article>
+      <button class="notebook new-card" data-new><span class="plus-circle"><svg class="icon"><use href="#i-plus"/></svg></span><strong>新建笔记本</strong><span class="mono muted" style="font-size:10px;margin-top:7px">NEW .MILK</span></button>
+    </div>
+  </section>
+
+  <section class="view writer" id="view-writer" aria-label="书写页">
+    <div class="topbar writer-top">
+      <div class="crumb">‹ 牛奶笔记 <span>·</span><strong>Math-Ch3</strong></div>
+      <button class="icon-btn" aria-label="撤销"><svg class="icon"><use href="#i-undo"/></svg></button><button class="icon-btn" aria-label="重做"><svg class="icon"><use href="#i-redo"/></svg></button><i class="tool-sep"></i>
+      <button class="icon-btn active" aria-label="钢笔"><svg class="icon"><use href="#i-pen"/></svg></button><button class="icon-btn" aria-label="橡皮"><svg class="icon"><use href="#i-eraser"/></svg></button><button class="icon-btn" aria-label="套索"><svg class="icon"><use href="#i-lasso"/></svg></button><i class="tool-sep"></i>
+      <button class="ink-dot active" style="--c:#23221e" aria-label="墨黑"></button><button class="ink-dot" style="--c:#3b5bec" aria-label="蓝墨"></button><button class="ink-dot hide-narrow" style="--c:#d2483c" aria-label="红墨"></button><i class="tool-sep"></i>
+      <button class="width-btn" style="--w:2px" aria-label="细笔"><i></i></button><button class="width-btn active" style="--w:5px" aria-label="标准笔"><i></i></button>
+      <div class="spacer"></div><button class="icon-btn optional" id="snip-open" aria-label="框选讲解"><svg class="icon"><use href="#i-lasso"/></svg></button><button class="icon-btn" id="focus-toggle" aria-label="专注书写"><svg class="icon"><use href="#i-focus"/></svg></button>
+      <button class="pill battery"><i></i>82%</button><button class="pill mono" data-open-palette>⌘K</button><button class="primary" id="agent-toggle">Agent</button>
+    </div>
+    <div class="writer-body">
+      <aside class="sidebar"><button class="back-row" data-view-target="shelf">‹ 书架</button>
+        <button class="page-thumb active"><div class="thumb-paper dots"><svg viewBox="0 0 100 140"><path d="M15 30 68 86m-48-45 53 48M20 112l65-30"/></svg><i class="annotation-ticks"></i></div><div class="page-label">p0001</div></button>
+        <button class="page-thumb"><div class="thumb-paper dots"></div><div class="page-label">p0002</div></button>
+        <button class="add-page" id="add-page">＋</button>
+      </aside>
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div class="paper" id="paper"><div class="paper-content"><h2>第三章 · 分式方程</h2><p>目标：去分母 → 移项 → 检验</p><div class="equation">(2x + 1) / 3 = (x − 2) / 2</div><p>2(2x + 1) = 3(x − 2)</p><p>4x + 2 = 3x − 6</p><p>x = −8</p><span class="hand-note">记得代回检验！</span></div><svg viewBox="0 0 500 900"><path d="M58 212c102 9 187 7 284-3M74 489c70 9 141 9 219 1M324 538c32 18 51 46 59 82"/></svg></div>
+        <button class="secondary focus-exit" id="focus-exit">退出专注</button>
+
+        <section class="agent" id="agent" aria-label="Agent 抽屉">
+          <div class="agent-head"><strong>Agent</strong><button class="model-pill" id="model-toggle">glm-5.3-flash · 自动 ›</button><button class="icon-btn" id="agent-close" aria-label="收起 Agent"><svg class="icon"><use href="#i-close"/></svg></button></div>
+          <div class="model-sheet" id="model-sheet"><div class="muted" style="font-size:10px">智谱 GLM</div><div class="model-row current">● glm-5.3-flash</div><div class="model-row">○ glm-5.3-flashx</div><div class="muted" style="font-size:10px;margin-top:8px">思考强度</div><div class="action-row"><button class="chip active">自动</button><button class="chip">关</button><button class="chip">低</button><button class="chip">中</button><button class="chip">高</button></div><p class="model-note">不同模型的档位含义由厂商决定。</p><button class="manage-link" id="manage-models">管理模型 → 设置 · Provider 与模型</button></div>
+          <div class="agent-body" id="agent-body">
+            <div class="agent-empty" id="agent-empty"><div class="empty-mark"><svg class="icon"><use href="#i-agent"/></svg></div><h3>从这一页开始问</h3><p>只发送你明确选择的选区或页面。<br>内容保存在本机，随笔记本备份。</p><div class="empty-actions"><button id="empty-snips">框选讲解 <span>拖出选区 →</span></button><button data-answer>讲解本页 <span>当前页 →</span></button><button data-answer>归纳本章 <span>2 页 →</span></button></div></div>
+            <div id="conversation" hidden><div class="attachment-card"><div class="thumb dots"></div><div><strong class="mono">snip_1197×798.png</strong><br><span class="muted">仅选区 · 已含手写层与批注</span></div></div><div class="message-user">讲解这道分式方程，重点说为什么要检验。</div><div class="assistant"><h4>解题思路</h4><ul><li>两边同乘最小公倍数，消去分母。</li><li>移项合并，得到 <strong>x = −8</strong>。</li><li>代回原方程，确认分母不为 0。</li></ul><h4>为什么要检验</h4>去分母会默认各分母不为零。检验能排除让原式无意义的增根，也验证计算过程。<div class="math">2(2x + 1) = 3(x − 2) → x = −8</div><div class="meta">glm-5.3-flash · 0.8k→0.3k tok</div><div class="action-row"><button class="chip">复制</button><button class="chip active" id="insert-note">插入批注层</button><button class="chip" disabled>记忆卡 · M3</button></div></div></div>
+          </div>
+          <div class="attach-panel" id="attach-panel"><div class="attach-title">选择页面 <button class="icon-btn" id="attach-close" aria-label="关闭附件面板"><svg class="icon small-svg"><use href="#i-close"/></svg></button></div><div class="muted" style="font-size:10px">显式多选，发送前可移除</div><div class="page-pick"><button data-page="p0001" class="selected">▣ p0001<br>当前页</button><button data-page="p0002">▧ p0002<br>空白页</button></div><div class="attach-actions"><span><b id="attach-count">1</b> 页 · ≈1.1k tok</span><button class="chip active" id="attach-apply">附加 1 页</button></div></div>
+          <div class="composer-zone"><div class="draft-list" id="draft-list"></div><div class="token-note" id="token-note">1 个附件 · ≈1.1k tok</div><div class="composer"><button class="icon-btn" id="attach-toggle" aria-label="附件"><svg class="icon"><use href="#i-clip"/></svg></button><textarea id="composer-input" aria-label="继续追问" placeholder="继续追问，或输入 / 唤起命令…"></textarea><button class="send-btn" id="send" disabled aria-label="发送"><svg class="icon"><use href="#i-send"/></svg></button></div></div>
+          <div class="drawer-hint"><span>笔键长按 再次框选 · 结果可贴回批注层</span><span class="mono">p0001</span></div>
+        </section>
+
+        <div class="snip-overlay" id="snip-overlay" hidden>
+          <div class="snip-hint" id="snip-hint"><strong>拖动框选内容</strong><span>选区外不会上传 · 点「取消」退出</span></div><button class="secondary snip-cancel" id="snip-cancel">取消</button>
+          <div class="selection" id="selection"><span class="size-label" id="size-label"></span><i class="handle h1"></i><i class="handle h2"></i><i class="handle h3"></i><i class="handle h4"></i></div>
+          <div class="snip-top" id="snip-top"><button id="snip-reset">重新框选</button><button id="snip-full">全页</button><button id="snip-cancel-2">取消</button></div>
+          <div class="intent-wrap" id="intent-wrap"><div class="intent-note">仅选区将送入 Agent · 书写已暂停</div><div class="intent-bar"><button class="active">讲解</button><button>归纳</button><button>翻译</button><button>出题</button><button>续写</button><button class="send" id="snip-send">发送 ↵</button></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar"><span style="color:#2e9e6b">● 焦点笔已连接</span><span>双击笔键=笔⇄橡皮 · 长按=框选 · 手指=导航</span><span class="mono">front-buffer</span><span class="mono" style="margin-left:0">p0001 / 2 页</span></div>
+  </section>
+
+  <section class="view" id="view-settings" aria-label="设置">
+    <div class="settings-body"><nav class="settings-nav"><h2>‹ 设置</h2><div class="nav-label">常规</div><button>外观</button><button>书写</button><button>更新</button><div class="nav-label">设备</div><button>笔与手势</button><div class="nav-label">Agent</div><button class="active">Provider 与模型</button><div style="height:24px"></div><button class="secondary" data-view-target="writer">返回书写页</button></nav>
+      <div class="settings-content"><h1>Provider 与模型</h1><p>Key 经 Android Keystore 加密仅存本机，不随笔记本备份</p><div class="settings-card"><div class="setting-row"><div><strong>外观 · 动效</strong><small>跟随系统 / 标准 / 减弱</small></div><span class="value">跟随系统</span></div><div class="setting-row"><div><strong>智谱 GLM</strong><small class="mono">OpenAI 兼容 · 2 模型</small></div><span class="chip active">✓ 当前</span></div><div class="setting-row"><div><strong>API Key</strong><small>仅本机保存</small></div><span class="value mono">•••• 已保存</span></div><div class="setting-row"><div><strong>glm-5.3-flash</strong><small>思考 关/低/中/高 · 1000k / out 128k</small></div><span class="value">默认</span></div><div class="setting-row"><div><strong>glm-5.3-flashx</strong><small>思考 关/低/中/高</small></div><span class="value">选择</span></div></div><p class="settings-note">思考档位按模型声明，每家不同。拉取模型列表不会覆盖已调整的声明。</p><button class="secondary" style="width:100%;border-style:dashed">＋ 新增 Provider</button></div>
+    </div>
+  </section>
+
+  <div class="context-menu" id="context-menu" hidden><button>打开</button><button>重命名与封面</button><button>导出笔记本</button><button class="danger">删除…</button></div>
+
+  <div class="scrim" id="new-scrim" role="dialog" aria-modal="true" aria-labelledby="new-title"><form class="dialog" id="new-form"><h2 id="new-title">新建笔记本</h2><label for="notebook-name">名称</label><input class="text-input" id="notebook-name" placeholder="如：高数·第三章" autocomplete="off">
+    <div class="create-layout"><div class="dialog-preview dots"><strong id="preview-name">未命名笔记</strong><span>课堂笔记 · B5 横向</span></div><div><label>封面色</label><div class="colors"><button type="button" class="color-choice active" style="--c:#3b5bec" aria-label="蓝色"><i></i></button><button type="button" class="color-choice" style="--c:#d2483c" aria-label="红色"><i></i></button><button type="button" class="color-choice" style="--c:#2e9e6b" aria-label="绿色"><i></i></button><button type="button" class="color-choice" style="--c:#d98e04" aria-label="琥珀色"><i></i></button></div><label>用途</label><div class="choice-row"><button type="button" class="choice blue active">课堂笔记</button><button type="button" class="choice blue">考研考证</button><button type="button" class="choice blue">阅读摘录</button></div></div></div>
+    <label>尺寸 · 方向</label><div class="choice-row"><button type="button" class="choice">A4</button><button type="button" class="choice">A5</button><button type="button" class="choice active">B5</button><button type="button" class="choice blue">竖向</button><button type="button" class="choice blue active">横向</button></div><label>纸张</label><div class="choice-row"><button type="button" class="choice active">点阵</button><button type="button" class="choice">横线</button><button type="button" class="choice">方格</button><button type="button" class="choice">空白</button></div><div class="dialog-actions"><button type="button" class="secondary" id="new-cancel">取消</button><button class="primary" type="submit">创建 ↵</button></div></form></div>
+
+  <div class="scrim palette-scrim" id="palette-scrim" role="dialog" aria-modal="true" aria-label="命令面板"><div class="palette"><div class="palette-input">⌘K <input id="palette-input" placeholder="输入命令或搜索…" autocomplete="off"></div><div id="command-list"></div></div></div>
+  <div class="toast" id="toast" role="status"></div>
+</main>
+
+<script>
+(() => {
+  const $ = (s, root=document) => root.querySelector(s), $$ = (s, root=document) => [...root.querySelectorAll(s)];
+  const device=$('#device'); let currentView='shelf', toastTimer, selectedCommand=0, keyboardNav=false;
+  const icon = id => `<svg class="icon"><use href="#${id}"/></svg>`;
+  function notify(text){const t=$('#toast');t.textContent=text;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),text.length>24?4000:2200)}
+  function showView(name){currentView=name;$$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`));$$('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===name));closePalette();}
+  $$('[data-view]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));$$('[data-view-target]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.viewTarget)));
+  $$('[data-open-writer]').forEach(c=>c.addEventListener('click',e=>{if(!e.target.closest('[data-menu]'))showView('writer')}));
+  $('#theme-toggle').addEventListener('click',e=>{const dark=device.dataset.theme!=='dark';device.dataset.theme=dark?'dark':'light';e.currentTarget.setAttribute('aria-pressed',dark);e.currentTarget.textContent=dark?'浅色':'暗色'});
+  $('#motion-toggle').addEventListener('click',e=>{const reduced=device.dataset.motion!=='reduced';device.dataset.motion=reduced?'reduced':'standard';e.currentTarget.setAttribute('aria-pressed',reduced);notify(reduced?'已启用减弱动效：无位移与缩放':'已恢复标准动效')});
+
+  // 新建：统一的 600dp 模态、实时预览、取消与创建。
+  const newScrim=$('#new-scrim');function openNew(){newScrim.classList.add('open');setTimeout(()=>$('#notebook-name').focus(),30)}function closeNew(){newScrim.classList.remove('open')}
+  $$('[data-new]').forEach(b=>b.addEventListener('click',openNew));$('#new-cancel').addEventListener('click',closeNew);newScrim.addEventListener('click',e=>{if(e.target===newScrim)closeNew()});
+  $('#notebook-name').addEventListener('input',e=>$('#preview-name').textContent=e.target.value.trim()||'未命名笔记');
+  $$('.choice,.color-choice').forEach(b=>b.addEventListener('click',()=>{const group=b.parentElement;$$('button',group).forEach(x=>x.classList.remove('active'));b.classList.add('active')}));
+  $('#new-form').addEventListener('submit',e=>{e.preventDefault();const name=$('#notebook-name').value.trim()||'未命名笔记';closeNew();showView('writer');notify(`已创建「${name}」· 已进入第 1 页`);$('#notebook-name').value='';$('#preview-name').textContent='未命名笔记'});
+  const menu=$('#context-menu');$$('[data-menu]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();const r=b.getBoundingClientRect(),d=device.getBoundingClientRect();menu.style.left=Math.min(r.left-d.left,d.width-195)+'px';menu.style.top=(r.bottom-d.top+4)+'px';menu.hidden=false}));menu.addEventListener('click',e=>{if(e.target.tagName==='BUTTON'){notify(`${e.target.textContent} · 原型操作`);menu.hidden=true}});
+
+  // 专注：只淡出不透明 chrome，纸张几何不变。
+  const writer=$('#view-writer');function setFocus(on){writer.classList.toggle('is-focus',on);if(on)notify('专注书写 · Esc 退出')}$('#focus-toggle').addEventListener('click',()=>setFocus(true));$('#focus-exit').addEventListener('click',()=>setFocus(false));
+  $('#add-page').addEventListener('click',()=>notify('已新增 p0003 · 沿用当前纸型'));
+
+  // Agent：空态、模型、显式附件与发送门禁。
+  const agent=$('#agent');function openAgent(){agent.classList.add('open');$('#agent-toggle').textContent='收起'}function closeAgent(){agent.classList.remove('open');$('#agent-toggle').textContent='Agent'}$('#agent-toggle').addEventListener('click',()=>agent.classList.contains('open')?closeAgent():openAgent());$('#agent-close').addEventListener('click',closeAgent);
+  $('#model-toggle').addEventListener('click',()=>$('#model-sheet').classList.toggle('open'));$('#manage-models').addEventListener('click',()=>showView('settings'));
+  function showAnswer(){showView('writer');$('#agent-empty').hidden=true;$('#conversation').hidden=false;openAgent();}
+  $$('[data-answer]').forEach(b=>b.addEventListener('click',showAnswer));
+  $('#insert-note').addEventListener('click',e=>{e.currentTarget.textContent='已插入批注层 ✓';e.currentTarget.classList.remove('active');notify('已插入批注层 · 可撤销')});
+  const input=$('#composer-input'),send=$('#send'),drafts=[];function updateSend(){send.disabled=!(input.value.trim()||drafts.length);$('#token-note').classList.toggle('visible',drafts.length>0)}input.addEventListener('input',updateSend);
+  const attach=$('#attach-panel');$('#attach-toggle').addEventListener('click',()=>attach.classList.toggle('open'));$('#attach-close').addEventListener('click',()=>attach.classList.remove('open'));
+  function selectedPages(){return $$('[data-page].selected',attach).map(b=>b.dataset.page)}
+  $$('[data-page]',attach).forEach(b=>b.addEventListener('click',()=>{b.classList.toggle('selected');const n=selectedPages().length;$('#attach-count').textContent=n;$('#attach-apply').textContent=`附加 ${n} 页`;$('#attach-apply').disabled=n===0}));
+  $('#attach-apply').addEventListener('click',()=>{selectedPages().forEach(p=>{if(!drafts.includes(p))drafts.push(p)});renderDrafts();attach.classList.remove('open');updateSend();notify(`已附加 ${drafts.length} 页 · 仅随下条消息发送`)});
+  function renderDrafts(){const list=$('#draft-list');list.innerHTML=drafts.map(p=>`<span class="draft-item">▣ ${p}<button data-remove="${p}" aria-label="移除 ${p}">×</button></span>`).join('');list.classList.toggle('visible',drafts.length>0);$('#token-note').textContent=`${drafts.length} 个附件 · ≈${(drafts.length*1.1).toFixed(1)}k tok`;$$('[data-remove]',list).forEach(b=>b.addEventListener('click',()=>{drafts.splice(drafts.indexOf(b.dataset.remove),1);renderDrafts();updateSend()}))}
+  send.addEventListener('click',()=>{if(send.disabled)return;showAnswer();input.value='';drafts.length=0;renderDrafts();updateSend();notify('回答已完成 · 可插入批注层')});
+
+  // 框选：矩形本身无动画；只有遮罩与意图条有过渡。
+  const overlay=$('#snip-overlay'),selection=$('#selection');let drawing=false,start=null,confirmed=false;
+  function bounds(e){const r=overlay.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+  function openSnip(){showView('writer');setFocus(false);overlay.hidden=false;overlay.style.display='block';selection.style.display='none';$('#snip-top').style.display='none';$('#intent-wrap').style.display='none';$('#snip-hint').style.display='block';$('#snip-cancel').style.display='block';confirmed=false}
+  function closeSnip(){overlay.style.display='none';overlay.hidden=true;drawing=false;confirmed=false}
+  $('#snip-open').addEventListener('click',openSnip);$('#empty-snips').addEventListener('click',()=>{closeAgent();openSnip()});$('#snip-cancel').addEventListener('click',closeSnip);$('#snip-cancel-2').addEventListener('click',closeSnip);
+  overlay.addEventListener('pointerdown',e=>{if(e.target.closest('button')||confirmed)return;start=bounds(e);drawing=true;overlay.setPointerCapture(e.pointerId);selection.style.display='block';$('#snip-hint').style.display='none';$('#snip-cancel').style.display='none';placeSelection(start,start)});
+  function placeSelection(a,b){const x=Math.min(a.x,b.x),y=Math.min(a.y,b.y),w=Math.abs(a.x-b.x),h=Math.abs(a.y-b.y);Object.assign(selection.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'});$('#size-label').textContent=`${Math.round(w)} × ${Math.round(h)} px · 选区已冻结`;return{w,h}}
+  overlay.addEventListener('pointermove',e=>{if(drawing)placeSelection(start,bounds(e))});
+  overlay.addEventListener('pointerup',e=>{if(!drawing)return;drawing=false;const size=placeSelection(start,bounds(e));if(size.w<30||size.h<30){closeSnip();return}confirmed=true;$('#snip-top').style.display='flex';$('#intent-wrap').style.display='block'});
+  $('#snip-reset').addEventListener('click',openSnip);$('#snip-full').addEventListener('click',()=>{const r=paperRect();placeSelection(r,{x:r.x+r.w,y:r.y+r.h});confirmed=true;$('#snip-top').style.display='flex';$('#intent-wrap').style.display='block'});
+  function paperRect(){const p=$('#paper').getBoundingClientRect(),o=overlay.getBoundingClientRect();return{x:p.left-o.left,y:p.top-o.top,w:p.width,h:p.height}}
+  $$('.intent-bar button:not(.send)').forEach(b=>b.addEventListener('click',()=>{$$('.intent-bar button').forEach(x=>x.classList.remove('active'));b.classList.add('active')}));
+  $('#snip-send').addEventListener('click',()=>{closeSnip();showAnswer();notify('选区已发送 · 仅上传本选区')});
+
+  // 命令面板：默认首项、过滤、方向键、Enter、Esc。
+  const commands=[
+    {title:'框选讲解',hint:'笔键长按',group:'Agent',run:openSnip},{title:'讲解本页',hint:'p0001',group:'Agent',run:showAnswer},{title:'归纳本章',hint:'2 页',group:'Agent',run:showAnswer},
+    {title:'专注书写',hint:'纸张不动',group:'笔记',run:()=>{showView('writer');setFocus(true)}},{title:'新建页',hint:'沿用纸型',group:'笔记',run:()=>notify('已新增 p0003')},{title:'新建笔记本',hint:'↵',group:'笔记',run:openNew},{title:'设置',hint:'Provider 与模型',group:'通用',run:()=>showView('settings')}
+  ];
+  const palette=$('#palette-scrim');function filteredCommands(){const q=$('#palette-input').value.trim().toLowerCase();return commands.filter(c=>(c.title+c.group).toLowerCase().includes(q))}
+  function renderCommands(){const items=filteredCommands();selectedCommand=Math.max(0,Math.min(selectedCommand,items.length-1));let last='';$('#command-list').innerHTML=items.length?items.map((c,i)=>{const group=c.group!==last?`<div class="command-group">${c.group}</div>`:'';last=c.group;return`${group}<button class="command ${keyboardNav&&i===selectedCommand?'selected':''}" data-command="${i}">${c.title}<span>${c.hint}</span></button>`}).join(''):'<div class="palette-empty">没有匹配的命令</div>';$$('[data-command]').forEach(b=>b.addEventListener('click',()=>{selectedCommand=+b.dataset.command;runCommand()}))}
+  function openPalette(fromKeyboard=false){palette.classList.add('open');selectedCommand=0;keyboardNav=fromKeyboard===true;$('#palette-input').value='';renderCommands();setTimeout(()=>$('#palette-input').focus(),20)}function closePalette(){palette.classList.remove('open')}function runCommand(){const c=filteredCommands()[selectedCommand];if(c){closePalette();c.run()}}
+  $$('[data-open-palette]').forEach(b=>b.addEventListener('click',openPalette));$('#palette-input').addEventListener('input',()=>{selectedCommand=0;renderCommands()});palette.addEventListener('click',e=>{if(e.target===palette)closePalette()});
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette(true);return}
+    if(e.key==='Escape'){if(palette.classList.contains('open'))closePalette();else if(newScrim.classList.contains('open'))closeNew();else if(overlay.style.display==='block')closeSnip();else if(writer.classList.contains('is-focus'))setFocus(false);else if(agent.classList.contains('open'))closeAgent();menu.hidden=true}
+    if(palette.classList.contains('open')){const n=filteredCommands().length;if(e.key==='ArrowDown'){e.preventDefault();keyboardNav=true;selectedCommand=Math.min(n-1,selectedCommand+1);renderCommands()}if(e.key==='ArrowUp'){e.preventDefault();keyboardNav=true;selectedCommand=Math.max(0,selectedCommand-1);renderCommands()}if(e.key==='Enter'){e.preventDefault();runCommand()}}
+  });
+  document.addEventListener('click',e=>{if(!e.target.closest('#context-menu')&&!e.target.closest('[data-menu]'))menu.hidden=true});
+})();
+</script>
+</body>
+</html>

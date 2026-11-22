@@ -12,11 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -24,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,6 +47,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +67,7 @@ import com.milknote.app.ui.theme.InkBlackArgb
 import com.milknote.app.ui.theme.InkDark
 import com.milknote.app.ui.theme.LocalMilkDark
 import com.milknote.ink.model.InkTool
+import com.milknote.ink.model.PressureGamma
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -71,6 +80,9 @@ internal fun PenSettingsDialog(
     onSelectColor: (Long) -> Unit,
     onColorDetail: (Int) -> Unit,
     onEraserWidth: (Float) -> Unit = {},
+    onEraseTarget: (InkTool, Boolean) -> Unit = { _, _ -> },
+    onAutoRevert: (Boolean) -> Unit = {},
+    onGamma: (PressureGamma) -> Unit = {},
 ) {
     if (tool == InkTool.ERASER) {
         MilkCenterPanel(title = "橡皮大小", subtitle = "整笔划擦除；再次点击橡皮可打开此面板", onDismiss = onDismiss, maxWidth = 430.dp) {
@@ -91,6 +103,56 @@ internal fun PenSettingsDialog(
                     }
                 }
             }
+            Spacer(Modifier.height(18.dp))
+            Text("擦除内容", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "关闭后橡皮划过该类笔迹不再删除；胶带/图片/文字卡片不受橡皮影响",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            val eraseGroups = listOf(
+                Triple("擦除画笔", listOf(InkTool.PEN, InkTool.BALL), "writer-eraser-target-ink"),
+                Triple("擦除荧光笔", listOf(InkTool.HIGHLIGHTER), "writer-eraser-target-highlighter"),
+                Triple("擦除图案笔", listOf(InkTool.DOODLE), "writer-eraser-target-doodle"),
+                Triple("擦除图形", listOf(
+                    InkTool.LINE, InkTool.DASHED_LINE, InkTool.ARROW,
+                    InkTool.RECT, InkTool.OVAL, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON,
+                ), "writer-eraser-target-shape"),
+            )
+            eraseGroups.forEach { (label, tools, tag) ->
+                val on = tools.any { it in settings.eraserTargets }
+                Row(
+                    Modifier.fillMaxWidth().height(48.dp).testTag(tag),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = on,
+                        onCheckedChange = { enabled -> tools.forEach { onEraseTarget(it, enabled) } },
+                        modifier = Modifier.semantics { contentDescription = label },
+                    )
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().height(48.dp).testTag("writer-eraser-auto-revert"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("自动切回画笔", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "擦完一笔后自动回到原书写笔（千本「自动取消」）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = settings.eraserAutoRevert,
+                    onCheckedChange = onAutoRevert,
+                    modifier = Modifier.semantics { contentDescription = "自动切回画笔" },
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 MilkButton("完成", onClick = onDismiss)
@@ -107,11 +169,12 @@ internal fun PenSettingsDialog(
         InkTool.LASER -> "激光笔设置（不落盘）"
         else -> "笔详细设定"
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val panelContent: @Composable () -> Unit = {
         Column(
             Modifier
-                .width(430.dp)
-                .milkDialogSurface()
+                .fillMaxWidth()
+                .heightIn(max = 540.dp)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -144,22 +207,47 @@ internal fun PenSettingsDialog(
                 onValueChange = onWidth,
                 valueRange = 0.2f..3f,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0.4f, 0.7f, 1.2f).forEach { mm ->
-                    val active = abs(current.baseWidthMm - mm) < 0.05f
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(1.dp, if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                            .clickable { onWidth(mm) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            "$mm mm",
-                            fontSize = MaterialTheme.typography.labelMedium.fontSize,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                listOf(0.4f, 0.7f, 1.2f).forEachIndexed { index, mm ->
+                    PenWidthDot(
+                        diameter = listOf(4.dp, 7.dp, 11.dp)[index],
+                        selected = abs(current.baseWidthMm - mm) < 0.05f,
+                        onClick = { onWidth(mm) },
+                    )
+                }
+            }
+            if (tool in writingTools) {
+                Spacer(Modifier.height(18.dp))
+                Text("压感灵敏度", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "灵敏 = 轻压即出粗线；柔和 = 重按才变粗（千本「笔尖」）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                        .testTag("writer-pen-gamma"),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    PressureGamma.entries.forEach { gamma ->
+                        val active = current.pressureGamma == gamma
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clickable { onGamma(gamma) }
+                                .padding(vertical = 10.dp)
+                                .testTag("writer-pen-gamma-${gamma.name.lowercase()}"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                gamma.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -172,16 +260,18 @@ internal fun PenSettingsDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(6.dp))
-            Row {
+            LazyRow(Modifier.fillMaxWidth().testTag("writer-pen-palette")) {
                 settings.palettes.getValue(tool).forEachIndexed { index, color ->
-                    InkColorDot(
-                        color = color,
-                        label = "颜色 ${index + 1}",
-                        active = current.color == color,
-                        onClick = {
-                            if (current.color == color) onColorDetail(index) else onSelectColor(color)
-                        },
-                    )
+                    item(key = "palette-$index") {
+                        InkColorDot(
+                            color = color,
+                            label = "颜色 ${index + 1}",
+                            active = current.color == color,
+                            onClick = {
+                                if (current.color == color) onColorDetail(index) else onSelectColor(color)
+                            },
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -190,14 +280,28 @@ internal fun PenSettingsDialog(
             }
         }
     }
+    WriterFloatingPanel(onDismiss = onDismiss) { panelContent() }
 }
 
 @Composable
-private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float) {
+private fun PenWidthDot(diameter: androidx.compose.ui.unit.Dp, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.size(diameter).clip(CircleShape)
+                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+        )
+    }
+}
+
+@Composable
+private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float, compact: Boolean = false) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(88.dp)
+            .height(if (compact) 64.dp else 88.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f), RoundedCornerShape(12.dp)),

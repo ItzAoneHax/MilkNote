@@ -160,7 +160,8 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = 1
-        versionName = "0.8.0-m2"
+        versionName = "0.9.0-m2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 应用内更新比对用:每次构建取当前时间(同 versionCode 覆盖安装,以时间为新)
         buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
     }
@@ -200,9 +201,13 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     debugImplementation(libs.compose.ui.tooling)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit.ext)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
 }

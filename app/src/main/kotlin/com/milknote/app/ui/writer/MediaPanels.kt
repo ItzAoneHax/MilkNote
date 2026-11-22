@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -57,7 +61,10 @@ internal fun VideoInsertPanel(
         onDismiss = onDismiss,
         maxWidth = 460.dp,
     ) {
-        Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll").padding(top = 16.dp),
+        ) {
             Text(
                 "从系统文件选择器选择一个本地视频。文件会复制到笔记本的 media 目录，页面只显示静态占位，点击播放时在中央面板内播放；不会上传或使用外部服务。",
                 style = MaterialTheme.typography.bodyMedium,
@@ -147,7 +154,10 @@ internal fun AudioRecordPanel(
         onDismiss = dismiss,
         maxWidth = 460.dp,
     ) {
-        Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll").padding(top = 16.dp),
+        ) {
             if (state.permission != RecordPermission.GRANTED) {
                 Text(
                     "录音需要麦克风权限。MilkNote 只在你按下开始后、且本面板在前台时录音，不会后台上传或使用外部服务。",
@@ -287,7 +297,10 @@ internal fun MediaPlaybackPanel(
         onDismiss = onDismiss,
         maxWidth = 620.dp,
     ) {
-        Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll").padding(top = 16.dp),
+        ) {
             if (element.kind == MediaKind.VIDEO) {
                 VideoPlaybackBody(file, element)
             } else {

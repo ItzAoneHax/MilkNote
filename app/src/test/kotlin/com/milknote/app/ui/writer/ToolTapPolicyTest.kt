@@ -6,19 +6,31 @@ import org.junit.Test
 
 class ToolTapPolicyTest {
     @Test
-    fun `首次点击切换工具 再次点击打开设置`() {
+    fun `首击切换 再击设置 面板开启时再击关闭`() {
         assertEquals(ToolTapOutcome.ACTIVATE, resolveToolTap(false))
+        assertEquals(ToolTapOutcome.ACTIVATE, resolveToolTap(false, settingsOpen = true))
         assertEquals(ToolTapOutcome.OPEN_SETTINGS, resolveToolTap(true))
+        assertEquals(ToolTapOutcome.CLOSE_SETTINGS, resolveToolTap(true, settingsOpen = true))
     }
 
     @Test
-    fun `中央面板互斥且返回或外部关闭后清空`() {
+    fun `工具与文档面板互斥且关闭后清空`() {
         val initial = WriterPanelState()
         val pen = initial.open(WriterPanel.TOOL)
         val text = pen.open(WriterPanel.TEXT)
+        val shape = text.open(WriterPanel.SHAPE)
         assertEquals(WriterPanel.TOOL, pen.open)
         assertEquals(WriterPanel.TEXT, text.open)
-        assertNull(text.dismiss().open)
+        assertEquals(WriterPanel.SHAPE, shape.open)
+        assertNull(shape.dismiss().open)
         assertNull(initial.open)
+    }
+
+    @Test
+    fun `任一目标面板都替换旧面板而不是叠层`() {
+        WriterPanel.entries.forEach { target ->
+            val state = WriterPanelState(WriterPanel.MORE).open(target)
+            assertEquals(target, state.open)
+        }
     }
 }

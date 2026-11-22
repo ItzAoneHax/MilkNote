@@ -165,9 +165,6 @@ fun MilkRoot() {
                         showPalette = true   // 书架/设置页:⌥A 降级为面板
                     }
                 }
-                ServiceLocator.UiEvent.OpenConsole -> {
-                    if (screen !is MilkScreen.Writer) showPalette = true
-                }
             }
         }
     }
@@ -202,9 +199,6 @@ fun MilkRoot() {
                 },
                 CommandItem("id_export", "导出笔记", hint = "PNG · PDF", section = "笔记") {
                     screen = MilkScreen.Export(s.notebookId)
-                },
-                CommandItem("id_console", "K 操作台", hint = "内容 · 画笔 · 页面", section = "笔记") {
-                    ServiceLocator.uiEvents.tryEmit(ServiceLocator.UiEvent.OpenConsole)
                 },
                 CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
                 CommandItem("id_settings", "设置", section = "通用") { openSettings(true, "appearance") },
@@ -296,13 +290,19 @@ fun MilkRoot() {
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenSettings = { openSettings(false, "appearance") },
                     onOpenPalette = { showPalette = true },
-                    onOpenCards = { cardsVm.refresh(); screen = MilkScreen.Cards },
+                    onOpenCards = {
+                        cardsVm.refresh()
+                        screen = MilkScreen.Cards
+                    },
                     showNewNotebook = showNewNotebook,
                     onNewNotebookHandled = { showNewNotebook = false },
                 )
                 is MilkScreen.Cards -> CardsScreen(
                     vm = cardsVm,
-                    onNotes = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
+                    onNotes = {
+                        bookshelfVm.refresh()
+                        screen = MilkScreen.Bookshelf
+                    },
                     onInsert = { card, notebookId, pageId ->
                         writerVm.open(notebookId)
                         writerVm.insertLibraryCard(card, pageId)
@@ -311,14 +311,13 @@ fun MilkRoot() {
                 )
                 is MilkScreen.Writer -> WriterScreen(
                     vm = writerVm,
+                    cardsVm = cardsVm,
                     dark = dark,
                     onBack = { bookshelfVm.refresh(); screen = MilkScreen.Bookshelf },
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenPalette = { showPalette = true },
                     onOpenSettings = { page -> openSettings(true, page) },
-                    // 主线程已在 WriterScreen 增加 onOpenExport 参数(顶栏导出入口接通)
                     onOpenExport = { screen = MilkScreen.Export(s.notebookId) },
-                    onSwitchNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
                 )
                 is MilkScreen.Export -> {
                     // 导出页复用书写页 VM(open 幂等:同 id 早退);返回钮走 onBack → Writer

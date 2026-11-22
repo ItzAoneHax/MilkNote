@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.milknote.app.di.ServiceLocator
@@ -103,7 +104,7 @@ fun CardsScreen(
             MilkButton(label = "新建卡片", onClick = { creating = true })
         }
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("cards-filters").padding(horizontal = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip("全部标签", state.tag == CardTagFilter.All) { vm.filterTag(CardTagFilter.All) }
@@ -143,7 +144,7 @@ fun CardsScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(280.dp),
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("cards-grid"),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(28.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -213,7 +214,7 @@ fun CardsScreen(
 }
 
 @Composable
-private fun CardEditorPanel(
+internal fun CardEditorPanel(
     existing: NoteCard?,
     onDismiss: () -> Unit,
     onSave: (String, String, List<String>, String) -> Unit,
@@ -322,7 +323,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CardImage(relative: String) {
+internal fun CardImage(relative: String) {
     val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, relative) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
@@ -341,4 +342,4 @@ private fun CardImage(relative: String) {
     }
 }
 
-private fun cardColor(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF3B5BEC))
+internal fun cardColor(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF3B5BEC))
