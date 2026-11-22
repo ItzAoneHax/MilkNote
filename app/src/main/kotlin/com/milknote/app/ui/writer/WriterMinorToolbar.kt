@@ -134,7 +134,9 @@ internal fun WriterMinorToolbar(
     shapeColor: Long,
     shapeWidth: Float,
     dock: MinorDock,
+    onDockDrag: ((dragged: Offset, handleCenter: Offset) -> Unit)?,
     onDockDrop: ((dragged: Offset, handleCenter: Offset) -> Unit)?,
+    onDockCancel: (() -> Unit)?,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onCollapse: () -> Unit,
@@ -165,17 +167,24 @@ internal fun WriterMinorToolbar(
     )
     val listState = rememberLazyListState()
     LaunchedEffect(selectedTool) { listState.scrollToItem(0) }
-    // 拖拽柄:root 坐标中心 + 累计位移;松手时由外层按最近边吸附一次(千本 P065 实测同款语义)。
-    // 不做拖拽中途切换:横/竖布局分支切换会销毁 pointerInput,活动拖拽会被打断。
+    // 拖拽柄:root 坐标中心 + 累计位移;拖动中实时回报(onDockDrag→外层画停靠预览),
+    // 松手按最近边吸附一次(onDockDrop)。不做拖拽中途切换:横/竖布局分支切换会销毁
+    // pointerInput,活动拖拽会被打断,故落位保留在松手时刻。
     var handleCenter by remember { mutableStateOf(Offset.Zero) }
     var dragTotal by remember { mutableStateOf(Offset.Zero) }
     val dragModifier = if (onDockDrop != null) {
         Modifier.pointerInput(Unit) {
             detectDragGestures(
                 onDragStart = { dragTotal = Offset.Zero },
-                onDrag = { _, amount -> dragTotal += amount },
+                onDrag = { _, amount ->
+                    dragTotal += amount
+                    onDockDrag?.invoke(dragTotal, handleCenter)
+                },
                 onDragEnd = { onDockDrop(dragTotal, handleCenter) },
-                onDragCancel = { dragTotal = Offset.Zero },
+                onDragCancel = {
+                    dragTotal = Offset.Zero
+                    onDockCancel?.invoke()
+                },
             )
         }
     } else Modifier

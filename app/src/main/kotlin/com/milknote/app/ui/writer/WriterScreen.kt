@@ -50,6 +50,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DragIndicator
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Gesture
@@ -206,6 +207,7 @@ fun WriterScreen(
     }
     var minorCollapsed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var minorDock by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(MinorDock.TOP) }
+    var dockPreview by remember { mutableStateOf<MinorDock?>(null) }
     var centralPanelState by remember { mutableStateOf(WriterPanelState()) }
     var detailTool by remember { mutableStateOf<InkTool?>(null) }
     var detailColor by remember { mutableStateOf<Int?>(null) }
@@ -487,18 +489,23 @@ fun WriterScreen(
                     modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
                 )
             }
-            // 千本 drag_point(本轮实测):拖拽松手后按指针最近边吸附,四边均可停靠
+            // 千本 drag_point(本轮实测):拖拽松手后按指针最近边吸附,四边均可停靠;
+            // 拖动中在目标边实时显示停靠预览条(松手前可见"会停到哪")
             val windowSize = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
-            val onDockDrop: (Offset, Offset) -> Unit = { dragged, handleCenter ->
-                val x = handleCenter.x + dragged.x
-                val y = handleCenter.y + dragged.y
-                minorDock = listOf(
-                    MinorDock.TOP to y,
-                    MinorDock.BOTTOM to windowSize.height - y,
-                    MinorDock.LEFT to x,
-                    MinorDock.RIGHT to windowSize.width - x,
-                ).minByOrNull { it.second }?.first ?: MinorDock.TOP
+            fun nearestDock(x: Float, y: Float): MinorDock = listOf(
+                MinorDock.TOP to y,
+                MinorDock.BOTTOM to windowSize.height - y,
+                MinorDock.LEFT to x,
+                MinorDock.RIGHT to windowSize.width - x,
+            ).minByOrNull { it.second }?.first ?: MinorDock.TOP
+            val onDockDrag: (Offset, Offset) -> Unit = { dragged, handleCenter ->
+                dockPreview = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
             }
+            val onDockDrop: (Offset, Offset) -> Unit = { dragged, handleCenter ->
+                minorDock = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
+                dockPreview = null
+            }
+            val onDockCancel: () -> Unit = { dockPreview = null }
             val minorBar: @Composable (MinorDock) -> Unit = { dock ->
                 WriterMinorToolbar(
                     state = state,
@@ -508,7 +515,9 @@ fun WriterScreen(
                     shapeColor = shapeColor,
                     shapeWidth = shapeWidth,
                     dock = dock,
+                    onDockDrag = onDockDrag,
                     onDockDrop = onDockDrop,
+                    onDockCancel = onDockCancel,
                     onUndo = vm::undo,
                     onRedo = vm::redo,
                     onCollapse = { minorCollapsed = true },
@@ -564,6 +573,46 @@ fun WriterScreen(
                     ) { minorBar(MinorDock.LEFT) }
                     MinorDock.RIGHT -> Box(Modifier.align(Alignment.CenterEnd)) { minorBar(MinorDock.RIGHT) }
                     MinorDock.TOP -> Unit
+                }
+            }
+            // 拖拽中的停靠预览:目标边显示半透明落位条(松手前可见"会停到哪")
+            dockPreview?.let { preview ->
+                val previewShape = RoundedCornerShape(10.dp)
+                val previewModifier = when (preview) {
+                    MinorDock.TOP -> Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = WriterMajorToolbarHeight)
+                        .fillMaxWidth()
+                        .height(WriterMinorToolbarHeight)
+                    MinorDock.BOTTOM -> Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(WriterMinorToolbarHeight)
+                    MinorDock.LEFT -> Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = if (railMode == null) WriterClosedRailWidth else WriterExpandedRailWidth)
+                        .width(WriterMinorBarThickness)
+                        .fillMaxHeight()
+                    MinorDock.RIGHT -> Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(WriterMinorBarThickness)
+                        .fillMaxHeight()
+                }
+                Box(
+                    previewModifier
+                        .padding(6.dp)
+                        .clip(previewShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .border(1.dp, MaterialTheme.colorScheme.primary, previewShape)
+                        .testTag("writer-dock-preview"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.DragIndicator,
+                        "停靠预览",
+                        Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
             if (minorCollapsed) {
