@@ -67,7 +67,7 @@ import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.PillShape
 import kotlin.math.roundToInt
 
-internal val WriterExpandedRailWidth = 310.dp
+internal val WriterExpandedRailWidth = 248.dp
 
 /** P058：双列页面缩略图覆盖于固定纸面之上，页码与前后翻页固定在栏底。
  *  千本笔记本轮实测：缩略图即拖拽柄，长按后拖到目标格释放完成重排，第 1 页自动成为封面。 */
@@ -272,7 +272,7 @@ internal fun WriterPageRail(
                 }
             }
         }
-        WriterPageNavigation(state, onPrevious, onNext)
+        // 页码与翻页交给画布左下角的悬浮页码胶囊,抽屉底部不再重复一条翻页栏
         }
         // 浮动缩略影:跟随拖拽点,落在目标格中央
         dragPageId?.let { pid ->

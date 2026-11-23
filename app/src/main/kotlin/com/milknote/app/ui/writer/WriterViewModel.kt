@@ -137,6 +137,7 @@ class WriterViewModel : ViewModel() {
                 _state.value = _state.value.copy(
                     frontBufferEnabled = s.frontBufferInk,
                 )
+                penPresets.value = PenPresets.decode(s.penPresets)
             }
         }
         registerAgentBridge()
@@ -794,24 +795,33 @@ class WriterViewModel : ViewModel() {
     }
 
     fun saveMarkdownAsCard() {
-        val nb = _state.value.notebook ?: return
-        val pageId = _state.value.currentPageId
         val md = _state.value.pageMarkdown.trim()
         if (md.isBlank()) {
             toast("当前页伴随 Markdown 为空")
             return
         }
-        val firstLine = md.lineSequence().firstOrNull { it.isNotBlank() }
-            ?.removePrefix("###")?.removePrefix("##")?.removePrefix("#")?.trim()
-            ?.takeIf { it.isNotBlank() } ?: "伴随笔记 · $pageId"
-        val tags = Regex("#([^\\s#<]+)").findAll(md).map { it.groupValues[1] }.distinct().toList()
+        saveTextAsCard(md)
+    }
+
+    /** 把一段文本(伴随 Markdown / Agent 回答)存为知识卡片:首个标题行为卡片名,#标签 自动提取 */
+    fun saveTextAsCard(text: String) {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val body = text.trim()
+        if (body.isBlank()) {
+            toast("没有可保存的内容")
+            return
+        }
+        val title = body.lineSequence().firstOrNull { it.isNotBlank() }
+            ?.trimStart('#', ' ', '*')?.trim()?.takeIf { it.isNotBlank() } ?: "摘录 · $pageId"
+        val tags = Regex("#([^\\s#<]+)").findAll(body).map { it.groupValues[1] }.distinct().toList()
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             ServiceLocator.cardRepository.upsert(
                 NoteCard(
                     id = UUID.randomUUID().toString().substring(0, 12),
-                    title = firstLine,
-                    body = md,
+                    title = title,
+                    body = body,
                     tags = tags,
                     color = nb.coverColor,
                     sourceNotebookId = nb.id,
@@ -1116,6 +1126,49 @@ class WriterViewModel : ViewModel() {
     /** 当前笔压感档(千本钢笔「笔尖」/画笔「压感灵敏度」) */
     fun setPenGamma(gamma: PressureGamma) =
         applyToolSettings(_state.value.toolSettings.selectPressureGamma(gamma))
+
+    // ---- 笔盒收藏(DESIGN-V2 pop-pen):当前书写笔的 工具/墨色/粗细 一键收藏,DataStore 持久化 ----
+
+    val penPresets = MutableStateFlow<List<PenPreset>>(emptyList())
+
+    fun saveCurrentPenPreset() {
+        val t = _state.value.tool
+        if (t.tool !in writingTools) {
+            toast("只有书写笔可以收藏到笔盒")
+            return
+        }
+        val preset = PenPreset(
+            id = t.tool.id + t.color + t.baseWidthMm,
+            name = "${penLabel(t.tool)} · #${"%06X".format(0xFFFFFFL and t.color)} · ${"%.1f".format(t.baseWidthMm)}mm",
+            tool = t.tool, color = t.color, widthMm = t.baseWidthMm,
+        )
+        if (penPresets.value.any { it.id == preset.id }) {
+            toast("这支笔已在笔盒中")
+            return
+        }
+        persistPenPresets(penPresets.value + preset)
+        toast("已收藏到笔盒")
+    }
+
+    fun applyPenPreset(p: PenPreset) = applyToolSettings(
+        _state.value.toolSettings.selectTool(p.tool).selectColor(p.color).selectWidth(p.widthMm),
+    )
+
+    fun deletePenPreset(id: String) = persistPenPresets(penPresets.value.filter { it.id != id })
+
+    fun clearPenPresets() = persistPenPresets(emptyList())
+
+    private fun persistPenPresets(list: List<PenPreset>) {
+        penPresets.value = list
+        viewModelScope.launch(Dispatchers.IO) { ServiceLocator.appSettings.setPenPresets(PenPresets.encode(list)) }
+    }
+
+    private fun penLabel(tool: InkTool): String = when (tool) {
+        InkTool.PEN -> "钢笔"
+        InkTool.BALL -> "圆珠笔"
+        InkTool.HIGHLIGHTER -> "荧光笔"
+        else -> "图案笔"
+    }
 
     private fun applyToolSettings(settings: WriterToolSettings) {
         controller.eraserWidthMm = settings.eraserWidthMm

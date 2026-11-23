@@ -156,7 +156,7 @@ internal fun WriterSnippetRail(
         Column(
             Modifier
                 .fillMaxHeight()
-                .width(310.dp)
+                .width(WriterExpandedRailWidth)
                 .background(MaterialTheme.colorScheme.surface)
                 .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.75f), right = true),
         ) {

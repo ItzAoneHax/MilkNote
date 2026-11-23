@@ -108,6 +108,15 @@ class NotebookRepository(
         trashed.size
     }
 
+    /** 回收站保留策略:删除移入超过 [days] 天的笔记本(0 = 永久保留);返回清理数量。 */
+    fun purgeExpiredTrash(days: Int, now: Long = System.currentTimeMillis()): Int {
+        if (days <= 0) return 0
+        val cutoff = now - days * 86_400_000L
+        val expired = listTrashedNotebooks().filter { it.trashedAt in 1 until cutoff }
+        expired.forEach { dirOf(it.id).deleteRecursively() }
+        return expired.size
+    }
+
     /** 页序由 notebook.json 的 pageOrder 决定;旧 .milk 无该字段时按 pageId 字典序。 */
     fun listPages(notebookId: String): List<NotebookPage> = synchronized(writeLock) {
         val dir = dirOf(notebookId)

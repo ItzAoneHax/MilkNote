@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -76,9 +77,21 @@ class BookshelfViewModel : ViewModel() {
     val covers: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> = _covers
     private var coverJob: kotlinx.coroutines.Job? = null
 
-    init { refresh() }
+    init {
+        // 书架默认视图与回收站保留天数来自设置;启动时先按保留天数清理过期回收站,再首次刷新
+        viewModelScope.launch(Dispatchers.IO) {
+            val s = ServiceLocator.appSettings.flow.first()
+            trashDays = s.trashDays
+            withContext(Dispatchers.Main) { _listView.value = s.bookshelfListView }
+            repo.purgeExpiredTrash(trashDays)
+            withContext(Dispatchers.Main) { refresh() }
+        }
+    }
+
+    private var trashDays: Int = 30
 
     fun refresh() {
+        repo.purgeExpiredTrash(trashDays)
         loaded = repo.listNotebooks(includeTrashed = false)
         trashedLoaded = repo.listTrashedNotebooks()
         _allLiveNotebooks.value = loaded
@@ -103,12 +116,12 @@ class BookshelfViewModel : ViewModel() {
         projectNotebooks()
     }
 
-    fun toggleListView() {
-        _listView.value = !_listView.value
-    }
+    fun toggleListView() = setListView(!_listView.value)
 
+    /** 网格 / 列表视图切换会持久化为书架默认视图 */
     fun setListView(list: Boolean) {
         _listView.value = list
+        viewModelScope.launch(Dispatchers.IO) { ServiceLocator.appSettings.setBookshelfListView(list) }
     }
 
     fun toggleRail() {

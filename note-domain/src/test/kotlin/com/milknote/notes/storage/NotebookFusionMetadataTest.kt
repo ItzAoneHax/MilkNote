@@ -81,4 +81,19 @@ class NotebookFusionMetadataTest {
         assertEquals(1, repo.emptyTrash())
         assertTrue(repo.listNotebooks(includeTrashed = true).isEmpty())
     }
+
+    @Test
+    fun `回收站按保留天数自动清理 零为永久保留`() {
+        val keep = repo.create("保留", "#2563EB", "dot", "课堂笔记")
+        val gone = repo.create("过期", "#2563EB", "dot", "课堂笔记")
+        repo.moveToTrash(keep.id)
+        repo.moveToTrash(gone.id)
+        val now = System.currentTimeMillis()
+        repo.updateMeta(repo.getNotebook(gone.id)!!.copy(trashedAt = now - 40L * 86_400_000L))
+
+        assertEquals(0, repo.purgeExpiredTrash(0, now))
+        assertEquals(2, repo.listTrashedNotebooks().size)
+        assertEquals(1, repo.purgeExpiredTrash(30, now))
+        assertEquals(listOf(keep.id), repo.listTrashedNotebooks().map { it.id })
+    }
 }

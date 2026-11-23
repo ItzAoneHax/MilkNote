@@ -26,7 +26,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +48,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -63,8 +65,8 @@ import com.milknote.app.ui.theme.PillShape
 import com.milknote.app.ui.theme.milkPanelEnter
 
 /**
- * 共享表单控件(视觉升级 2026-11):所有页面/面板统一使用,不再各自拼装。
- * 芯片 / 色点 / 分段控件 / 输入框 / 开关 / 键帽 / 危险确认弹窗。
+ * 共享表单控件（第二代 · DESIGN-V2）：芯片 / 色点 / 分段控件 / 输入框 / 开关 / 键帽 / 确认弹窗。
+ * 视觉纪律：hairline 描边 + 平涂底色，仅分段选中段带 1dp 软影；无渐变、无内高光。
  */
 
 private val ColorTween = tween<Color>(durationMillis = 160)
@@ -99,8 +101,8 @@ fun MilkSectionLabel(
 // ==================== 芯片 ====================
 
 /**
- * 统一选项芯片:选中 = 淡蓝底 + 蓝字 + 蓝描边;未选 = surface 底 + hairline。
- * 视觉高 40dp(small 34dp),命中区按 M3 最小交互尺寸外扩到 48dp(A-9)。
+ * 统一选项芯片(32/38dp 胶囊):未选 = 透明底 + hairline;选中 = 强调色淡底 + 强调色描边 + 强调色字。
+ * 命中区按触控最小尺寸外扩到 48dp。
  */
 @Composable
 fun MilkChip(
@@ -114,7 +116,7 @@ fun MilkChip(
 ) {
     val cs = MaterialTheme.colorScheme
     val bg by animateColorAsState(
-        if (selected) cs.primary.copy(alpha = 0.12f) else cs.surface,
+        if (selected) cs.primary.copy(alpha = 0.09f) else Color.Transparent,
         ColorTween, label = "milkChipBg",
     )
     val border by animateColorAsState(
@@ -122,7 +124,7 @@ fun MilkChip(
         ColorTween, label = "milkChipBorder",
     )
     val fg by animateColorAsState(
-        if (selected) cs.primary else cs.onSurface,
+        if (selected) cs.primary else cs.onBackground,
         ColorTween, label = "milkChipFg",
     )
     Row(
@@ -131,8 +133,8 @@ fun MilkChip(
             .background(bg)
             .border(1.dp, border, PillShape)
             .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
-            .defaultMinSize(minHeight = if (small) 34.dp else 40.dp)
-            .padding(horizontal = if (small) 12.dp else 16.dp),
+            .defaultMinSize(minHeight = if (small) 32.dp else 38.dp)
+            .padding(horizontal = if (small) 12.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         leading?.let {
@@ -141,8 +143,8 @@ fun MilkChip(
         }
         Text(
             text = label,
-            style = if (small) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.Medium else null,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
             color = if (enabled) fg else fg.copy(alpha = 0.38f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -159,8 +161,8 @@ object MilkChipSpacing {
 // ==================== 色点 ====================
 
 /**
- * 色点选择器(封面/纸色/墨色/文字色共用):命中 44dp,视觉点 [dotSize];
- * 选中 = 外扩 2dp 蓝色光环,未选 = hairline 细边。
+ * 色点选择器(封面/纸色/墨色/文字色共用):16dp 色点 + hairline;
+ * 选中 = 色点放大 1.18 倍 + 外扩 2dp 强调色光环。
  */
 @Composable
 fun MilkColorDot(
@@ -168,15 +170,15 @@ fun MilkColorDot(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    dotSize: Dp = 28.dp,
+    dotSize: Dp = 16.dp,
     contentDescription: String? = null,
     enabled: Boolean = true,
 ) {
-    val ringSize by animateDpAsState(if (selected) dotSize + 8.dp else dotSize, DpTween, label = "milkDotRing")
+    val ringSize by animateDpAsState(if (selected) dotSize + 11.dp else dotSize + 2.dp, DpTween, label = "milkDotRing")
     val desc = contentDescription?.let { if (selected) "$it,已选中" else it }
     Box(
         modifier
-            .size(44.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics { if (desc != null) this.contentDescription = desc },
@@ -185,21 +187,20 @@ fun MilkColorDot(
         Box(
             Modifier
                 .size(ringSize)
-                .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape),
+                .border(if (selected) 1.5.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.16f), CircleShape),
         )
         Box(
             Modifier
-                .size(dotSize)
+                .size(if (selected) dotSize * 1.18f else dotSize)
                 .clip(CircleShape)
-                .background(color)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), CircleShape),
+                .background(color),
         )
     }
 }
 
 // ==================== 分段控件 ====================
 
-/** 分段控件:互斥少量选项(2–4 个),选中段白底上浮;替代裸文字切换 */
+/** 分段控件:互斥少量选项(2–4 个),30dp 段;选中段 surface 底上浮 */
 @Composable
 fun <T> MilkSegmented(
     options: List<T>,
@@ -214,7 +215,7 @@ fun <T> MilkSegmented(
     Column(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(9.dp))
             .background(cs.surfaceVariant.copy(alpha = 0.7f))
             .padding(3.dp),
     ) {
@@ -227,8 +228,8 @@ fun <T> MilkSegmented(
                 Box(
                     Modifier
                         .weight(1f)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(7.dp))
                         .background(bg)
                         .clickable(enabled = enabled, role = Role.RadioButton, onClick = { onSelect(option) })
                         .then(testTagFor?.let { Modifier.testTag(it(option)) } ?: Modifier),
@@ -236,11 +237,11 @@ fun <T> MilkSegmented(
                 ) {
                     Text(
                         text = label(option),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.Medium else null,
+                        fontSize = 12.sp,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                         color = when {
                             !enabled -> cs.onSurfaceVariant.copy(alpha = 0.38f)
-                            active -> cs.onSurface
+                            active -> cs.onBackground
                             else -> cs.onSurfaceVariant
                         },
                         maxLines = 1,
@@ -254,7 +255,7 @@ fun <T> MilkSegmented(
 // ==================== 输入框 ====================
 
 /**
- * 统一输入框:填充式(surfaceVariant 淡底)或描边式;聚焦/脏值时描边变蓝。
+ * 统一输入框:40dp 高、10dp 圆角、hairline 描边;聚焦/脏值时描边变强调色。
  * label 以眉标形式置于框上方;mono 用于值/URL/Key。
  */
 @Composable
@@ -283,14 +284,14 @@ fun MilkTextField(
     val borderColor by animateColorAsState(
         when {
             focused || dirty -> cs.primary
-            filled -> Color.Transparent
             else -> cs.outline
         },
         ColorTween, label = "milkFieldBorder",
     )
-    val container = if (filled) cs.surfaceVariant.copy(alpha = 0.55f) else cs.surface
+    val container = if (filled) cs.surfaceVariant.copy(alpha = 0.45f) else cs.surface
     val textColor = if (enabled) cs.onBackground else cs.onSurfaceVariant.copy(alpha = 0.5f)
     val fontFamily = if (mono) Mono else null
+    val shape = RoundedCornerShape(10.dp)
 
     Column(modifier.fillMaxWidth()) {
         label?.let {
@@ -298,17 +299,17 @@ fun MilkTextField(
                 text = it,
                 style = MilkEyebrow,
                 color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(start = 2.dp, bottom = 7.dp),
+                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp),
             )
         }
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
+                .clip(shape)
                 .background(container)
-                .border(1.dp, borderColor, MaterialTheme.shapes.medium)
-                .heightIn(min = 48.dp * minLines.coerceAtLeast(1))
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .border(1.dp, borderColor, shape)
+                .heightIn(min = 40.dp * minLines.coerceAtLeast(1))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = if (singleLine || minLines <= 1) Alignment.CenterVertically else Alignment.Top,
         ) {
             leading?.let {
@@ -321,6 +322,7 @@ fun MilkTextField(
                         text = placeholder,
                         style = textStyle.copy(
                             fontFamily = fontFamily,
+                            fontSize = 13.5.sp,
                             color = cs.onSurfaceVariant.copy(alpha = 0.6f),
                         ),
                         maxLines = maxLines,
@@ -333,7 +335,7 @@ fun MilkTextField(
                     minLines = minLines,
                     maxLines = maxLines,
                     enabled = enabled,
-                    textStyle = textStyle.copy(fontFamily = fontFamily, color = textColor),
+                    textStyle = textStyle.copy(fontFamily = fontFamily, fontSize = 13.5.sp, color = textColor),
                     visualTransformation = if (mask) PasswordVisualTransformation() else VisualTransformation.None,
                     cursorBrush = SolidColor(cs.primary),
                     keyboardOptions = KeyboardOptions(imeAction = imeAction),
@@ -353,7 +355,7 @@ fun MilkTextField(
 
 // ==================== 开关 ====================
 
-/** 胶囊开关:on = 蓝轨 + 亮 thumb / off = 灰轨 + 灰边 + 白(暗色为浅灰)thumb */
+/** 胶囊开关:42×24;on = 强调色轨 + 亮 thumb;off = 灰轨 + hairline + 白 thumb */
 @Composable
 fun MilkSwitch(
     checked: Boolean,
@@ -363,13 +365,13 @@ fun MilkSwitch(
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
-    val thumbX by animateDpAsState(if (checked) 22.dp else 2.dp, DpTween, label = "milkSwitchThumb")
+    val thumbX by animateDpAsState(if (checked) 20.dp else 2.dp, DpTween, label = "milkSwitchThumb")
     val trackColor by animateColorAsState(if (checked) cs.primary else cs.surfaceVariant, ColorTween, label = "milkSwitchTrack")
     val trackBorder by animateColorAsState(if (checked) Color.Transparent else cs.outline, ColorTween, label = "milkSwitchBorder")
     val thumbColor = if (checked) cs.onPrimary else if (dark) cs.onSurfaceVariant else cs.surface
     Box(
         modifier
-            .size(width = 44.dp, height = 26.dp)
+            .size(width = 42.dp, height = 24.dp)
             .clip(CircleShape)
             .background(trackColor)
             .border(1.dp, trackBorder, CircleShape)
@@ -381,7 +383,8 @@ fun MilkSwitch(
                 .offset(x = thumbX)
                 .size(20.dp)
                 .clip(CircleShape)
-                .background(thumbColor),
+                .background(thumbColor)
+                .border(1.dp, Color.Black.copy(alpha = 0.08f), CircleShape),
         )
     }
 }
@@ -404,7 +407,7 @@ fun MilkKeyCap(text: String, modifier: Modifier = Modifier, emphasized: Boolean 
 // ==================== 危险确认 ====================
 
 /**
- * 统一确认弹窗:图标 + 标题 + 说明 + 右对齐动作;危险操作用红实心确认键。
+ * 统一确认弹窗(第二代 modal):标题 16sp + 说明 12.5sp;底部 hairline 分隔 + 右对齐 取消/确认。
  * 所有「删除 / 不可撤销」路径共用,替代各处手写 Dialog。
  */
 @Composable
@@ -417,42 +420,30 @@ fun MilkConfirmDialog(
     modifier: Modifier = Modifier,
     cancelLabel: String = "取消",
     destructive: Boolean = true,
-    icon: ImageVector? = if (destructive) Icons.Outlined.DeleteOutline else null,
+    icon: ImageVector? = null,
 ) {
     val cs = MaterialTheme.colorScheme
-    val tint = if (destructive) cs.error else cs.primary
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .milkPanelEnter()
-                .milkDialogSurface()
-                .padding(24.dp),
+                .milkDialogSurface(),
         ) {
-            Row(verticalAlignment = Alignment.Top) {
-                if (icon != null) {
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(tint.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-                    }
-                    Spacer(Modifier.width(14.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-                    Spacer(Modifier.height(6.dp))
-                    Text(body, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                }
+            Column(Modifier.padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 16.dp)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Spacer(Modifier.height(6.dp))
+                Text(body, fontSize = 12.5.sp, lineHeight = 18.sp, color = cs.onSurfaceVariant)
             }
-            Spacer(Modifier.height(22.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            HorizontalDivider(color = cs.outline)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 MilkButton(cancelLabel, onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 MilkButton(confirmLabel, onClick = onConfirm, destructive = destructive)
             }
         }

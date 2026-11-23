@@ -22,7 +22,8 @@
 
 ## 3. 全新应用图标（`icons/`）
 
-- **方案 A（主推）· 奶滴笔锋**（`icon-a-nib-drop.svg` + Android Adaptive XML）：干净钢笔蓝渐变底 + 奶白水滴轮廓，内部笔缝与气孔构成钢笔尖，右上一点微光星点呼应视觉 Agent。
+- **最终采用 · 牛奶盒**（`icon-milk-carton.png`）：用户提供的立体牛奶盒 + 天空蓝对角渐变矩形底（`#B0E2FA` → `#6CBAF4`）。仅裁去外围米白留白与底部文字（启动器自带应用名），牛奶盒主体居中放入 Adaptive Icon 安全区；Material You 单色层为同款牛奶盒剪影。
+- **方案 A · 奶滴笔锋**（`icon-a-nib-drop.svg` + Android Adaptive XML）：干净钢笔蓝渐变底 + 奶白水滴轮廓，内部笔缝与气孔构成钢笔尖，右上一点微光星点呼应视觉 Agent。
 - **方案 B · 折页手笺**（`icon-b-folded-folio.svg`）：素白纸页 + 钢笔蓝书脊 + 朱砂折角 + 压感墨迹 `M`。
 - **方案 C · 墨砚奶滴**（`icon-c-ink-seal.svg`）：深石墨底 + 素白奶滴笔锋 + 蓝色微光点。
 

@@ -20,6 +20,9 @@ enum class WriterMajorTool(val id: String, val label: String) {
 
 enum class WriterRailMode { PAGES, SNIPPETS, OUTLINE }
 
+/** 顶栏/笔匣工具按钮的激活态 = 当前所选工具 */
+internal fun isMajorToolActive(tool: WriterMajorTool, selected: WriterMajorTool, state: WriterUiState): Boolean = tool == selected
+
 val writerMajorToolOrder: List<WriterMajorTool> = listOf(
     WriterMajorTool.BRUSH,
     WriterMajorTool.HIGHLIGHTER,

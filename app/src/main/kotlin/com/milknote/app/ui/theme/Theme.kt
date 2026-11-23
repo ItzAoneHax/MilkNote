@@ -59,9 +59,9 @@ val LocalMilkMotion = androidx.compose.runtime.staticCompositionLocalOf { false 
 val MilkShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(24.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(18.dp),
 )
 
 /** 全胶囊 */

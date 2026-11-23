@@ -14,6 +14,30 @@ import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.PressureGamma
 import com.milknote.ink.model.ToolConfig
 
+/** 笔盒收藏:一支笔的 工具 + 墨色 + 粗细(DESIGN-V2 pop-pen);以 "tool|color|width|name;…" 编码存入设置 */
+data class PenPreset(
+    val id: String,
+    val name: String,
+    val tool: InkTool,
+    val color: Long,
+    val widthMm: Float,
+)
+
+object PenPresets {
+    fun encode(list: List<PenPreset>): String = list.joinToString(";") { p ->
+        "${p.tool.id}|${p.color}|${p.widthMm}|${p.name.replace('|', ' ').replace(';', ' ')}"
+    }
+
+    fun decode(raw: String): List<PenPreset> = raw.split(';').mapNotNull { seg ->
+        val parts = seg.split('|')
+        if (parts.size < 4) return@mapNotNull null
+        val tool = InkTool.of(parts[0])
+        val color = parts[1].toLongOrNull() ?: return@mapNotNull null
+        val width = parts[2].toFloatOrNull() ?: return@mapNotNull null
+        PenPreset(parts[0] + parts[1] + parts[2], parts[3], tool, color, width.coerceIn(0.2f, 3f))
+    }
+}
+
 internal val writingTools = listOf(InkTool.PEN, InkTool.BALL, InkTool.HIGHLIGHTER, InkTool.DOODLE)
 
 /** 书写工具各自独立的样式与色板;只随书写页 ViewModel 保留,不改笔迹数据。 */

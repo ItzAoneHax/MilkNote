@@ -25,14 +25,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,7 +60,6 @@ import com.milknote.app.ui.common.MilkChoicePanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkSwitch
 import com.milknote.app.ui.common.MilkTextField
-import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.LocalMilkWarning
@@ -66,33 +68,35 @@ import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.MonoValue
 
 /**
- * 设置组件套件(视觉升级 2026-11):
- * - 骨架 = 与页面同色的左导航(眉标分组 + 44dp 图标行,选中 = 淡蓝胶囊) + 右侧 ≤640dp 居中列
- * - 页头 = 22sp 标题 + 13sp 灰说明;分区 = 眉标小标题(不再重复大标题)
- * - 卡片 = 18dp 圆角 + hairline + 2dp 软阴影;行 ≥60dp,标题 15sp / 副题 12.5sp;值列 = 灰值 + 细箭头
- * - 纪律:mono 只用于值/URL/id/数字;蓝仅激活态;即时生效优先,显式输入才出「保存」
+ * 设置组件套件(第二代 · DESIGN-V2):
+ * - 左导航 224dp 平齐侧栏(眉标分组 + 38dp 图标行,选中 = 强调色淡底 + 强调色字)+ 顶部搜索框
+ * - 内容列 ≤580dp 居中:18sp 标题 + 13sp 说明;分区 = 12sp 灰标签;列表 = 12dp 圆角 hairline 平涂面
+ * - 行 ≥52dp:标题 14sp / 副题 12sp;值列 = 灰值 + 细箭头;仅浮层带阴影
  */
 
 // ==================== 导航栏 ====================
 
 internal data class SettingsNavItem(val key: String, val label: String, val icon: ImageVector)
 
-/** 设置页五个导航项(key 对应 SettingsScreen 的 page 路由) */
+/** 设置页导航项(key 对应 SettingsScreen 的 page 路由) */
 internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = listOf(
     "常规" to listOf(
         SettingsNavItem("appearance", "外观", Icons.Outlined.Palette),
         SettingsNavItem("writing", "书写", Icons.Outlined.Draw),
-        SettingsNavItem("updates", "更新", Icons.Outlined.SystemUpdate),
     ),
     "设备" to listOf(
-        SettingsNavItem("pen", "笔与手势", Icons.Outlined.Gesture),
+        SettingsNavItem("pen", "触控笔", Icons.Outlined.Gesture),
+        SettingsNavItem("shortcuts", "手势与快捷键", Icons.Outlined.Keyboard),
     ),
     "Agent" to listOf(
-        SettingsNavItem("agent", "Provider 与模型", Icons.Outlined.SmartToy),
+        SettingsNavItem("agent", "模型与隐私", Icons.Outlined.SmartToy),
+    ),
+    "数据" to listOf(
+        SettingsNavItem("storage", "存储与更新", Icons.Outlined.SystemUpdate),
     ),
 )
 
-/** 左侧导航栏:与页面同色,右侧上下渐隐 hairline;分组眉标 + 44dp 图标行;底部 mono 版本号 */
+/** 左侧导航栏:224dp 平齐侧栏;顶部返回 + 标题 + 搜索框;分组眉标 + 38dp 图标行;底部 mono 版本号 */
 @Composable
 internal fun SettingsNavRail(
     selected: String,
@@ -105,21 +109,21 @@ internal fun SettingsNavRail(
     val cs = MaterialTheme.colorScheme
     Column(
         Modifier
-            .width(248.dp)
+            .width(224.dp)
             .fillMaxHeight()
             .background(cs.surfaceVariant),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .padding(start = 10.dp, end = 16.dp),
+                .height(56.dp)
+                .padding(start = 8.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(9.dp))
                     .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
@@ -130,28 +134,31 @@ internal fun SettingsNavRail(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            Text("设置", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+            Text("设置", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onBackground)
         }
-        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
             MilkTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
                 placeholder = "搜索设置…",
                 mono = false,
+                leading = {
+                    Icon(Icons.Outlined.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(17.dp))
+                },
             )
         }
         Column(
             Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 10.dp),
         ) {
             SETTINGS_NAV_GROUPS.forEach { (group, items) ->
                 Text(
                     group,
                     style = MilkEyebrow,
                     color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 14.dp, top = 18.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(start = 10.dp, top = 16.dp, bottom = 6.dp),
                 )
                 items.forEach { item ->
                     val active = item.key == selected
@@ -163,31 +170,31 @@ internal fun SettingsNavRail(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 2.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .padding(bottom = 1.dp)
+                            .clip(RoundedCornerShape(9.dp))
                             .background(itemBg)
                             .clickable { onSelect(item.key) }
-                            .heightIn(min = 44.dp)
-                            .padding(horizontal = 14.dp),
+                            .heightIn(min = 38.dp)
+                            .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             item.icon, null,
                             tint = if (active) cs.primary else cs.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             item.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (active) FontWeight.Medium else null,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (active) cs.primary else cs.onSurfaceVariant,
                         )
                     }
                 }
             }
         }
-        Box(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
             Text(
                 versionLine,
                 style = com.milknote.app.ui.theme.MonoMeta,
@@ -199,33 +206,34 @@ internal fun SettingsNavRail(
 
 // ==================== 页面与分区 ====================
 
-/** 页头:22sp 标题 + 13sp 弱化说明(Codex "Changes save automatically" 位) */
+/** 页头:18sp 标题 + 13sp 灰说明 */
 @Composable
 internal fun SettingsPageHeader(title: String, subtitle: String) {
-    Column(Modifier.padding(bottom = 6.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(6.dp))
+    Column(Modifier.padding(bottom = 4.dp)) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(Modifier.height(5.dp))
         Text(
             subtitle,
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 19.sp),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-/** 分区眉标:11.5sp 加字距 + 可选灰说明;卡外、小节之上 */
+/** 分区标签:12sp 灰字 + 可选说明;卡外、小节之上 */
 @Composable
 internal fun SettingsSectionHeader(title: String, description: String? = null) {
-    Column(Modifier.padding(top = 6.dp, bottom = 10.dp)) {
-        Text(title, style = MilkEyebrow, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(Modifier.padding(top = 6.dp, bottom = 8.dp)) {
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         description?.let {
-            Spacer(Modifier.height(3.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f))
+            Spacer(Modifier.height(2.dp))
+            Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f))
         }
     }
 }
 
-/** 设置卡:18dp 圆角 + hairline + 轻软阴影/顶缘内高光;卡内零 padding,由行自带 */
+/** 设置列表面(第二代):12dp 圆角 + hairline + 平涂 surface,无投影无高光;卡内零 padding,由行自带 */
 @Composable
 internal fun SettingsCard(
     modifier: Modifier = Modifier,
@@ -236,11 +244,9 @@ internal fun SettingsCard(
     Column(
         modifier
             .fillMaxWidth()
-            .softShadow(2.dp, MaterialTheme.shapes.large)
             .clip(MaterialTheme.shapes.large)
             .background(containerColor)
-            .border(1.dp, borderColor, MaterialTheme.shapes.large)
-            .innerHighlight(strength = 0.3f),
+            .border(1.dp, borderColor, MaterialTheme.shapes.large),
     ) { content() }
 }
 
@@ -255,7 +261,7 @@ internal fun Hairline() {
 
 // ==================== 行与控件 ====================
 
-/** 设置行模板:左(15sp 标题 + 12.5sp 灰副题)/右(trailing 控件),min 高 60dp */
+/** 设置行模板:左(14sp 标题 + 12sp 灰副题)/右(trailing 控件),min 高 52dp */
 @Composable
 internal fun SettingsRow(
     title: String,
@@ -270,19 +276,21 @@ internal fun SettingsRow(
         modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
-            .heightIn(min = 60.dp)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
                 color = if (enabled) cs.onBackground else cs.onSurfaceVariant.copy(alpha = 0.5f),
             )
             if (subtitle != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Text(subtitle, fontSize = 12.sp, lineHeight = 17.sp, color = cs.onSurfaceVariant)
             }
         }
         if (trailing != null) {
@@ -292,12 +300,12 @@ internal fun SettingsRow(
     }
 }
 
-/** 值列:当前值(mono 按需)+ 细箭头(可进入下一级;Codex "value ›") */
+/** 值列:当前值(mono 按需)+ 细箭头 */
 @Composable
 internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     Text(
         value,
-        style = if (mono) MonoValue else MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+        style = if (mono) MonoValue else MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -311,7 +319,7 @@ internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     )
 }
 
-/** 选择行:点击打开中央单选面板,✓ 标当前项,点选即关闭。 */
+/** 选择行:点击打开单选面板,✓ 标当前项,点选即关闭。 */
 @Composable
 internal fun <T> SelectRow(
     title: String,
@@ -354,7 +362,7 @@ internal fun <T> InlineSelectionList(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(cs.surfaceVariant.copy(alpha = 0.45f))
             .padding(4.dp),
     ) {
@@ -368,27 +376,27 @@ internal fun <T> InlineSelectionList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(if (isSel) cs.primary.copy(alpha = 0.08f) else Color.Transparent)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSel) cs.primary.copy(alpha = 0.09f) else Color.Transparent)
                         .clickable { onPick(item) }
-                        .heightIn(min = 46.dp)
+                        .heightIn(min = 44.dp)
                         .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         Modifier
-                            .size(18.dp)
+                            .size(16.dp)
                             .clip(CircleShape)
-                            .border(2.dp, if (isSel) cs.primary else cs.outline, CircleShape),
+                            .border(1.5.dp, if (isSel) cs.primary else cs.outline, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (isSel) Box(Modifier.size(9.dp).clip(CircleShape).background(cs.primary))
+                        if (isSel) Box(Modifier.size(8.dp).clip(CircleShape).background(cs.primary))
                     }
                     Spacer(Modifier.width(12.dp))
                     Text(
                         label(item),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSel) FontWeight.Medium else null,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSel) FontWeight.Medium else FontWeight.Normal,
                         color = if (isSel) cs.primary else cs.onBackground,
                     )
                 }
@@ -397,7 +405,7 @@ internal fun <T> InlineSelectionList(
     }
 }
 
-/** 文字操作钮(14sp Medium;primary=蓝字,danger=红字;40dp 高命中 + ripple) */
+/** 文字操作钮(13sp Medium;primary=强调色字,danger=红字;38dp 高命中) */
 @Composable
 internal fun TextAction(
     label: String,
@@ -419,18 +427,19 @@ internal fun TextAction(
     )
     Text(
         label,
-        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium, fontSize = 14.sp),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
         color = fg,
         maxLines = 1,
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .softClickable(enabled = enabled, onClick = onClick)
-            .heightIn(min = 40.dp)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .heightIn(min = 38.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     )
 }
 
-/** 状态行:16dp 语义图标 + 13sp 单色文字(Codex 警告行式,不用弹窗) */
+/** 状态行:16dp 语义图标 + 13sp 单色文字 */
 internal enum class StatusTone { NEUTRAL, OK, WARN, ERROR }
 
 @Composable
@@ -474,13 +483,15 @@ internal fun StatusLine(
         }
         Text(
             text,
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 19.sp, fontFamily = if (mono) Mono else null),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            fontFamily = if (mono) Mono else null,
             color = if (tone == StatusTone.NEUTRAL) cs.onSurfaceVariant else color,
         )
     }
 }
 
-/** 输入框:复用共享 MilkTextField(填充式);脏(≠源值)时描边变蓝并出「保存/取消」;compact=去掉外层行距 */
+/** 输入框:复用共享 MilkTextField;脏(≠源值)时描边变蓝并出「保存/取消」;compact=去掉外层行距 */
 @Composable
 internal fun SettingsInputField(
     value: String,
@@ -527,11 +538,9 @@ internal fun SettingsInputField(
 internal fun FooterHint(text: String, mono: Boolean = false) {
     Text(
         text,
-        style = MaterialTheme.typography.bodySmall.copy(
-            fontSize = if (mono) 11.5.sp else 12.5.sp,
-            lineHeight = if (mono) 16.sp else 18.sp,
-            fontFamily = if (mono) Mono else null,
-        ),
+        fontSize = if (mono) 11.5.sp else 12.5.sp,
+        lineHeight = if (mono) 16.sp else 18.sp,
+        fontFamily = if (mono) Mono else null,
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
         modifier = Modifier.padding(top = 10.dp),
     )
@@ -541,4 +550,48 @@ internal fun FooterHint(text: String, mono: Boolean = false) {
 @Composable
 internal fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
     MilkChip(label = label, selected = on, onClick = onClick, small = true)
+}
+
+/** 键盘快捷键展示行:mono 键帽 + 说明 */
+@Composable
+internal fun ShortcutRow(title: String, keys: String, subtitle: String? = null) {
+    val cs = MaterialTheme.colorScheme
+    SettingsRow(
+        title = title,
+        subtitle = subtitle,
+        trailing = {
+            Text(
+                keys,
+                fontFamily = Mono,
+                fontSize = 11.5.sp,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier
+                    .border(1.dp, cs.outline, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        },
+    )
+}
+
+/** 单选项芯片组(值列):复用 MilkChip(small) */
+@Composable
+internal fun <T> ChipChoiceRow(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onPick: (T) -> Unit,
+    subtitle: String? = null,
+) {
+    SettingsRow(
+        title = title,
+        subtitle = subtitle,
+        trailing = {
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                options.forEach { option ->
+                    MilkChip(label = label(option), selected = option == selected, onClick = { onPick(option) }, small = true)
+                }
+            }
+        },
+    )
 }

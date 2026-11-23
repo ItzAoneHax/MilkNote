@@ -15,6 +15,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +63,7 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.VerticalSplit
+import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.ViewSidebar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +105,7 @@ import com.milknote.app.ui.cards.CardsViewModel
 import com.milknote.app.ui.cards.InsertCardPanel
 import com.milknote.app.ui.cards.cardColor
 import com.milknote.app.ui.common.MilkActionPanel
+import com.milknote.app.ui.common.MilkAnchoredMenu
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
@@ -111,8 +114,10 @@ import com.milknote.app.ui.common.MilkColorDot
 import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkKeyCap
+import com.milknote.app.ui.common.MilkMenuRow
 import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.MilkTextField
+import com.milknote.app.ui.common.MilkToast
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.common.formatRelative
@@ -174,8 +179,10 @@ fun BookshelfScreen(
 
     var showCreate by remember { mutableStateOf(false) }
     var showCreateActions by remember { mutableStateOf(false) }
-    var showSort by remember { mutableStateOf(false) }
+    var sortExpanded by remember { mutableStateOf(false) }
     var actionMenuTarget by remember { mutableStateOf<NotebookMeta?>(null) }
+    var toastText by remember { mutableStateOf("") }
+    val appSettings by ServiceLocator.appSettings.flow.collectAsState(initial = com.milknote.app.ui.settings.AppSettings())
     var manageTarget by remember { mutableStateOf<NotebookMeta?>(null) }
     var deleteTarget by remember { mutableStateOf<NotebookMeta?>(null) }
     var showEmptyTrashConfirm by remember { mutableStateOf(false) }
@@ -209,8 +216,15 @@ fun BookshelfScreen(
         vm.events.collect { event ->
             when (event) {
                 is BookshelfEvent.Imported -> onOpenNotebook(event.notebookId)
-                is BookshelfEvent.Message -> android.widget.Toast.makeText(context, event.text, android.widget.Toast.LENGTH_SHORT).show()
+                is BookshelfEvent.Message -> toastText = event.text
             }
+        }
+    }
+    // 应用内轻提示:1.9s 后自动淡出
+    androidx.compose.runtime.LaunchedEffect(toastText) {
+        if (toastText.isNotEmpty()) {
+            kotlinx.coroutines.delay(1900)
+            toastText = ""
         }
     }
 
@@ -224,12 +238,50 @@ fun BookshelfScreen(
     val battery by ServiceLocator.penBattery.level.collectAsState()
     val folders = remember(liveNotebooks, customFolders) { vm.folders() }
 
-    Row(
+    // 排序:锚定在排序钮下方的弹出菜单(当前项 ✓)
+    val sortContent: @Composable ColumnScope.() -> Unit = {
+        BookshelfSortMode.entries.forEach { mode ->
+            MilkMenuRow(
+                MilkPanelAction(
+                    label = mode.label,
+                    trailingText = if (mode == sortMode) "✓" else null,
+                    onClick = {
+                        vm.setSortMode(mode)
+                        sortExpanded = false
+                    },
+                ),
+            )
+        }
+    }
+    // 笔记本操作:锚定在封面「…」钮下方(回收站内为 恢复 / 彻底删除)
+    val bookActions: (NotebookMeta) -> List<MilkPanelAction> = { target ->
+        if (target.trashed) {
+            listOf(
+                MilkPanelAction(label = "恢复", icon = Icons.Outlined.RestoreFromTrash, onClick = { actionMenuTarget = null; vm.restoreFromTrash(target.id) }),
+                MilkPanelAction(label = "彻底删除", icon = Icons.Outlined.Delete, destructive = true, onClick = { actionMenuTarget = null; deleteTarget = target }),
+            )
+        } else {
+            listOf(
+                MilkPanelAction(label = "双开分屏", icon = Icons.Outlined.VerticalSplit, onClick = { actionMenuTarget = null; onOpenNotebookSplit(target.id) }),
+                MilkPanelAction(
+                    label = if (target.pinned) "取消星标" else "星标",
+                    icon = if (target.pinned) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                    onClick = { actionMenuTarget = null; vm.togglePin(target.id) },
+                ),
+                MilkPanelAction(label = "重命名与文件夹", icon = Icons.Outlined.Edit, onClick = { actionMenuTarget = null; manageTarget = target }),
+                MilkPanelAction(label = "导出", icon = Icons.Outlined.FileDownload, onClick = { actionMenuTarget = null; onExportNotebook(target.id) }),
+                MilkPanelAction(label = "移入回收站", icon = Icons.Outlined.DeleteOutline, destructive = true, onClick = { actionMenuTarget = null; vm.moveToTrash(target.id) }),
+            )
+        }
+    }
+
+    Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
+    Row(Modifier.fillMaxSize()) {
         // ---- 左侧平齐目录树 (Side Rail) ----
         if (!railCollapsed) {
             BookshelfSideRail(
@@ -276,7 +328,10 @@ fun BookshelfScreen(
                 onExpandRail = vm::toggleRail,
                 onSearch = onOpenPalette,
                 onToggleListView = vm::toggleListView,
-                onSort = { showSort = true },
+                sortExpanded = sortExpanded,
+                onSortToggle = { sortExpanded = !sortExpanded },
+                onSortDismiss = { sortExpanded = false },
+                sortContent = sortContent,
                 onPrimaryNew = {
                     if (nav is BookshelfNav.Cards) creatingCard = true
                     else showCreate = true
@@ -318,11 +373,11 @@ fun BookshelfScreen(
                                 PortraitBookListRow(
                                     meta = nb,
                                     pageCount = vm.pageCountOf(nb.id),
-                                    onOpen = {
-                                        if (nb.trashed) actionMenuTarget = nb
-                                        else onOpenNotebook(nb.id)
-                                    },
-                                    onMore = { actionMenuTarget = nb },
+                                    onOpen = { if (nb.trashed) actionMenuTarget = nb else onOpenNotebook(nb.id) },
+                                    menuExpanded = actionMenuTarget?.id == nb.id,
+                                    onMore = { actionMenuTarget = if (actionMenuTarget?.id == nb.id) null else nb },
+                                    onDismissMenu = { actionMenuTarget = null },
+                                    menu = { bookActions(nb).forEach { MilkMenuRow(it) } },
                                 )
                             }
                             if (nav !is BookshelfNav.Trash) {
@@ -361,11 +416,11 @@ fun BookshelfScreen(
                                         meta = nb,
                                         pageCount = vm.pageCountOf(nb.id),
                                         coverThumb = covers[nb.id],
-                                        onOpen = {
-                                            if (nb.trashed) actionMenuTarget = nb
-                                            else onOpenNotebook(nb.id)
-                                        },
-                                        onMore = { actionMenuTarget = nb },
+                                        onOpen = { if (nb.trashed) actionMenuTarget = nb else onOpenNotebook(nb.id) },
+                                        menuExpanded = actionMenuTarget?.id == nb.id,
+                                        onMore = { actionMenuTarget = if (actionMenuTarget?.id == nb.id) null else nb },
+                                        onDismissMenu = { actionMenuTarget = null },
+                                        menu = { bookActions(nb).forEach { MilkMenuRow(it) } },
                                     )
                                 }
                             }
@@ -382,6 +437,13 @@ fun BookshelfScreen(
                 }
             }
         }
+    }
+    // 应用内轻提示(DESIGN-V2 toast):底部居中深色胶囊,替代系统 Toast
+    com.milknote.app.ui.common.MilkToast(
+        visible = toastText.isNotEmpty(),
+        text = toastText,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp),
+    )
     }
 
     if (importing) {
@@ -431,104 +493,13 @@ fun BookshelfScreen(
     AnimatedVisibility(visible = showCreate, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
         NewNotebookDialog(
             onDismiss = { showCreate = false },
+            defaultPaper = appSettings.defaultPaper,
+            defaultPaperColor = appSettings.defaultPaperColor,
             onCreate = { name, color, paper, purpose, pageSize, orientation, paperColor ->
                 val id = vm.create(name, color, paper, purpose, pageSize, orientation, paperColor)
                 showCreate = false
                 onOpenNotebook(id)
             },
-        )
-    }
-
-    if (showSort) {
-        MilkActionPanel(
-            title = "排序",
-            actions = BookshelfSortMode.entries.map { mode ->
-                val selected = mode == sortMode
-                MilkPanelAction(
-                    label = mode.label,
-                    icon = if (selected) Icons.Outlined.Check else null,
-                    trailingText = if (selected) "✓" else null,
-                    onClick = {
-                        vm.setSortMode(mode)
-                        showSort = false
-                    },
-                )
-            },
-            onDismiss = { showSort = false },
-        )
-    }
-
-    actionMenuTarget?.let { target ->
-        val actions = if (target.trashed) {
-            listOf(
-                MilkPanelAction(
-                    label = "恢复",
-                    icon = Icons.Outlined.RestoreFromTrash,
-                    onClick = {
-                        actionMenuTarget = null
-                        vm.restoreFromTrash(target.id)
-                    },
-                ),
-                MilkPanelAction(
-                    label = "彻底删除",
-                    icon = Icons.Outlined.Delete,
-                    destructive = true,
-                    onClick = {
-                        actionMenuTarget = null
-                        deleteTarget = target
-                    },
-                ),
-            )
-        } else {
-            listOf(
-                MilkPanelAction(
-                    label = "双开分屏",
-                    icon = Icons.Outlined.VerticalSplit,
-                    onClick = {
-                        actionMenuTarget = null
-                        onOpenNotebookSplit(target.id)
-                    },
-                ),
-                MilkPanelAction(
-                    label = if (target.pinned) "取消星标" else "星标",
-                    icon = if (target.pinned) Icons.Outlined.Star else Icons.Outlined.StarOutline,
-                    onClick = {
-                        actionMenuTarget = null
-                        vm.togglePin(target.id)
-                    },
-                ),
-                MilkPanelAction(
-                    label = "重命名与文件夹",
-                    icon = Icons.Outlined.Edit,
-                    onClick = {
-                        actionMenuTarget = null
-                        manageTarget = target
-                    },
-                ),
-                MilkPanelAction(
-                    label = "导出",
-                    icon = Icons.Outlined.FileDownload,
-                    onClick = {
-                        actionMenuTarget = null
-                        onExportNotebook(target.id)
-                    },
-                ),
-                MilkPanelAction(
-                    label = "移入回收站",
-                    icon = Icons.Outlined.DeleteOutline,
-                    destructive = true,
-                    onClick = {
-                        actionMenuTarget = null
-                        vm.moveToTrash(target.id)
-                    },
-                ),
-            )
-        }
-        MilkActionPanel(
-            title = target.name,
-            subtitle = "${vm.pageCountOf(target.id)} 页${if (target.folder.isBlank()) "" else " · ${target.folder}"}",
-            actions = actions,
-            onDismiss = { actionMenuTarget = null },
         )
     }
 
@@ -895,7 +866,10 @@ private fun BookshelfHeaderBar(
     onExpandRail: () -> Unit,
     onSearch: () -> Unit,
     onToggleListView: () -> Unit,
-    onSort: () -> Unit,
+    onSortToggle: () -> Unit,
+    sortExpanded: Boolean,
+    onSortDismiss: () -> Unit,
+    sortContent: @Composable ColumnScope.() -> Unit,
     onPrimaryNew: () -> Unit,
     onPrimaryMoreCreate: () -> Unit,
     onEmptyTrash: () -> Unit,
@@ -955,19 +929,24 @@ private fun BookshelfHeaderBar(
                 )
             }
             Spacer(Modifier.width(4.dp))
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable(onClick = onSort),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.Sort,
-                    contentDescription = "排序",
-                    tint = cs.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+            Box {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (sortExpanded) cs.primary.copy(alpha = 0.10f) else Color.Transparent)
+                        .clickable(onClick = onSortToggle),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Sort,
+                        contentDescription = "排序",
+                        tint = if (sortExpanded) cs.primary else cs.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                // 排序:锚定在排序钮下方的弹出菜单
+                MilkAnchoredMenu(expanded = sortExpanded, onDismiss = onSortDismiss, anchorHeight = 36.dp, minWidth = 186.dp) { sortContent() }
             }
         }
 
@@ -1059,7 +1038,10 @@ private fun PortraitBookItem(
     pageCount: Int,
     coverThumb: androidx.compose.ui.graphics.ImageBitmap?,
     onOpen: () -> Unit,
+    menuExpanded: Boolean,
     onMore: () -> Unit,
+    onDismissMenu: () -> Unit,
+    menu: @Composable ColumnScope.() -> Unit,
 ) {
     val cover = runCatching { Color(android.graphics.Color.parseColor(meta.coverColor)) }
         .getOrDefault(Color(0xFF2563EB))
@@ -1171,24 +1153,26 @@ private fun PortraitBookItem(
                 )
             }
 
-            // 右下角安静的「…」圆形操作钮
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.90f))
-                    .border(0.5.dp, Color(0x1F18191B), CircleShape)
-                    .clickable(onClick = onMore),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.MoreHoriz,
-                    contentDescription = "更多操作",
-                    tint = Color(0xFF18191B),
-                    modifier = Modifier.size(16.dp),
-                )
+            // 右下角安静的「…」圆形操作钮 + 锚定在其下方的操作菜单
+            Box(Modifier.align(Alignment.BottomEnd)) {
+                Box(
+                    Modifier
+                        .padding(8.dp)
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.90f))
+                        .border(0.5.dp, Color(0x1F18191B), CircleShape)
+                        .clickable(onClick = onMore),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.MoreHoriz,
+                        contentDescription = "更多操作",
+                        tint = Color(0xFF18191B),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                MilkAnchoredMenu(expanded = menuExpanded, onDismiss = onDismissMenu, anchorHeight = 30.dp, minWidth = 200.dp) { menu() }
             }
         }
 
@@ -1375,7 +1359,10 @@ private fun PortraitBookListRow(
     meta: NotebookMeta,
     pageCount: Int,
     onOpen: () -> Unit,
+    menuExpanded: Boolean,
     onMore: () -> Unit,
+    onDismissMenu: () -> Unit,
+    menu: @Composable ColumnScope.() -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val cover = runCatching { Color(android.graphics.Color.parseColor(meta.coverColor)) }
@@ -1429,19 +1416,22 @@ private fun PortraitBookListRow(
         }
         MonoText("${pageCount} 页 · ${formatRelative(meta.updatedAt)}${if (meta.folder.isBlank()) "" else " · ${meta.folder}"}")
         Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onMore),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Outlined.MoreHoriz,
-                contentDescription = "更多操作",
-                tint = cs.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+        Box {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onMore),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.MoreHoriz,
+                    contentDescription = "更多操作",
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            MilkAnchoredMenu(expanded = menuExpanded, onDismiss = onDismissMenu, anchorHeight = 34.dp, minWidth = 200.dp) { menu() }
         }
     }
 }

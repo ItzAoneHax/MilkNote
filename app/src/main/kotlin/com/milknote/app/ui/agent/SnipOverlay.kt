@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -150,33 +151,32 @@ fun SnipOverlay(
             }
         }
 
-        // FROZEN 初始引导(A-12):说明下一步 + 可见 48dp 取消;开始拖动(rect 非空)即消失
+        // FROZEN 初始引导:居中一句提示;「取消」固定为右上角悬浮胶囊(任何阶段可见)
         if (state.phase == SnipPhase.FROZEN && r == null) {
-            Column(
-                Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "用笔或手指拖动框选",
-                    fontSize = 14.sp,
-                    color = Color(0xFFFAF9F5),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xE623221E))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-                Spacer(Modifier.height(14.dp))
-                Box(
-                    Modifier
-                        .clip(CircleShape)
-                        .background(Color(0xCC23221E))
-                        .clickable(onClick = onCancel)
-                        .defaultMinSize(minWidth = 88.dp, minHeight = 48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("取消", fontSize = 13.sp, color = Color(0xFFE8E6E0))
-                }
-            }
+            Text(
+                "拖动框选要提问的区域",
+                fontSize = 13.sp,
+                color = Color(0xFFF4F5F7),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xF218191B))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0xDB18191B))
+                .border(1.dp, Color(0x38FFFFFF), RoundedCornerShape(999.dp))
+                .clickable(onClick = onCancel)
+                .defaultMinSize(minHeight = 36.dp)
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("取消", fontSize = 12.5.sp, color = Color.White)
         }
 
         // 选框 + 四角手柄 + 尺寸标注
@@ -186,19 +186,18 @@ fun SnipOverlay(
                     color = Color.White,
                     topLeft = Offset(r.l, r.t),
                     size = Size(r.width, r.height),
-                    cornerRadius = CornerRadius(6f, 6f),
-                    style = Stroke(width = 2.dp.toPx()),
+                    cornerRadius = CornerRadius(4f, 4f),
+                    style = Stroke(width = 1.5.dp.toPx()),
                 )
-                // 角手柄(白底蓝边圆点;视觉 7dp,命中 24dp)
+                // 角手柄(白底蓝边圆点;视觉 12dp,命中 24dp)
                 for (c in listOf(Offset(r.l, r.t), Offset(r.r, r.t), Offset(r.l, r.b), Offset(r.r, r.b))) {
-                    drawCircle(Color.White, radius = 7.dp.toPx(), center = c)
-                    drawCircle(Color(0xFF3B5BEC), radius = 7.dp.toPx(), center = c, style = Stroke(2.dp.toPx()))
+                    drawCircle(Color.White, radius = 6.dp.toPx(), center = c)
+                    drawCircle(Color(0xFF2563EB), radius = 6.dp.toPx(), center = c, style = Stroke(2.dp.toPx()))
                 }
             }
-            // 尺寸标注(A-13):默认选区上方;靠顶时放选区内、距顶 26dp(避开 24dp 角柄命中区),
-            // 横向也避让角柄;标签实测尺寸参与定位,永不覆盖四角
+            // 尺寸标注:默认选区上方;靠顶时放选区内、距顶 26dp(避开角柄命中区),横向避让角柄
             var labelSize by remember { mutableStateOf(IntSize.Zero) }
-            val label = "${r.width.toInt()} × ${r.height.toInt()} px · 选区已冻结"
+            val label = "${r.width.toInt()} × ${r.height.toInt()}"
             val density = androidx.compose.ui.platform.LocalDensity.current
             val clearPx = with(density) { 12.dp.roundToPx() }
             val insetPx = with(density) { 26.dp.roundToPx() }
@@ -210,28 +209,27 @@ fun SnipOverlay(
             else ((r.l + r.width / 2) - labelSize.width / 2).coerceIn(xMinInside, xMaxInside)
             Text(
                 label,
-                fontFamily = Mono, fontSize = 11.sp, color = Color(0xFFFAF9F5),
+                fontFamily = Mono, fontSize = 11.sp, color = Color(0xFFF4F5F7),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
                     .onSizeChanged { labelSize = it }
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xE623221E))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .background(Color(0xF218191B))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             )
         }
 
-        // CONFIRMED:顶部操作行(即时显示)+ 底部意图条(160ms fade+上移,只在确认瞬间播放;
-        // 调整矩形期间不重播;减弱动效=纯淡化)
+        // CONFIRMED:顶部「重新框选 / 全页」深色胶囊 + 底部意图条(讲解/归纳/翻译/出题/LaTeX + 存卡片 + 发送)
         if (state.phase == SnipPhase.CONFIRMED && r != null) {
             val reduced = LocalMilkMotion.current
             Row(
                 Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xE623221E))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(top = 16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xF218191B))
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -240,68 +238,66 @@ fun SnipOverlay(
                     val b = surface()?.pageBoundsView()
                     if (b != null) onFullPage(Rect4(b.left, b.top, b.right, b.bottom))
                 }
-                SnipAction("存卡片") { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
-                SnipAction("取消", muted = true) { onCancel() }
             }
 
             AnimatedVisibility(
                 visible = state.phase == SnipPhase.CONFIRMED,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
                 enter = fadeIn(tween(if (reduced) 60 else 160)) +
                     slideInVertically(tween(if (reduced) 0 else 160)) { it / 2 },
                 exit = fadeOut(tween(if (reduced) 60 else 120)) +
                     slideOutVertically(tween(if (reduced) 0 else 120)) { it / 2 },
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // 状态条(§4.2:渲染源说明)
-                    Text(
-                        "选区将连同手写层一起送入 Agent · 书写已暂停",
-                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                        color = Color(0xCCFAF9F5),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0x6623221E))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // 意图条:底部深色胶囊(DESIGN-V0 §5.5);chips ≥48dp 命中(A-09)
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xF023221E))
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Intents.all.forEach { spec ->
-                            val active = state.intent == spec.id
-                            Box(
-                                Modifier
-                                    .clip(CircleShape)
-                                    .background(if (active) Color(0x1F5C77F2) else Color.Transparent)
-                                    .clickable { onIntent(spec.id) }
-                                    .defaultMinSize(minHeight = 48.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    spec.label,
-                                    fontSize = 12.sp,
-                                    color = if (active) Color(0xFF7D92FF) else Color(0xFFB7B3A8),
-                                    modifier = Modifier.padding(horizontal = 10.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(6.dp))
+                // 意图条:底部深色胶囊(DESIGN-V2 snip-bar);当前意图 = 蓝 22% 淡底 + 浅蓝字
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xF218191B))
+                        .padding(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Intents.all.forEach { spec ->
+                        val active = state.intent == spec.id
                         Box(
                             Modifier
-                                .clip(CircleShape)
-                                .background(accentBrush())
-                                .clickable { onSend { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
-                                .defaultMinSize(minHeight = 48.dp),
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (active) Color(0x385B92FF) else Color.Transparent)
+                                .clickable { onIntent(spec.id) }
+                                .defaultMinSize(minHeight = 36.dp)
+                                .padding(horizontal = 12.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("发送 ↵", color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp))
+                            Text(
+                                spec.label,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
+                                color = if (active) Color(0xFF8AB4FF) else Color(0xFFD4D7DC),
+                            )
                         }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
+                            .defaultMinSize(minHeight = 36.dp)
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("存卡片", fontSize = 12.5.sp, color = Color(0xFFD4D7DC))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFF2563EB))
+                            .clickable { onSend { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
+                            .defaultMinSize(minHeight = 34.dp)
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("发送 ↵", color = Color.White, fontSize = 12.5.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
                     }
                 }
             }
@@ -310,20 +306,16 @@ fun SnipOverlay(
 }
 
 @Composable
-private fun SnipAction(label: String, muted: Boolean = false, onClick: () -> Unit) {
+private fun SnipAction(label: String, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp),
+            .defaultMinSize(minHeight = 36.dp)
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            label,
-            fontSize = 12.sp,
-            color = if (muted) Color(0xFF9B978D) else Color(0xFFE8E6E0),
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
+        Text(label, fontSize = 12.5.sp, color = Color(0xFFD4D7DC))
     }
 }
 

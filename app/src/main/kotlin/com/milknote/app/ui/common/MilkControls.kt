@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -31,26 +30,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.theme.PillShape
 
 /**
- * 模态表面统一配方:L2 浮层 = 24dp 圆角、16dp 柔和阴影、surface 底、hairline 边、顶缘内高光。
- * 所有 Dialog / 中央面板 / 命令面板共用,层级一致(A-31 token 语义化)。
+ * 第二代浮层表面（DESIGN-V2）：18dp 圆角、hairline 描边、仅浮层带柔和投影；
+ * 不再有内高光与画出来的侧影——卡片/列表靠留白与 hairline 分层。
  */
 @Composable
 fun Modifier.milkDialogSurface(): Modifier = this
     .softShadow(16.dp, MaterialTheme.shapes.extraLarge)
     .clip(MaterialTheme.shapes.extraLarge)
     .background(MaterialTheme.colorScheme.surface)
-    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.9f), MaterialTheme.shapes.extraLarge)
-    .innerHighlight(strength = 0.35f)
-    .paintedShadow(MaterialTheme.shapes.extraLarge)
+    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraLarge)
 
 enum class MilkButtonVariant { PRIMARY, SECONDARY, TEXT }
 
 /**
- * 统一文字按钮:48dp 高、胶囊;Primary 支持忙碌指示并阻止重复点击;
- * destructive = 危险动作(删除等)用 error 实心,视觉上与普通主操作区分。
+ * 统一胶囊按钮：38dp 高、无边框主按钮 / hairline 描边次按钮 / 纯文字按钮；
+ * Primary 支持忙碌指示并阻止重复点击；destructive 用 error 实心。
  */
 @Composable
 fun MilkButton(
@@ -64,34 +62,31 @@ fun MilkButton(
     leading: (@Composable () -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
-    val shadow = if (variant == MilkButtonVariant.PRIMARY) Modifier.softShadow(5.dp, PillShape) else Modifier
     val background = when {
         variant == MilkButtonVariant.PRIMARY && destructive -> Modifier.background(cs.error, PillShape)
         variant == MilkButtonVariant.PRIMARY -> Modifier.background(accentBrush(), PillShape)
-        variant == MilkButtonVariant.SECONDARY -> Modifier.background(cs.surfaceVariant.copy(alpha = 0.7f), PillShape)
+        variant == MilkButtonVariant.SECONDARY -> Modifier.background(cs.surface, PillShape)
         else -> Modifier
     }
     val border = when {
         variant == MilkButtonVariant.SECONDARY -> Modifier.border(1.dp, cs.outline, PillShape)
-        variant == MilkButtonVariant.TEXT && destructive -> Modifier.border(1.dp, cs.error.copy(alpha = 0.5f), PillShape)
         else -> Modifier
     }
     val contentColor = when {
-        variant == MilkButtonVariant.PRIMARY -> Color.White
-        variant == MilkButtonVariant.SECONDARY -> cs.onSurface
+        variant == MilkButtonVariant.PRIMARY -> cs.onPrimary
+        variant == MilkButtonVariant.SECONDARY -> cs.onBackground
         destructive -> cs.error
         else -> cs.primary
     }
     Row(
         modifier
             .alpha(if (enabled || busy) 1f else 0.45f)
-            .then(shadow)
             .clip(PillShape)
             .then(background)
             .then(border)
             .softClickable(enabled = enabled && !busy, onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 20.dp),
+            .defaultMinSize(minHeight = 38.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -110,16 +105,17 @@ fun MilkButton(
         Text(
             label,
             color = contentColor,
-            style = MaterialTheme.typography.labelLarge,
+            fontSize = 13.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.5.sp),
         )
     }
 }
 
 /**
- * 统一滑条:6dp 轨道 + 18dp 圆形拇指。传入 [trackBrush] 时轨道显示完整渐变，
+ * 统一滑条：6dp 轨道 + 18dp 圆形拇指。传入 [trackBrush] 时轨道显示完整渐变，
  * 否则显示 primary 已选区与 surfaceVariant 剩余区。拖动仍由 Material3 Slider 负责。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,12 +164,6 @@ fun MilkSlider(
                         )
                     }
                 }
-                drawRoundRect(
-                    outline.copy(alpha = 0.7f),
-                    size = size,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
-                    style = Stroke(width = 0.5.dp.toPx()),
-                )
             }
         },
     )

@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkIconButton
@@ -84,27 +85,29 @@ internal fun PenSettingsDialog(
     onEraseTarget: (InkTool, Boolean) -> Unit = { _, _ -> },
     onAutoRevert: (Boolean) -> Unit = {},
     onGamma: (PressureGamma) -> Unit = {},
+    presets: List<PenPreset> = emptyList(),
+    onSavePreset: () -> Unit = {},
+    onApplyPreset: (PenPreset) -> Unit = {},
+    onClearPresets: () -> Unit = {},
 ) {
     if (tool == InkTool.ERASER) {
         MilkCenterPanel(
             title = "橡皮",
-            subtitle = "整笔划擦除；再次点击橡皮可打开此面板",
             onDismiss = onDismiss,
             maxWidth = 460.dp,
             icon = { RealPenIcon(InkTool.ERASER, 0L, modifier = Modifier.size(36.dp)) },
         ) {
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
                 MilkSectionLabel("橡皮大小", description = "按住擦过即整笔划删除")
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(2f to "小", 5f to "中", 9f to "大").forEach { (mm, label) ->
-                        EraserSizeCard(
-                            mm = mm,
-                            label = label,
-                            active = abs(settings.eraserWidthMm - mm) < 0.1f,
+                        com.milknote.app.ui.common.MilkChip(
+                            label = "$label · ${mm.toInt()} mm",
+                            selected = abs(settings.eraserWidthMm - mm) < 0.1f,
                             onClick = { onEraserWidth(mm) },
-                            modifier = Modifier.weight(1f),
+                            small = true,
                         )
                     }
                 }
@@ -159,7 +162,6 @@ internal fun PenSettingsDialog(
         Column(Modifier.fillMaxWidth()) {
             MilkPanelHeader(
                 title = title,
-                subtitle = "调整会立即生效，并记在这支笔上",
                 icon = {
                     Box(
                         Modifier
@@ -179,35 +181,37 @@ internal fun PenSettingsDialog(
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
                     .testTag("writer-panel-scroll")
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 20.dp),
             ) {
-                Spacer(Modifier.height(10.dp))
+                // 笔迹预览:恒亮纸面小样(DESIGN-V2 pop-pen)
                 StrokePreview(tool, current.color, current.baseWidthMm)
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(14.dp))
 
-                MilkSectionLabel("笔迹粗细")
-                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("粗细", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("%.2f mm".format(current.baseWidthMm), fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(4.dp))
                 MilkSlider(
                     value = current.baseWidthMm,
                     onValueChange = onWidth,
                     valueRange = 0.2f..3f,
                 )
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(0.4f to "细", 0.7f to "中", 1.2f to "粗").forEach { (mm, label) ->
-                        PenWidthPreset(
-                            mm = mm,
-                            label = label,
+                        com.milknote.app.ui.common.MilkChip(
+                            label = "$label · ${mm} mm",
                             selected = abs(current.baseWidthMm - mm) < 0.05f,
                             onClick = { onWidth(mm) },
-                            modifier = Modifier.weight(1f),
+                            small = true,
                         )
                     }
                 }
                 if (tool in writingTools) {
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(20.dp))
                     MilkSectionLabel("压感灵敏度", description = "灵敏 = 轻压即出粗线；柔和 = 重按才变粗")
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     MilkSegmented(
                         options = PressureGamma.entries,
                         selected = current.pressureGamma,
@@ -217,9 +221,9 @@ internal fun PenSettingsDialog(
                         testTagFor = { "writer-pen-gamma-${it.name.lowercase()}" },
                     )
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(20.dp))
                 MilkSectionLabel("专属色板", description = "点击选色；再次点击当前颜色可精细调色")
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 LazyRow(
                     Modifier.fillMaxWidth().testTag("writer-pen-palette"),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -235,15 +239,59 @@ internal fun PenSettingsDialog(
                         )
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                if (tool in writingTools) {
+                    Spacer(Modifier.height(20.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("笔盒", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        if (presets.isNotEmpty()) {
+                            com.milknote.app.ui.common.MilkChip(label = "清空", selected = false, onClick = onClearPresets, small = true)
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        com.milknote.app.ui.common.MilkChip(label = "+ 收藏", selected = true, onClick = onSavePreset, small = true)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (presets.isEmpty()) {
+                        Text(
+                            "把当前 工具 / 墨色 / 粗细 收藏起来，下次一键换笔",
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        )
+                    } else {
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            presets.forEach { preset ->
+                                com.milknote.app.ui.common.MilkChip(
+                                    label = preset.name,
+                                    selected = preset.tool == current.tool && preset.color == current.color &&
+                                        abs(preset.widthMm - current.baseWidthMm) < 0.05f,
+                                    onClick = { onApplyPreset(preset) },
+                                    small = true,
+                                    leading = {
+                                        Box(
+                                            Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(preset.color.toInt()))
+                                                .border(1.dp, Color.Black.copy(alpha = 0.15f), CircleShape),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                     MilkKeyCap("Esc")
                     Spacer(Modifier.width(6.dp))
-                    Text("关闭", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("关闭", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.weight(1f))
                     MilkButton(label = "完成", onClick = onDismiss)
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -352,54 +400,34 @@ private fun PenWidthPreset(mm: Float, label: String, selected: Boolean, onClick:
     }
 }
 
-/** 笔迹预览:纸面色底 + 点阵纹 + 一条随粗细变化的曲线(荧光笔半透明) */
+/** 笔迹预览:恒亮纸面小样(56dp,8dp 圆角 hairline),一条随粗细/墨色变化的曲线;荧光笔半透明 */
 @Composable
 private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float, compact: Boolean = false) {
-    val cs = MaterialTheme.colorScheme
     val ink = Color(color.toInt())
     Box(
         Modifier
             .fillMaxWidth()
-            .height(if (compact) 64.dp else 96.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(cs.surfaceVariant.copy(alpha = 0.45f))
-            .border(1.dp, cs.outline.copy(alpha = 0.7f), RoundedCornerShape(14.dp)),
+            .height(if (compact) 48.dp else 56.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0x1F18191B), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val step = 12.dp.toPx()
-            var y = step
-            while (y < size.height) {
-                var x = step
-                while (x < size.width) {
-                    drawCircle(cs.onSurfaceVariant.copy(alpha = 0.18f), radius = 0.8f, center = Offset(x, y))
-                    x += step
-                }
-                y += step
-            }
-        }
-        val previewColor = if (LocalMilkDark.current && color == InkBlackArgb) InkDark else ink
-        Canvas(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 24.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(if (compact) 40.dp else 48.dp).padding(horizontal = 20.dp)) {
             val path = Path().apply {
-                moveTo(0f, size.height * 0.68f)
-                cubicTo(size.width * 0.18f, size.height * 0.08f, size.width * 0.32f, size.height * 0.94f, size.width * 0.52f, size.height * 0.42f)
+                moveTo(0f, size.height * 0.62f)
+                cubicTo(size.width * 0.18f, size.height * 0.06f, size.width * 0.32f, size.height * 0.94f, size.width * 0.52f, size.height * 0.42f)
                 cubicTo(size.width * 0.68f, size.height * 0.02f, size.width * 0.80f, size.height * 0.80f, size.width, size.height * 0.28f)
             }
             drawPath(
                 path = path,
-                color = previewColor.copy(alpha = previewColor.alpha * if (tool == InkTool.HIGHLIGHTER) 0.45f else 1f),
+                color = ink.copy(alpha = if (tool == InkTool.HIGHLIGHTER) 0.5f else 1f),
                 style = Stroke(
                     width = (widthMm * if (tool == InkTool.HIGHLIGHTER) 4f else 1f).dp.toPx().coerceAtLeast(2f),
                     cap = StrokeCap.Round,
                 ),
             )
         }
-        Text(
-            "%.2f mm".format(widthMm),
-            style = MonoMeta,
-            color = cs.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
-        )
     }
 }
 

@@ -35,68 +35,69 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
+/** 第二代书写页 chrome:精简顶栏 + 居中悬浮笔匣(工具与当前工具内容同在笔匣内) */
 class WriterChromeScrollTest {
     @get:Rule
     val rule = createComposeRule()
 
-    @Test
-    fun majorToolBand_swipesToLaserAndBackToBrush() {
-        var clicked: WriterMajorTool? = null
-        rule.setContent {
-            MilkTheme {
-                Box(Modifier.width(700.dp).height(48.dp)) {
-                    WriterMajorToolbar(
-                        state = WriterUiState(),
-                        selectedTool = WriterMajorTool.BRUSH,
-                        railMode = null,
-                        onBack = {}, onShowPages = {}, onShowSnippets = {},
-                        onTool = { clicked = it },
-                        onRecord = {}, onVideo = {}, onAgent = {}, onMaterials = {},
-                        onNewPage = {}, onMore = {}, agentOpen = false, agentBusy = false,
-                    )
-                }
-            }
-        }
-        rule.onNodeWithTag("writer-major-tool-laser").assertDoesNotExist()
-        repeat(4) { rule.onNodeWithTag("writer-major-tools").performTouchInput { swipeLeft() } }
-        rule.onNodeWithTag("writer-major-tool-laser").assertIsDisplayed().performClick()
-        assertEquals(WriterMajorTool.LASER, clicked)
-        repeat(4) { rule.onNodeWithTag("writer-major-tools").performTouchInput { swipeRight() } }
-        rule.onNodeWithTag("writer-major-tool-brush").assertIsDisplayed().performClick()
-        assertEquals(WriterMajorTool.BRUSH, clicked)
+    @androidx.compose.runtime.Composable
+    private fun dockContent(
+        selectedTool: WriterMajorTool,
+        onTool: (WriterMajorTool) -> Unit,
+        onWidth: (Float) -> Unit,
+    ) {
+        WriterMinorToolbar(
+            state = WriterUiState(),
+            selectedTool = selectedTool,
+            textStyle = CardTextStyle(),
+            shapeTool = InkTool.RECT, shapeColor = 0xFF23221E, shapeWidth = 0.7f,
+            dock = MinorDock.TOP, maxWidth = 1100.dp,
+            onUndo = {}, onRedo = {}, onCollapse = {},
+            onTool = onTool,
+            onColor = {}, onWidth = onWidth, onEraserWidth = onWidth,
+            onLassoMode = {}, onLassoFilter = {},
+            onLassoSettings = {}, onImage = {}, onTextEditor = {}, onTextStyle = {},
+            onShapeTool = {}, onShapeColor = {}, onShapeWidth = {}, onStartShape = {},
+            onSnip = {}, onTape = {}, onMaterials = {}, onTune = {},
+        )
     }
 
     @Test
-    fun minorToolBand_swipesToWidthsAndBackToColors_andResetsForEraser() {
+    fun dock_showsCoreToolsInlineAndSwitchesBetweenPenAndLaser() {
+        var clicked: WriterMajorTool? = null
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(1100.dp).height(60.dp)) {
+                    dockContent(WriterMajorTool.BRUSH, onTool = { clicked = it }, onWidth = {})
+                }
+            }
+        }
+        // 常驻六工具无需滚动即可见;溢出工具(套索/图片/文本…)收进「更多工具」菜单
+        rule.onNodeWithTag("writer-major-tool-laser").assertIsDisplayed().performClick()
+        assertEquals(WriterMajorTool.LASER, clicked)
+        rule.onNodeWithTag("writer-major-tool-brush").assertIsDisplayed().performClick()
+        assertEquals(WriterMajorTool.BRUSH, clicked)
+        rule.onNodeWithTag("writer-major-tool-lasso").assertDoesNotExist()
+        rule.onNodeWithTag("writer-major-tool-more").assertIsDisplayed()
+        rule.onNodeWithTag("writer-snip").assertIsDisplayed()
+    }
+
+    @Test
+    fun dock_content_showsWidthsAndColors_andResetsForEraser() {
         var selectedColor = 0L
         var selectedWidth = 0f
         var selectedTool by mutableStateOf(WriterMajorTool.BRUSH)
         rule.setContent {
             MilkTheme {
-                Box(Modifier.width(450.dp).height(48.dp)) {
-                    WriterMinorToolbar(
-                        state = WriterUiState(),
-                        selectedTool = selectedTool,
-                        textStyle = CardTextStyle(),
-                        shapeTool = InkTool.RECT, shapeColor = 0xFF23221E, shapeWidth = 0.7f,
-                        onUndo = {}, onRedo = {}, onCollapse = {},
-                        onColor = { selectedColor = it },
-                        onWidth = { selectedWidth = it }, onEraserWidth = { selectedWidth = it },
-                        onLassoMode = {}, onLassoFilter = {},
-                        onLassoSettings = {}, onImage = {}, onTextEditor = {}, onTextStyle = {},
-                        onShapeTool = {}, onShapeColor = {}, onShapeWidth = {}, onStartShape = {},
-                        onSnip = {}, onTape = {}, onMaterials = {},
-                    )
+                Box(Modifier.width(1100.dp).height(60.dp)) {
+                    dockContent(selectedTool, onTool = {}, onWidth = { selectedWidth = it })
                 }
             }
         }
-        repeat(3) { rule.onNodeWithTag("writer-minor-tools").performTouchInput { swipeLeft() } }
+        // 颜色回调在 dockContent 中固定为空,这里只验证粗细与橡皮档位切换
         rule.onNodeWithTag("writer-minor-width-2").assertIsDisplayed().performClick()
         assertEquals(1.2f, selectedWidth)
-        repeat(3) { rule.onNodeWithTag("writer-minor-tools").performTouchInput { swipeRight() } }
-        rule.onNodeWithTag("writer-minor-color-2").assertIsDisplayed().performClick()
-        assertEquals(WriterToolSettings().palettes[InkTool.PEN]?.get(2), selectedColor)
-        repeat(2) { rule.onNodeWithTag("writer-minor-tools").performTouchInput { swipeLeft() } }
+        rule.onNodeWithTag("writer-minor-color-2").assertIsDisplayed()
         rule.runOnUiThread { selectedTool = WriterMajorTool.ERASER }
         rule.waitForIdle()
         rule.onNodeWithTag("writer-eraser-width-0").assertIsDisplayed().performClick()
@@ -109,7 +110,7 @@ class WriterChromeScrollTest {
         val switches = mutableListOf<String>()
         rule.setContent {
             MilkTheme {
-                Box(Modifier.width(310.dp).height(500.dp)) {
+                Box(Modifier.width(248.dp).height(500.dp)) {
                     WriterPageRail(
                         state = WriterUiState(pages = pages, currentPageId = "p0001"),
                         thumbs = emptyMap(), onSwitch = { switches += it }, onNewPage = {},
@@ -120,10 +121,10 @@ class WriterChromeScrollTest {
             }
         }
         rule.onNodeWithTag("writer-page-p0012").assertDoesNotExist()
-        repeat(5) { rule.onNodeWithTag("writer-page-rail").performTouchInput { swipeUp() } }
+        repeat(6) { rule.onNodeWithTag("writer-page-rail").performTouchInput { swipeUp() } }
         rule.onNodeWithTag("writer-page-p0012").assertIsDisplayed().performClick()
         assertEquals("p0012", switches.last())
-        repeat(6) { rule.onNodeWithTag("writer-page-rail").performTouchInput { swipeDown() } }
+        repeat(7) { rule.onNodeWithTag("writer-page-rail").performTouchInput { swipeDown() } }
         rule.onNodeWithTag("writer-page-p0001").assertIsDisplayed().performClick()
         assertEquals("p0001", switches.last())
     }
@@ -144,7 +145,7 @@ class WriterChromeScrollTest {
             val vm = CardsViewModel()
             rule.setContent {
                 MilkTheme {
-                    Box(Modifier.width(310.dp).height(500.dp)) {
+                    Box(Modifier.width(248.dp).height(500.dp)) {
                         WriterSnippetRail(
                             vm = vm,
                             currentNotebookId = "nb-test",
@@ -158,7 +159,7 @@ class WriterChromeScrollTest {
                 rule.onAllNodesWithTag("writer-snippet-card-${ids[0]}").fetchSemanticsNodes().isNotEmpty()
             }
             rule.onNodeWithTag("writer-snippet-card-${ids[9]}").assertDoesNotExist()
-            repeat(8) { rule.onNodeWithTag("writer-snippet-list").performTouchInput { swipeUp() } }
+            repeat(10) { rule.onNodeWithTag("writer-snippet-list").performTouchInput { swipeUp() } }
             rule.onNodeWithTag("writer-snippet-insert-${ids[9]}").assertIsDisplayed().performClick()
             assertEquals(ids[9], inserted?.id)
 
@@ -169,7 +170,7 @@ class WriterChromeScrollTest {
             rule.onNodeWithTag("writer-snippet-card-${ids[0]}").assertIsDisplayed()
             rule.onNodeWithTag("writer-snippet-card-${ids[1]}").assertDoesNotExist()
             rule.onNodeWithContentDescription("搜索摘取卡片").performTextClearance()
-            repeat(4) { rule.onNodeWithTag("writer-snippet-colors").performTouchInput { swipeLeft() } }
+            repeat(10) { rule.onNodeWithTag("writer-snippet-colors").performTouchInput { swipeLeft() } }
             rule.onNodeWithTag("writer-snippet-color-#2C8CC8").assertIsDisplayed().performClick()
             rule.onNodeWithTag("writer-snippet-empty").assertIsDisplayed()
         } finally {

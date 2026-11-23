@@ -64,6 +64,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Title
+import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.ViewSidebar
 import androidx.compose.material3.DropdownMenu
@@ -138,6 +139,8 @@ fun WriterScreen(
 ) {
     val state by vm.state.collectAsState()
     val thumbs by vm.thumbs.collectAsState()
+    val penPresets by vm.penPresets.collectAsState()
+    val appSettings by ServiceLocator.appSettings.flow.collectAsState(initial = com.milknote.app.ui.settings.AppSettings())
     val battery by ServiceLocator.penBattery.level.collectAsState()
     val batterySource by ServiceLocator.penBattery.sourceName.collectAsState()
     val penConnected = batterySource != null || battery >= 0   // GATT 已连笔 → 手指不写
@@ -364,18 +367,14 @@ fun WriterScreen(
         railMode = toggleWriterRail(railMode, target)
     }
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        val chromeHeight = when {
-            focusMode -> 0.dp
-            minorCollapsed || selectedMajorTool == WriterMajorTool.READING || minorDock != MinorDock.TOP ->
-                WriterMajorToolbarHeight
-            else -> WriterChromeHeight
-        }
+        // 第二代:chrome 仅 44dp 顶栏;笔匣悬浮在画布之上,不占布局高度
+        val chromeHeight = if (focusMode) 0.dp else WriterMajorToolbarHeight
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
@@ -411,7 +410,7 @@ fun WriterScreen(
                                 )
                             }
                             Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(6.dp))) {
-                                PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
+                                PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING, swipeNewPage = appSettings.swipeNewPage)
                             }
                         }
                         Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -455,7 +454,7 @@ fun WriterScreen(
                         }
                     }
                 } else {
-                    PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
+                    PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING, swipeNewPage = appSettings.swipeNewPage)
                 }
                 // 纸面暗角(纯显示层,不参与导出)
                 Box(Modifier.matchParentSize().paperVignette(dark))
@@ -507,6 +506,8 @@ fun WriterScreen(
                     relatedCards = cardsState.cards,
                     onOpenSplitNotebook = { vm.toggleSplit(it) },
                     onInsertCard = { vm.insertLibraryCard(it, state.currentPageId) },
+                    onSaveMessageCard = vm::saveTextAsCard,
+                    allNotebooks = remember(state.notebook?.id) { ServiceLocator.repository.listNotebooks(includeTrashed = false) },
                     modifier = Modifier.align(Alignment.CenterEnd).padding(top = chromeHeight),
                 )
                 // 混合选区操作条:锚定当前选框,空间不足时自动换到下方。
@@ -583,8 +584,7 @@ fun WriterScreen(
                 )
                 null -> Unit
             }
-            // 千本 drag_point(本轮实测):拖拽松手后按指针最近边吸附,四边均可停靠;
-            // 拖动中在目标边实时显示停靠预览条(松手前可见"会停到哪")
+            // 笔匣四边停靠(拖拽柄):松手按最近边吸附;拖动中显示落位预览条
             val windowSize = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
             fun nearestDock(x: Float, y: Float): MinorDock = listOf(
                 MinorDock.TOP to y,
@@ -600,6 +600,22 @@ fun WriterScreen(
                 dockPreview = null
             }
             val onDockCancel: () -> Unit = { dockPreview = null }
+            val railWidthNow = railWidth
+            val studioInset = if (agentDrawerOpen) 360.dp else 0.dp
+            // 笔设置入口:按当前工具打开对应面板(钢笔/荧光笔/图案笔/激光 → 笔设置;其余 → 各自面板)
+            val openTune: () -> Unit = {
+                when (selectedMajorTool) {
+                    WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER, WriterMajorTool.DOODLE, WriterMajorTool.LASER ->
+                        openToolPanel(writerInkTool(selectedMajorTool, state.toolSettings))
+                    WriterMajorTool.ERASER -> openToolPanel(com.milknote.ink.model.InkTool.ERASER)
+                    WriterMajorTool.LASSO -> setCentralPanel(WriterPanel.LASSO, true)
+                    WriterMajorTool.IMAGE -> setCentralPanel(WriterPanel.IMAGE, true)
+                    WriterMajorTool.TEXT -> openTextPanel()
+                    WriterMajorTool.SHAPE -> setCentralPanel(WriterPanel.SHAPE, true)
+                    WriterMajorTool.TAPE -> setCentralPanel(WriterPanel.MATERIAL, true)
+                    else -> openToolPanel(state.toolSettings.currentTool)
+                }
+            }
             val minorBar: @Composable (MinorDock) -> Unit = { dock ->
                 WriterMinorToolbar(
                     state = state,
@@ -609,12 +625,15 @@ fun WriterScreen(
                     shapeColor = shapeColor,
                     shapeWidth = shapeWidth,
                     dock = dock,
+                    maxWidth = maxWidth - railWidthNow - studioInset - 24.dp,
+                    maxHeight = maxHeight - chromeHeight - 24.dp,
                     onDockDrag = onDockDrag,
                     onDockDrop = onDockDrop,
                     onDockCancel = onDockCancel,
                     onUndo = vm::undo,
                     onRedo = vm::redo,
                     onCollapse = { minorCollapsed = true },
+                    onTool = onMajorTool,
                     onColor = vm::setColor,
                     onWidth = vm::setWidth,
                     onEraserWidth = vm::setEraserWidth,
@@ -631,75 +650,121 @@ fun WriterScreen(
                     onSnip = vm::enterSnip,
                     onTape = { vm.insertBuiltinMaterial(com.milknote.ink.model.PageImageKind.TAPE, it) },
                     onMaterials = { setCentralPanel(WriterPanel.MATERIAL, true) },
+                    onTune = openTune,
                 )
             }
-            Column(Modifier.fillMaxWidth().align(Alignment.TopStart)) {
-                WriterMajorToolbar(
-                    state = state,
-                    selectedTool = selectedMajorTool,
-                    railMode = railMode,
-                    onBack = onBack,
-                    onShowPages = { showRail(WriterRailMode.PAGES) },
-                    onShowSnippets = { showRail(WriterRailMode.SNIPPETS) },
-                    onTool = onMajorTool,
-                    onRecord = openRecord,
-                    onVideo = openVideo,
-                    onAgent = {
-                        if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
-                    },
-                    onMaterials = { setCentralPanel(WriterPanel.MATERIAL, true) },
-                    onNewPage = { openNewPage(state.currentPageId) },
-                    onMore = { setCentralPanel(WriterPanel.MORE, true) },
-                    agentOpen = agentDrawerOpen,
-                    agentBusy = agentBusy,
-                    onSelectTab = { vm.open(it) },
-                    onCloseTab = vm::closeTab,
-                    onToggleSplit = { vm.toggleSplit() },
-                    onEnterFocus = { focusMode = true },
+            var moreExpanded by remember { mutableStateOf(false) }
+            val moreContent: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
+                val cs = MaterialTheme.colorScheme
+                val spec = state.notebook?.pageSpec(state.currentPageId)
+                Text("纸纹", fontSize = 11.5.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                ) {
+                    com.milknote.notes.model.PAPER_KINDS.forEach { (id, label) ->
+                        com.milknote.app.ui.common.MilkChip(
+                            label = label, selected = (spec?.paper ?: "dot") == id, small = true,
+                            onClick = { vm.setPagePaper(id); moreExpanded = false },
+                        )
+                    }
+                }
+                Text("纸色", fontSize = 11.5.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 6.dp))
+                Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    com.milknote.notes.model.PAPER_COLORS.take(4).forEach { (hex, label) ->
+                        com.milknote.app.ui.common.MilkColorDot(
+                            color = Color(android.graphics.Color.parseColor(hex)),
+                            selected = (spec?.paperColor ?: "#FFFFFF").equals(hex, ignoreCase = true),
+                            dotSize = 16.dp,
+                            contentDescription = label,
+                            onClick = { vm.setPagePaperColor(hex); moreExpanded = false },
+                        )
+                    }
+                }
+                com.milknote.app.ui.common.MilkMenuDivider()
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "素材", icon = Icons.Outlined.Category, onClick = { moreExpanded = false; setCentralPanel(WriterPanel.MATERIAL, true) }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "学习视频", icon = Icons.Outlined.Videocam, onClick = { moreExpanded = false; openVideo() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "新建页面", icon = Icons.Outlined.Add, onClick = { moreExpanded = false; openNewPage(state.currentPageId) }))
+                com.milknote.app.ui.common.MilkMenuRow(
+                    com.milknote.app.ui.common.MilkPanelAction(
+                        label = if (state.splitEnabled) "关闭双开分屏" else "双开分屏",
+                        icon = Icons.Outlined.VerticalSplit,
+                        onClick = { moreExpanded = false; vm.toggleSplit() },
+                    ),
                 )
-                if (minorVisible && minorDock == MinorDock.TOP) {
-                    minorBar(MinorDock.TOP)
-                }
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "清空本页手绘", icon = Icons.Outlined.Clear, onClick = { moreExpanded = false; vm.clearPage(state.currentPageId) }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "导出", icon = Icons.Outlined.FileDownload, onClick = { moreExpanded = false; onOpenExport() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "命令面板", icon = Icons.Outlined.Search, onClick = { moreExpanded = false; onOpenPalette() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "笔诊断", icon = Icons.Outlined.Edit, onClick = { moreExpanded = false; onOpenDiagnostics() }))
             }
-            if (minorVisible && minorDock != MinorDock.TOP) {
-                when (minorDock) {
-                    MinorDock.BOTTOM -> Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) { minorBar(MinorDock.BOTTOM) }
-                    MinorDock.LEFT -> Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .padding(top = WriterMajorToolbarHeight, start = railWidth),
-                    ) { minorBar(MinorDock.LEFT) }
-                    MinorDock.RIGHT -> Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = WriterMajorToolbarHeight),
-                    ) { minorBar(MinorDock.RIGHT) }
-                    MinorDock.TOP -> Unit
+            WriterMajorToolbar(
+                state = state,
+                railMode = railMode,
+                onBack = onBack,
+                onToggleRail = { railMode = if (railMode == null) WriterRailMode.PAGES else null },
+                onRecord = openRecord,
+                recording = centralPanelState.open == WriterPanel.RECORD,
+                onAgent = {
+                    if (agentDrawerOpen) ServiceLocator.agentController.closeDrawer() else openAgentDrawer(vm)
+                },
+                agentOpen = agentDrawerOpen,
+                agentBusy = agentBusy,
+                onSelectTab = { vm.open(it) },
+                onCloseTab = vm::closeTab,
+                onToggleSplit = { vm.toggleSplit() },
+                onEnterFocus = { focusMode = true },
+                moreExpanded = moreExpanded,
+                onMoreToggle = { moreExpanded = !moreExpanded },
+                onMoreDismiss = { moreExpanded = false },
+                moreContent = moreContent,
+            )
+            // 悬浮笔匣:居中浮动于画布之上(避开左侧抽屉与右侧 Studio),按停靠边落位
+            if (minorVisible) {
+                val dockModifier = when (minorDock) {
+                    MinorDock.TOP -> Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .padding(top = chromeHeight + 10.dp)
+                    MinorDock.BOTTOM -> Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .padding(bottom = 14.dp)
+                    MinorDock.LEFT -> Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
+                    MinorDock.RIGHT -> Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = studioInset + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
                 }
+                Box(dockModifier) { minorBar(minorDock) }
             }
             // 拖拽中的停靠预览:目标边显示半透明落位条(松手前可见"会停到哪")
             dockPreview?.let { preview ->
-                val previewShape = RoundedCornerShape(10.dp)
+                val previewShape = RoundedCornerShape(999.dp)
                 val previewModifier = when (preview) {
                     MinorDock.TOP -> Modifier
-                        .align(Alignment.TopStart)
-                        .padding(top = WriterMajorToolbarHeight)
-                        .fillMaxWidth()
-                        .height(WriterMinorToolbarHeight)
+                        .align(Alignment.TopCenter)
+                        .offset(x = railWidthNow / 2)
+                        .padding(top = chromeHeight + 10.dp)
+                        .width(320.dp)
+                        .height(WriterMinorToolbarHeight + 8.dp)
                     MinorDock.BOTTOM -> Modifier
                         .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(WriterMinorToolbarHeight)
+                        .offset(x = railWidthNow / 2)
+                        .padding(bottom = 14.dp)
+                        .width(320.dp)
+                        .height(WriterMinorToolbarHeight + 8.dp)
                     MinorDock.LEFT -> Modifier
-                        .align(Alignment.TopStart)
-                        .padding(top = WriterMajorToolbarHeight, start = railWidth)
+                        .align(Alignment.CenterStart)
+                        .padding(start = 10.dp, top = chromeHeight + 12.dp)
                         .width(WriterMinorBarThickness)
-                        .fillMaxHeight()
+                        .height(220.dp)
                     MinorDock.RIGHT -> Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = WriterMajorToolbarHeight)
+                        .align(Alignment.CenterEnd)
+                        .padding(end = studioInset + 10.dp, top = chromeHeight + 12.dp)
                         .width(WriterMinorBarThickness)
-                        .fillMaxHeight()
+                        .height(220.dp)
                 }
                 Box(
                     previewModifier
@@ -722,7 +787,7 @@ fun WriterScreen(
             val showPagePill = railMode == null
             if (showRestoreMinor || showPagePill) {
                 val startInset = railWidth + if (minorVisible && minorDock == MinorDock.LEFT) WriterMinorBarThickness else 0.dp
-                val bottomInset = if (minorVisible && minorDock == MinorDock.BOTTOM) WriterMinorToolbarHeight + 12.dp else 12.dp
+                val bottomInset = if (minorVisible && minorDock == MinorDock.BOTTOM) WriterMinorToolbarHeight + 22.dp else 12.dp
                 Row(
                     Modifier
                         .align(Alignment.BottomStart)
@@ -733,16 +798,15 @@ fun WriterScreen(
                     if (showRestoreMinor) {
                         Box(
                             Modifier
-                                .size(48.dp)
-                                .softShadow(6.dp, PillShape)
+                                .size(40.dp)
                                 .clip(PillShape)
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), PillShape)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                                .border(1.dp, MaterialTheme.colorScheme.outline, PillShape)
                                 .clickable { minorCollapsed = false }
                                 .testTag("writer-restore-minor"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Outlined.KeyboardArrowDown, "展开辅助栏", tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Outlined.DragIndicator, "展开笔匣", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         }
                     }
                     if (showPagePill) {
@@ -790,6 +854,10 @@ fun WriterScreen(
                         onEraseTarget = vm::setEraserTarget,
                         onAutoRevert = vm::setEraserAutoRevert,
                         onGamma = vm::setPenGamma,
+                        presets = penPresets,
+                        onSavePreset = vm::saveCurrentPenPreset,
+                        onApplyPreset = vm::applyPenPreset,
+                        onClearPresets = vm::clearPenPresets,
                     )
                 }
             } else {
@@ -887,23 +955,7 @@ fun WriterScreen(
                 )
             }
         }
-        WriterPanel.MORE -> {
-            val spec = state.notebook?.pageSpec(state.currentPageId)
-            WriterMorePanel(
-                onDismiss = ::closeCentralPanel,
-                onExport = { closeCentralPanel(); onOpenExport() },
-                onEnterFocus = { closeCentralPanel(); focusMode = true },
-                onOpenPalette = { closeCentralPanel(); onOpenPalette() },
-                onOpenDiagnostics = { closeCentralPanel(); onOpenDiagnostics() },
-                currentPaper = spec?.paper ?: "dot",
-                currentPaperColor = spec?.paperColor ?: "#FFFFFF",
-                splitEnabled = state.splitEnabled,
-                onSelectPaper = vm::setPagePaper,
-                onSelectPaperColor = vm::setPagePaperColor,
-                onToggleSplit = { vm.toggleSplit() },
-                onClearPage = { vm.clearPage(state.currentPageId) },
-            )
-        }
+        WriterPanel.MORE -> Unit   // 「更多」已改为顶栏锚定菜单,不再走中央面板
         null -> Unit
     }
     }
@@ -1188,6 +1240,7 @@ private fun PaperCanvas(
     penConnected: Boolean,
     surfaceRef: androidx.compose.runtime.MutableState<InkSurfaceView?>,
     readingMode: Boolean,
+    swipeNewPage: Boolean = true,
 ) {
     AndroidView(
         factory = { ctx ->
@@ -1197,7 +1250,8 @@ private fun PaperCanvas(
                 onViewportChanged = vm::refreshSelectionOverlay
                 onPreviousPage = vm::previousPage
                 onNextPage = vm::nextPage
-                onNextPageAtEnd = vm::appendPageAtEnd
+                // 末页继续右滑自动新建页(设置 → 书写 可关闭)
+                onNextPageAtEnd = if (swipeNewPage) vm::appendPageAtEnd else null
                 // 按住+书写修饰(PEN-ADAPTATION §4.3):落笔瞬间同步查询
                 // 「主/副键按住」触发器 → 映射动作 → 套索圈选/临时橡皮
                 holdActionProvider = {

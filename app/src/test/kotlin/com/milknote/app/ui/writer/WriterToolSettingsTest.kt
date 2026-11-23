@@ -148,4 +148,21 @@ class WriterToolSettingsTest {
         // 相同档不产生新对象
         assertEquals(pen, pen.selectPressureGamma(PressureGamma.SENSITIVE))
     }
+
+    @Test
+    fun `笔盒收藏编码往返保真 且非法分隔符与坏段被清洗`() {
+        val list = listOf(
+            PenPreset("a", "钢笔 · 墨", InkTool.PEN, 0xFF18191B, 0.7f),
+            PenPreset("b", "荧光|黄;粗", InkTool.HIGHLIGHTER, 0xFFFFD65A, 2f),
+        )
+        val decoded = PenPresets.decode(PenPresets.encode(list) + ";garbage")
+        assertEquals(2, decoded.size)
+        assertEquals(InkTool.PEN, decoded[0].tool)
+        assertEquals(0xFF18191B, decoded[0].color)
+        assertEquals(0.7f, decoded[0].widthMm, 1e-6f)
+        assertEquals(InkTool.HIGHLIGHTER, decoded[1].tool)
+        assertEquals("荧光 黄 粗", decoded[1].name)
+        assertTrue(decoded.none { it.name.contains('|') || it.name.contains(';') })
+        assertTrue(PenPresets.decode("").isEmpty())
+    }
 }

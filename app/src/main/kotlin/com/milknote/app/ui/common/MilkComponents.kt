@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.MonoMeta
+import com.milknote.app.ui.theme.PillShape
 
 /** 笔电量胶囊:线性笔图标 + 单行百分比;<20% 琥珀;未知 --% */
 @Composable
@@ -80,10 +81,10 @@ fun PenBatteryCapsule(
     }
 }
 
-/** 卡片双层软阴影(A2.8 视觉语言;R2 触控复审:移除通用 hover 上浮,红线三.3) */
+/** 卡片表面(第二代):仅 1dp hairline 描边,无投影——靠留白与描边分层 */
 @Composable
 fun Modifier.softCard(): Modifier =
-    this.softShadow(elevation = 6.dp, shape = MaterialTheme.shapes.large)
+    this.border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.large)
 
 /**
  * 柔和基础设施(A2.8,R2 触控复审收敛):
@@ -105,60 +106,36 @@ fun Modifier.softShadow(
         )
 }
 
-/** 顶缘内高光:1px 白渐变线(亮 45%→0 / 暗 10%→0);暗色表面收益最大,白卡上无害 */
+/** 兼容旧调用点:第二代表面不再画顶缘内高光(保留签名,无绘制) */
 @Composable
-fun Modifier.innerHighlight(strength: Float = 0.45f): Modifier {
-    val dark = com.milknote.app.ui.theme.LocalMilkDark.current
-    val alpha = if (dark) strength * 0.22f else strength
-    return drawBehind {
-        val h = 2.dp.toPx()
-        drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color.White.copy(alpha = alpha),
-                1f to Color.Transparent,
-                startY = 0f,
-                endY = h,
-            ),
-            topLeft = Offset(0f, 0f),
-            size = Size(size.width, h),
-        )
-    }
-}
+fun Modifier.innerHighlight(strength: Float = 0.45f): Modifier = this
 
 /**
  * 内侧柔和投影(§5.1「双层软阴影」的可视兜底):四边内侧 tinted 渐变(下浓上淡,光从上来),
  * 画在元素 bounds 内 → 不受 AnimatedVisibility 裁剪、跨 Dialog/主窗口/软渲染环境稳定
  * (elevation 投影在部分模拟器环境不渲染,A2.8 像素实证)。链在 background/border 之后。
  */
+/** 兼容旧调用点:第二代浮层只保留柔和投影,不再手绘四边内侧阴影(保留签名,无绘制) */
 @Composable
-fun Modifier.paintedShadow(shape: Shape, edge: Dp = 12.dp): Modifier {
-    val dark = com.milknote.app.ui.theme.LocalMilkDark.current
-    val tint = if (dark) Color(0x4D000000) else Color(0x1A23221E)
-    val bottom = tint
-    val side = tint.copy(alpha = tint.alpha * 0.66f)
-    val top = tint.copy(alpha = tint.alpha * 0.4f)
-    return drawBehind {
-        val path = when (val o = shape.createOutline(size, layoutDirection, this)) {
-            is androidx.compose.ui.graphics.Outline.Rectangle ->
-                androidx.compose.ui.graphics.Path().apply { addRect(o.rect) }
-            is androidx.compose.ui.graphics.Outline.Rounded ->
-                androidx.compose.ui.graphics.Path().apply { addRoundRect(o.roundRect) }
-            is androidx.compose.ui.graphics.Outline.Generic -> o.path
-        }
-        clipPath(path) {
-            val e = edge.toPx().coerceAtMost(size.minDimension / 3f)
-            drawRect(
-                Brush.verticalGradient(listOf(Color.Transparent, bottom), startY = size.height - e, endY = size.height),
-            )
-            drawRect(
-                Brush.verticalGradient(listOf(top, Color.Transparent), startY = 0f, endY = e * 0.7f),
-            )
-            drawRect(
-                Brush.horizontalGradient(listOf(side, Color.Transparent), startX = 0f, endX = e),
-            )
-            drawRect(
-                Brush.horizontalGradient(listOf(Color.Transparent, side), startX = size.width - e, endX = size.width),
-            )
+fun Modifier.paintedShadow(shape: Shape, edge: Dp = 12.dp): Modifier = this
+
+/** 应用内轻提示(替代系统 Toast):底部居中的深色胶囊,12.5sp,淡化进出 */
+@Composable
+fun MilkToast(visible: Boolean, text: String, modifier: Modifier = Modifier) {
+    val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = androidx.compose.animation.fadeIn(tween(if (reduced) 60 else 160)),
+        exit = androidx.compose.animation.fadeOut(tween(if (reduced) 60 else 160)),
+    ) {
+        Box(
+            Modifier
+                .clip(PillShape)
+                .background(Color(0xF218191B))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(text, color = Color(0xFFF4F5F7), fontSize = 12.5.sp)
         }
     }
 }
