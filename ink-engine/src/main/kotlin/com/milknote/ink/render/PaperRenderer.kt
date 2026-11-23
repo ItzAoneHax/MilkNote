@@ -13,10 +13,26 @@ object PaperRenderer {
             "dot" -> drawDots(canvas, w, h, lineColor)
             "line" -> drawLines(canvas, w, h, lineColor)
             "grid" -> { drawDots(canvas, w, h, lineColor, sparse = true); drawLines(canvas, w, h, lineColor) }
+            "cornell" -> drawCornell(canvas, w, h, lineColor)
             "english" -> drawEnglish(canvas, w, h, lineColor)
             "tian" -> drawTian(canvas, w, h, lineColor)
             else -> {} // blank
         }
+    }
+
+    private fun drawCornell(canvas: Canvas, w: Float, h: Float, lineColor: Int) {
+        val bodyPaint = Paint().apply { color = lineColor; strokeWidth = 1f; style = Paint.Style.STROKE }
+        val headerY = h * 0.12f
+        val cueX = w * 0.24f
+        var y = headerY + GRID_SPACING_PX
+        while (y < h - 1) {
+            canvas.drawLine(0f, y, w, y, bodyPaint)
+            y += GRID_SPACING_PX
+        }
+        val headerPaint = Paint().apply { color = 0x402563EB; strokeWidth = 1.5f; style = Paint.Style.STROKE }
+        val cuePaint = Paint().apply { color = 0x48D94436; strokeWidth = 1.5f; style = Paint.Style.STROKE }
+        canvas.drawLine(0f, headerY, w, headerY, headerPaint)
+        canvas.drawLine(cueX, headerY, cueX, h, cuePaint)
     }
 
     private fun drawDots(canvas: Canvas, w: Float, h: Float, dotColor: Int, sparse: Boolean = false) {

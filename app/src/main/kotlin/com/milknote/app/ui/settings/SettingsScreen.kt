@@ -83,6 +83,7 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
 
     // A-17:Agent「管理模型」直达 agent 页;key 随入口变化重初始化
     var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val reducedMotion = com.milknote.app.ui.theme.LocalMilkMotion.current
 
     val permLauncher = rememberLauncherForActivityResult(
@@ -99,9 +100,23 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
     ) {
         SettingsNavRail(
             selected = page,
-            onSelect = { page = it },
+            onSelect = { page = it; searchQuery = "" },
             versionLine = "v${com.milknote.app.BuildConfig.VERSION_NAME} · ${fmtTime(com.milknote.app.BuildConfig.BUILD_TIME)}",
             onBack = onBack,
+            searchQuery = searchQuery,
+            onSearchChange = { q ->
+                searchQuery = q
+                val needle = q.trim().lowercase()
+                if (needle.isNotEmpty()) {
+                    when {
+                        needle.contains("深色") || needle.contains("浅色") || needle.contains("主题") || needle.contains("外观") -> page = "appearance"
+                        needle.contains("压感") || needle.contains("出墨") || needle.contains("前置") || needle.contains("书写") -> page = "writing"
+                        needle.contains("笔") || needle.contains("按键") || needle.contains("蓝牙") || needle.contains("电量") || needle.contains("接管") -> page = "pen"
+                        needle.contains("模型") || needle.contains("ai") || needle.contains("key") || needle.contains("provider") || needle.contains("视觉") -> page = "agent"
+                        needle.contains("更新") || needle.contains("回收站") || needle.contains("存储") -> page = "updates"
+                    }
+                }
+            },
         )
         // 导航/内容分隔:上下渐隐 hairline(去生硬实线)
         Box(
@@ -444,11 +459,46 @@ private fun UpdatesPage(appSettings: AppSettings) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val settings = ServiceLocator.appSettings
     val updater = ServiceLocator.appUpdater
+    val scope = rememberCoroutineScope()
     // 状态/任务在进程级 UpdateController:切到其他设置页再回来,进度与结果仍在
     val state by updater.state.collectAsState()
     var server by remember(appSettings.updateServer) { mutableStateOf(appSettings.updateServer) }
+    var trashedCount by remember { mutableStateOf(ServiceLocator.repository.listTrashedNotebooks().size) }
 
-    SettingsPageHeader("更新", "局域网更新：电脑运行更新服务后即可检查新版本")
+    SettingsPageHeader("存储与更新", "本地 .milk 目录存储、回收站清理与局域网更新")
+
+    SettingsSectionHeader("本地数据")
+    SettingsCard {
+        SettingsRow(
+            title = "存储目录",
+            subtitle = "本地零账号优先 · notebooks/*.milk",
+            trailing = {
+                Text("本地", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            },
+        )
+        Hairline()
+        SettingsRow(
+            title = "回收站（$trashedCount 本）",
+            subtitle = "书架删除的笔记本会先移入回收站，可随时恢复或永久清空",
+            trailing = {
+                TextAction(
+                    label = "清空回收站",
+                    danger = true,
+                    enabled = trashedCount > 0,
+                    onClick = {
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            ServiceLocator.repository.emptyTrash()
+                            val remaining = ServiceLocator.repository.listTrashedNotebooks().size
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                trashedCount = remaining
+                                android.widget.Toast.makeText(context, "回收站已清空", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                )
+            },
+        )
+    }
 
     SettingsSectionHeader("更新服务器")
     SettingsCard {

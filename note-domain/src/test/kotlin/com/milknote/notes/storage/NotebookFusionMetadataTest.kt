@@ -54,4 +54,31 @@ class NotebookFusionMetadataTest {
         assertEquals(setOf("p0001"), remaining.keys)
         assertEquals(PageSpec(300f, 200f, "blank", "#FFFFFF"), remaining["p0001"])
     }
+
+    @Test
+    fun `星标 回收站软删除与逐页伴随 Markdown 持久化`() {
+        val created = repo.create("高数", "#2563EB", "dot", "课堂笔记")
+        assertEquals(false, created.pinned)
+        assertEquals(false, created.trashed)
+
+        val pinned = repo.setPinned(created.id, true)!!
+        assertTrue(pinned.pinned)
+        assertTrue(repo.listNotebooks().single().pinned)
+
+        repo.savePageMarkdown(created.id, "p0001", "### §3.1 特征值\n[[线性代数]] #数学")
+        assertEquals("### §3.1 特征值\n[[线性代数]] #数学", repo.loadPageMarkdown(created.id, "p0001"))
+
+        val trashed = repo.moveToTrash(created.id)!!
+        assertTrue(trashed.trashed)
+        assertTrue(repo.listNotebooks().isEmpty())
+        assertEquals(listOf(created.id), repo.listTrashedNotebooks().map { it.id })
+
+        val restored = repo.restoreFromTrash(created.id)!!
+        assertEquals(false, restored.trashed)
+        assertEquals(listOf(created.id), repo.listNotebooks().map { it.id })
+
+        repo.moveToTrash(created.id)
+        assertEquals(1, repo.emptyTrash())
+        assertTrue(repo.listNotebooks(includeTrashed = true).isEmpty())
+    }
 }

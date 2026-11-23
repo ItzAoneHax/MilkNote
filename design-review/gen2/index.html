@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    try {
+      const s = localStorage.getItem("color-scheme");
+      if (s === "light" || s === "dark") document.querySelector('meta[name="color-scheme"]').content = s;
+    } catch {}
+  </script>
+  <title>牛奶笔记</title>
+  <link rel="icon" href="icons/icon-a-nib-drop.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Clean SVG Icon Set -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+      <symbol id="i-cards" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="15" rx="2.5"/><path d="M17 8h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4.6a2 2 0 0 1 1.6.8l1.2 1.6a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+      <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 6h11M4 12h8M4 18h5M17 6v12m0 0-3-3m3 3 3-3"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></symbol>
+      <symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></symbol>
+      <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M12 4v16"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="M4 12h10a5.5 5.5 0 0 1 0 11h-2"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 7 5 5-5 5"/><path d="M20 12H10a5.5 5.5 0 0 0 0 11h2"/></symbol>
+      <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 2.5 18 11l-3.5 9.5h-5L6 11l6-8.5Z"/><path d="M12 2.5V12"/><circle cx="12" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-hl" viewBox="0 0 24 24"><path d="m9 11 7.5-7.5 4 4L13 15"/><path d="M9 11 4.5 15.5l4 4L13 15"/><path d="M3.5 20.5h8"/></symbol>
+      <symbol id="i-eraser" viewBox="0 0 24 24"><path d="m7 20 11-11a2 2 0 0 0 0-2.8l-2.2-2.2a2 2 0 0 0-2.8 0L3.5 13.5a2 2 0 0 0 0 2.8L7 20Z"/><path d="M7 20h13M10 7l7 7"/></symbol>
+      <symbol id="i-shape" viewBox="0 0 24 24"><circle cx="8.5" cy="8.5" r="4.5"/><rect x="12" y="12" width="8.5" height="8.5" rx="1.5"/></symbol>
+      <symbol id="i-laser" viewBox="0 0 24 24"><path d="m14 10-9 9"/><circle cx="17" cy="7" r="2.2" fill="currentColor" stroke="none"/><path d="M17 2v2M22 7h-2"/></symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a1.5 1.5 0 0 0-3 0v4M15 10V4.5a1.5 1.5 0 0 0-3 0V10M12 10V5.5a1.5 1.5 0 0 0-3 0V12M9 12v-2a1.5 1.5 0 0 0-3 0v5a6 6 0 0 0 12 0v-4a1.5 1.5 0 0 0-3 0"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3c.7 5.2 2.8 7.3 8 8-5.2.7-7.3 2.8-8 8-.7-5.2-2.8-7.3-8-8 5.2-.7 7.3-2.8 8-8Z"/></symbol>
+      <symbol id="i-snip" viewBox="0 0 24 24"><path d="M6 3H4a1 1 0 0 0-1 1v2M18 3h2a1 1 0 0 1 1 1v2M6 21H4a1 1 0 0 1-1-1v-2M18 21h2a1 1 0 0 0 1-1v-2"/><path d="M12 8c.4 2.4 1.6 3.6 4 4-2.4.4-3.6 1.6-4 4-.4-2.4-1.6-3.6-4-4 2.4-.4 3.6-1.6 4-4Z"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"/></symbol>
+      <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="7" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="7" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1.3" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21 11.5-8.8 8.8a5 5 0 0 1-7.1-7.1l9.5-9.5a3.3 3.3 0 0 1 4.7 4.7l-9.2 9.2a1.6 1.6 0 0 1-2.3-2.3l8.4-8.4"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+      <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M9 4v6M15 14v6"/></symbol>
+      <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v12m0-12 4 4m-4-4-4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    </defs>
+  </svg>
+
+  <main class="app-root">
+    <!-- ==================== SCREEN 1: LIBRARY ==================== -->
+    <section id="scr-library" class="screen active" aria-label="书架">
+      <div class="library-shell" id="lib-shell">
+        <aside class="side-rail" aria-label="目录">
+          <div class="side-head">
+            <img id="brand-icon-img" src="icons/icon-a-nib-drop.svg" alt="牛奶笔记">
+            <strong>牛奶笔记</strong>
+            <button type="button" class="icon-btn" id="btn-rail-hide" aria-label="收起侧栏" style="margin-left:auto">
+              <svg class="ico" aria-hidden="true"><use href="#i-side"/></svg>
+            </button>
+          </div>
+
+          <div class="side-scroll">
+            <button type="button" class="nav-row" data-nav="all" aria-current="page">
+              <svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><span>全部</span><span class="nav-num" id="cnt-all">5</span>
+            </button>
+            <button type="button" class="nav-row" data-nav="pinned">
+              <svg class="ico" aria-hidden="true"><use href="#i-star"/></svg><span>星标</span><span class="nav-num" id="cnt-pinned">2</span>
+            </button>
+            <button type="button" class="nav-row" data-nav="cards">
+              <svg class="ico" aria-hidden="true"><use href="#i-cards"/></svg><span>卡片</span><span class="nav-num" id="cnt-cards">4</span>
+            </button>
+            <button type="button" class="nav-row" data-nav="trash">
+              <svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg><span>回收站</span><span class="nav-num" id="cnt-trash">0</span>
+            </button>
+
+            <div class="nav-group-label">
+              <span>文件夹</span>
+              <button type="button" class="icon-btn" id="btn-add-folder" aria-label="新建文件夹" style="min-inline-size:26px;min-block-size:26px;padding:0">
+                <svg class="ico" style="width:14px;height:14px" aria-hidden="true"><use href="#i-plus"/></svg>
+              </button>
+            </div>
+            <div id="folder-list"></div>
+          </div>
+
+          <div class="side-foot">
+            <button type="button" class="pen-mini" id="btn-foot-pen" title="笔与手势">
+              <span class="pen-mini-dot"></span>
+              <span class="mono">84%</span>
+            </button>
+            <button type="button" class="icon-btn" id="btn-foot-settings" aria-label="设置" title="设置">
+              <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>
+            </button>
+          </div>
+        </aside>
+
+        <section class="shelf-main">
+          <header class="shelf-header">
+            <button type="button" class="icon-btn" id="btn-rail-show" aria-label="展开侧栏" style="display:none">
+              <svg class="ico" aria-hidden="true"><use href="#i-side"/></svg>
+            </button>
+            <h1 id="shelf-title">全部</h1>
+            <button type="button" class="search-box" id="btn-shelf-search" aria-label="搜索">
+              <svg class="ico" style="width:15px;height:15px" aria-hidden="true"><use href="#i-search"/></svg>
+              <span>搜索</span>
+            </button>
+            <button type="button" class="icon-btn" id="btn-view-mode" aria-pressed="false" aria-label="切换列表视图" title="网格 / 列表">
+              <svg class="ico" aria-hidden="true"><use href="#i-list"/></svg>
+            </button>
+            <button type="button" class="icon-btn" id="btn-sort" popovertarget="pop-sort" aria-label="排序" title="排序">
+              <svg class="ico" aria-hidden="true"><use href="#i-sort"/></svg>
+            </button>
+            <button type="button" class="btn-solid" id="btn-new-main">
+              <svg class="ico" style="width:16px;height:16px" aria-hidden="true"><use href="#i-plus"/></svg>
+              <span id="new-main-lbl">新建</span>
+            </button>
+          </header>
+
+          <div class="shelf-scroll">
+            <div id="books-grid" class="books-grid"></div>
+            <div id="cards-grid" class="cards-grid" style="display:none"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 2: WRITER ==================== -->
+    <section id="scr-writer" class="screen" aria-label="书写">
+      <div class="writer-shell" id="writer-shell" data-dock="top">
+        <header class="writer-bar">
+          <button type="button" class="icon-btn" id="btn-w-back" aria-label="返回书架" title="返回书架">
+            <svg class="ico" aria-hidden="true"><use href="#i-left"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="btn-w-left" aria-pressed="false" aria-label="页面与目录" title="页面 / 卡片 / 大纲">
+            <svg class="ico" aria-hidden="true"><use href="#i-side"/></svg>
+          </button>
+
+          <div class="w-tabs" id="w-tabs" role="tablist" aria-label="已打开文档"></div>
+
+          <button type="button" class="icon-btn" id="btn-w-split" aria-pressed="false" aria-label="双开分屏" title="双开分屏">
+            <svg class="ico" aria-hidden="true"><use href="#i-split"/></svg>
+          </button>
+          <button type="button" class="rec-btn" id="btn-w-rec" aria-pressed="false" aria-label="录音" title="录音">
+            <svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg>
+            <span class="mono" id="rec-time"></span>
+          </button>
+          <button type="button" class="icon-btn" id="btn-w-focus" aria-pressed="false" aria-label="专注" title="专注模式">
+            <svg class="ico" aria-hidden="true"><use href="#i-focus"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="btn-w-studio" aria-pressed="false" aria-label="AI 与伴随笔记" title="AI / Markdown / 关联">
+            <svg class="ico" aria-hidden="true"><use href="#i-spark"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="btn-w-more" popovertarget="pop-w-more" aria-label="更多" title="更多">
+            <svg class="ico" aria-hidden="true"><use href="#i-more"/></svg>
+          </button>
+        </header>
+
+        <div class="writer-body">
+          <aside class="left-drawer" id="left-drawer" aria-label="页面侧栏">
+            <div class="seg-3" role="tablist">
+              <button type="button" role="tab" data-ltab="pages" aria-selected="true">页面</button>
+              <button type="button" role="tab" data-ltab="cards" aria-selected="false">卡片</button>
+              <button type="button" role="tab" data-ltab="outline" aria-selected="false">大纲</button>
+            </div>
+            <div class="drawer-scroll" id="left-drawer-body"></div>
+          </aside>
+
+          <div class="canvas-stage" id="canvas-stage">
+            <!-- Tactile Floating Ink Bar (role="toolbar" + focusgroup) -->
+            <div class="ink-dock" id="ink-dock" role="toolbar" focusgroup="toolbar wrap" aria-label="笔具栏" aria-controls="cv-main">
+              <div role="group" aria-label="位置与撤销">
+                <button type="button" class="dock-tool" id="btn-dock-move" aria-label="切换停靠位置" title="停靠四边">
+                  <svg class="ico" style="width:16px;height:16px" aria-hidden="true"><use href="#i-grip"/></svg>
+                </button>
+                <button type="button" class="dock-tool" id="btn-undo" aria-disabled="true" aria-label="撤销" title="撤销">
+                  <svg class="ico" aria-hidden="true"><use href="#i-undo"/></svg>
+                </button>
+                <button type="button" class="dock-tool" id="btn-redo" aria-disabled="true" aria-label="重做" title="重做">
+                  <svg class="ico" aria-hidden="true"><use href="#i-redo"/></svg>
+                </button>
+              </div>
+              <span class="dock-div" role="separator" aria-orientation="vertical"></span>
+              <div role="group" aria-label="笔具">
+                <button type="button" class="dock-tool" data-tool="fountain" aria-pressed="true" aria-label="钢笔" title="钢笔">
+                  <svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>
+                </button>
+                <button type="button" class="dock-tool" data-tool="highlighter" aria-pressed="false" aria-label="荧光笔" title="荧光笔">
+                  <svg class="ico" aria-hidden="true"><use href="#i-hl"/></svg>
+                </button>
+                <button type="button" class="dock-tool" data-tool="eraser" aria-pressed="false" aria-label="橡皮" title="橡皮">
+                  <svg class="ico" aria-hidden="true"><use href="#i-eraser"/></svg>
+                </button>
+                <button type="button" class="dock-tool" data-tool="shape" aria-pressed="false" aria-label="图形校准" title="一笔成型">
+                  <svg class="ico" aria-hidden="true"><use href="#i-shape"/></svg>
+                </button>
+                <button type="button" class="dock-tool" data-tool="laser" aria-pressed="false" aria-label="激光笔" title="激光笔">
+                  <svg class="ico" aria-hidden="true"><use href="#i-laser"/></svg>
+                </button>
+                <button type="button" class="dock-tool" data-tool="hand" aria-pressed="false" aria-label="阅读" title="阅读">
+                  <svg class="ico" aria-hidden="true"><use href="#i-hand"/></svg>
+                </button>
+              </div>
+              <span class="dock-div" role="separator" aria-orientation="vertical"></span>
+              <div role="group" aria-label="墨色与粗细">
+                <button type="button" class="color-dot" data-ink="#18191B" style="--dot-c:#18191B" aria-pressed="true" aria-label="黑"></button>
+                <button type="button" class="color-dot" data-ink="#2563EB" style="--dot-c:#2563EB" aria-pressed="false" aria-label="蓝"></button>
+                <button type="button" class="color-dot" data-ink="#D94436" style="--dot-c:#D94436" aria-pressed="false" aria-label="红"></button>
+                <span class="dock-div" role="separator" aria-orientation="vertical" style="height:12px;margin:0 3px"></span>
+                <button type="button" class="stroke-bar" data-w="1.6" style="--bar-h:1.5px" aria-pressed="false" aria-label="细"></button>
+                <button type="button" class="stroke-bar" data-w="2.6" style="--bar-h:3px" aria-pressed="true" aria-label="中"></button>
+                <button type="button" class="stroke-bar" data-w="4.4" style="--bar-h:5px" aria-pressed="false" aria-label="粗"></button>
+                <button type="button" class="dock-tool" id="btn-pen-pop" popovertarget="pop-pen" aria-label="笔盒与参数" title="笔盒">
+                  <svg class="ico" style="width:15px;height:15px" aria-hidden="true"><use href="#i-tune"/></svg>
+                </button>
+              </div>
+              <span class="dock-div" role="separator" aria-orientation="vertical"></span>
+              <div role="group" aria-label="框选">
+                <button type="button" class="dock-tool" id="btn-snip" aria-label="框选提问" title="框选（Alt+S）" style="color:var(--accent)">
+                  <svg class="ico" aria-hidden="true"><use href="#i-snip"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="paper-col">
+              <div class="split-caption"><span id="cap-main">高等数学 · 第三章</span><span class="mono" id="cap-main-p">1 / 4</span></div>
+              <div class="sheet surface-always-light" id="sheet-main" data-pattern="dot" style="--sheet-bg:#FFFFFF">
+                <canvas id="cv-main"></canvas>
+                <div class="pins-layer" id="pins-layer"></div>
+              </div>
+            </div>
+
+            <div class="paper-col paper-col-split">
+              <div class="split-caption"><span>线性代数讲义.pdf</span><span class="mono">14 / 48</span></div>
+              <div class="sheet surface-always-light" id="sheet-split" data-pattern="blank" style="--sheet-bg:#FFFFFF">
+                <canvas id="cv-split"></canvas>
+              </div>
+            </div>
+
+            <div class="page-pill">
+              <button type="button" class="icon-btn" id="btn-p-prev" aria-label="上一页" style="min-inline-size:28px;min-block-size:28px;padding:0">
+                <svg class="ico" style="width:14px;height:14px" aria-hidden="true"><use href="#i-left"/></svg>
+              </button>
+              <span class="mono" id="page-num" style="padding:0 6px">1 / 4</span>
+              <button type="button" class="icon-btn" id="btn-p-next" aria-label="下一页" style="min-inline-size:28px;min-block-size:28px;padding:0">
+                <svg class="ico" style="width:14px;height:14px" aria-hidden="true"><use href="#i-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Snip Overlay -->
+          <div class="snip-layer" id="snip-layer">
+            <button type="button" class="snip-cancel-float" id="btn-snip-x">取消</button>
+            <div class="snip-rect" id="snip-rect">
+              <span class="snip-corner tl"></span><span class="snip-corner tr"></span>
+              <span class="snip-corner bl"></span><span class="snip-corner br"></span>
+              <span class="snip-dim" id="snip-dim">640 × 300</span>
+            </div>
+            <div class="snip-bar surface-always-dark" id="snip-bar" role="group" aria-label="意图">
+              <button type="button" class="snip-opt" data-intent="讲解" aria-pressed="true">讲解</button>
+              <button type="button" class="snip-opt" data-intent="归纳" aria-pressed="false">归纳</button>
+              <button type="button" class="snip-opt" data-intent="翻译" aria-pressed="false">翻译</button>
+              <button type="button" class="snip-opt" data-intent="出题" aria-pressed="false">出题</button>
+              <button type="button" class="snip-opt" data-intent="转 LaTeX" aria-pressed="false">LaTeX</button>
+              <button type="button" class="snip-opt" id="btn-snip-card">存卡片</button>
+              <button type="button" class="btn-solid" id="btn-snip-go" style="min-block-size:34px;padding:0 14px;font-size:12.5px">发送</button>
+            </div>
+          </div>
+
+          <!-- Right Panel (AI / Markdown / Links — Closed Initially!) -->
+          <aside class="right-studio" id="right-studio" aria-label="右侧面板">
+            <div class="resize-edge" id="resize-edge"></div>
+            <div class="studio-top">
+              <div class="seg-3" role="tablist" style="flex:1;margin:0">
+                <button type="button" role="tab" data-rtab="ai" aria-selected="true">AI</button>
+                <button type="button" role="tab" data-rtab="md" aria-selected="false">Markdown</button>
+                <button type="button" role="tab" data-rtab="links" aria-selected="false">关联</button>
+              </div>
+              <button type="button" class="icon-btn" id="btn-studio-x" aria-label="关闭" style="min-inline-size:30px;min-block-size:30px">
+                <svg class="ico" style="width:16px;height:16px" aria-hidden="true"><use href="#i-x"/></svg>
+              </button>
+            </div>
+
+            <div class="studio-pane active" id="rp-ai">
+              <div class="studio-scroll" id="ai-msgs"></div>
+              <div class="composer-area">
+                <div class="quick-chips" id="ai-quick-row">
+                  <button type="button" class="micro-btn" data-ai-q="snip">框选题目</button>
+                  <button type="button" class="micro-btn" data-ai-q="explain">讲解本页</button>
+                  <button type="button" class="micro-btn" data-ai-q="summarize">归纳本章</button>
+                </div>
+                <div id="ai-drafts" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px"></div>
+                <div class="composer-box">
+                  <button type="button" class="icon-btn" id="btn-ai-clip" popovertarget="pop-attach" aria-label="附加页面" style="min-inline-size:32px;min-block-size:32px;padding:0">
+                    <svg class="ico" style="width:16px;height:16px" aria-hidden="true"><use href="#i-clip"/></svg>
+                  </button>
+                  <textarea id="ai-inp" rows="1" placeholder="提问…"></textarea>
+                  <button type="button" class="send-dot" id="btn-ai-send" disabled aria-label="发送">
+                    <svg class="ico" style="width:15px;height:15px" aria-hidden="true"><use href="#i-send"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="studio-pane" id="rp-md">
+              <div style="padding:8px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-2)">
+                <span class="mono" id="md-scope">第 1 页</span>
+                <div style="display:flex;gap:6px">
+                  <button type="button" class="micro-btn" id="btn-md-toggle">源码</button>
+                  <button type="button" class="micro-btn" id="btn-md-card">存卡片</button>
+                </div>
+              </div>
+              <div class="studio-scroll">
+                <div class="md-box" id="md-view"></div>
+                <textarea class="md-raw" id="md-raw" style="display:none"></textarea>
+              </div>
+            </div>
+
+            <div class="studio-pane" id="rp-links">
+              <div class="studio-scroll" id="links-body"></div>
+            </div>
+          </aside>
+
+          <button type="button" class="exit-focus-btn" id="btn-exit-focus">退出专注</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 3: SETTINGS ==================== -->
+    <section id="scr-settings" class="screen" aria-label="设置">
+      <div class="set-shell">
+        <aside class="set-nav">
+          <div style="display:flex;align-items:center;gap:6px;padding:2px 4px 10px">
+            <button type="button" class="icon-btn" id="btn-set-back" aria-label="返回">
+              <svg class="ico" aria-hidden="true"><use href="#i-left"/></svg>
+            </button>
+            <strong style="font-size:15px">设置</strong>
+          </div>
+          <input type="search" id="set-search" class="field-inp" placeholder="搜索" style="min-block-size:34px;font-size:13px;margin-bottom:8px">
+          <button type="button" class="nav-row" data-stab="appearance" aria-current="page">外观</button>
+          <button type="button" class="nav-row" data-stab="writing">书写</button>
+          <button type="button" class="nav-row" data-stab="pen">触控笔</button>
+          <button type="button" class="nav-row" data-stab="gestures">手势与快捷键</button>
+          <button type="button" class="nav-row" data-stab="ocr">识别与工具</button>
+          <button type="button" class="nav-row" data-stab="ai">模型与隐私</button>
+          <button type="button" class="nav-row" data-stab="storage">存储与更新</button>
+        </aside>
+        <section class="set-main">
+          <div class="set-col" id="set-content"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 4: EXPORT ==================== -->
+    <section id="scr-export" class="screen" aria-label="导出">
+      <div class="set-shell" style="flex-direction:column">
+        <header class="writer-bar">
+          <button type="button" class="icon-btn" id="btn-exp-back" aria-label="返回"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
+          <strong style="font-size:14.5px;margin-left:4px">导出</strong>
+        </header>
+        <div class="set-main">
+          <div class="set-col">
+            <div class="set-list" id="exp-formats">
+              <button type="button" class="set-row" data-fmt="pdf" style="width:100%;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left">
+                <div><strong>PDF</strong><small>矢量笔迹与纸纹</small></div>
+                <span class="mono" style="color:var(--accent)" data-fmt-m="pdf">✓</span>
+              </button>
+              <button type="button" class="set-row" data-fmt="png" style="width:100%;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left">
+                <div><strong>PNG</strong><small>逐页高清图片</small></div>
+                <span class="mono" style="color:var(--accent)" data-fmt-m="png"></span>
+              </button>
+              <button type="button" class="set-row" data-fmt="milk" style="width:100%;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left">
+                <div><strong>.milk 备份</strong><small>完整目录归档</small></div>
+                <span class="mono" style="color:var(--accent)" data-fmt-m="milk"></span>
+              </button>
+            </div>
+            <div>
+              <input type="text" id="exp-name" class="field-inp" value="高等数学-第三章">
+              <div class="mono" id="exp-path" style="margin-top:6px;font-size:12px;color:var(--ink-3)">文档/MilkNote/高等数学-第三章.pdf</div>
+            </div>
+            <div class="thumb-grid" id="exp-thumbs" style="grid-template-columns:repeat(4,1fr)"></div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <button type="button" class="btn-solid" id="btn-exp-go">导出</button>
+              <span id="exp-msg" style="font-size:13px;color:var(--green)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 5: ICON PREVIEW ==================== -->
+    <section id="scr-icons" class="screen" aria-label="图标预览">
+      <div class="icons-screen">
+        <div class="pad-wallpaper" id="pad-wall" data-wall="light">
+          <div class="pad-clock mono">09:42</div>
+          <div class="pad-dock">
+            <div class="dock-tile" style="background:linear-gradient(150deg,#5292f7,#2f6be0)"></div>
+            <div class="dock-tile" style="background:linear-gradient(150deg,#f59e0b,#d97706)"></div>
+            <div class="dock-tile" style="outline:2px solid var(--accent);outline-offset:3px">
+              <img id="dock-live-icon" src="icons/icon-a-nib-drop.svg" alt="牛奶笔记" width="54" height="54">
+            </div>
+            <div class="dock-tile" style="background:linear-gradient(150deg,#3b335c,#1f1b30)"></div>
+            <div class="dock-tile" style="background:linear-gradient(150deg,#475569,#1e293b)"></div>
+          </div>
+        </div>
+
+        <div class="icon-row" id="icon-choices">
+          <button type="button" class="icon-pick" data-pick-icon="old" aria-pressed="false">
+            <div class="icon-frame" data-mask="rounded">
+              <svg viewBox="0 0 48 48"><rect width="48" height="48" fill="#3B5BEC"/><path fill="#FAF9F5" d="M24,13 C24,13 31,22 31,28 A7,7 0 0,1 17,28 C17,22 24,13 24,13 Z"/></svg>
+            </div>
+            <span>旧版</span>
+          </button>
+          <button type="button" class="icon-pick" data-pick-icon="icons/icon-a-nib-drop.svg" aria-pressed="true">
+            <div class="icon-frame" data-mask="rounded"><img src="icons/icon-a-nib-drop.svg" alt="方案A"></div>
+            <span>A · 奶滴笔锋</span>
+          </button>
+          <button type="button" class="icon-pick" data-pick-icon="icons/icon-b-folded-folio.svg" aria-pressed="false">
+            <div class="icon-frame" data-mask="rounded"><img src="icons/icon-b-folded-folio.svg" alt="方案B"></div>
+            <span>B · 折页手笺</span>
+          </button>
+          <button type="button" class="icon-pick" data-pick-icon="icons/icon-c-ink-seal.svg" aria-pressed="false">
+            <div class="icon-frame" data-mask="rounded"><img src="icons/icon-c-ink-seal.svg" alt="方案C"></div>
+            <span>C · 墨砚奶滴</span>
+          </button>
+        </div>
+
+        <div class="icon-mini-controls">
+          <button type="button" class="chip-opt active" data-mask-set="rounded">圆角</button>
+          <button type="button" class="chip-opt" data-mask-set="squircle">超椭圆</button>
+          <button type="button" class="chip-opt" data-mask-set="circle">圆形</button>
+          <span style="width:1px;height:16px;background:var(--line-strong);margin:0 4px"></span>
+          <button type="button" class="chip-opt active" data-wall-set="light">浅壁纸</button>
+          <button type="button" class="chip-opt" data-wall-set="dark">深壁纸</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Whisper-quiet corner preview switcher (Only 3 tiny controls) -->
+  <nav class="preview-corner" aria-label="预览切换">
+    <button type="button" id="btn-mode-app" aria-pressed="true">应用</button>
+    <button type="button" id="btn-mode-icons" aria-pressed="false">图标</button>
+    <button type="button" class="theme-btn" id="btn-theme" aria-label="切换明暗" style="padding:0 7px">
+      <span class="ico-moon"><svg class="ico" style="width:15px;height:15px" aria-hidden="true"><use href="#i-moon"/></svg></span>
+      <span class="ico-sun"><svg class="ico" style="width:15px;height:15px" aria-hidden="true"><use href="#i-sun"/></svg></span>
+    </button>
+  </nav>
+
+  <!-- ==================== POPOVERS ==================== -->
+  <div id="pop-sort" popover="auto" class="anchored pop-list">
+    <button type="button" class="pop-item" data-sort="updated"><span>最近修改</span><span class="mono" style="margin-left:auto;color:var(--accent)" data-sm="updated">✓</span></button>
+    <button type="button" class="pop-item" data-sort="opened"><span>最近打开</span><span class="mono" style="margin-left:auto;color:var(--accent)" data-sm="opened"></span></button>
+    <button type="button" class="pop-item" data-sort="name"><span>名称</span><span class="mono" style="margin-left:auto;color:var(--accent)" data-sm="name"></span></button>
+  </div>
+
+  <div id="pop-book" popover="auto" class="anchored pop-list">
+    <button type="button" class="pop-item" data-bact="split"><svg class="ico" aria-hidden="true"><use href="#i-split"/></svg><span>双开分屏</span></button>
+    <button type="button" class="pop-item" data-bact="pin"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg><span id="bact-pin">星标</span></button>
+    <button type="button" class="pop-item" data-bact="rename"><svg class="ico" aria-hidden="true"><use href="#i-tune"/></svg><span>重命名</span></button>
+    <button type="button" class="pop-item" data-bact="export"><svg class="ico" aria-hidden="true"><use href="#i-export"/></svg><span>导出</span></button>
+    <div class="pop-sep"></div>
+    <button type="button" class="pop-item danger" data-bact="trash"><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg><span id="bact-trash">移入回收站</span></button>
+  </div>
+
+  <div id="pop-pen" popover="auto" class="anchored" style="width:276px;padding:14px">
+    <div class="surface-always-light" style="height:56px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;margin-bottom:12px">
+      <svg id="pen-prev-svg" width="236" height="44" viewBox="0 0 236 44"></svg>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:4px">
+      <span>粗细</span><span class="mono" id="pen-w-txt">0.65 mm</span>
+    </div>
+    <input type="range" id="rng-w" min="0.8" max="7.5" step="0.2" value="2.6" style="width:100%;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:4px">
+      <span>稳定</span><span class="mono" id="pen-s-txt">30%</span>
+    </div>
+    <input type="range" id="rng-s" min="0" max="100" step="5" value="30" style="width:100%;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;color:var(--ink-2)">
+      <span>笔盒</span>
+      <button type="button" class="micro-btn" id="btn-add-penbox">+ 收藏</button>
+    </div>
+    <div id="penbox-list" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+
+  <div id="pop-w-more" popover="auto" class="anchored pop-list" style="min-width:224px;padding:8px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px">
+      <button type="button" class="chip-opt active" data-pat="dot">点阵</button>
+      <button type="button" class="chip-opt" data-pat="line">横线</button>
+      <button type="button" class="chip-opt" data-pat="grid">方格</button>
+      <button type="button" class="chip-opt" data-pat="cornell">康奈尔</button>
+      <button type="button" class="chip-opt" data-pat="tian">田字格</button>
+      <button type="button" class="chip-opt" data-pat="blank">空白</button>
+    </div>
+    <div style="display:flex;gap:6px;padding:6px 4px">
+      <button type="button" class="color-dot" data-sbg="#FFFFFF" style="--dot-c:#FFFFFF" aria-pressed="true" aria-label="纯白"></button>
+      <button type="button" class="color-dot" data-sbg="#FAF8F2" style="--dot-c:#FAF8F2" aria-pressed="false" aria-label="奶白"></button>
+      <button type="button" class="color-dot" data-sbg="#F4F0DE" style="--dot-c:#F4F0DE" aria-pressed="false" aria-label="米黄"></button>
+      <button type="button" class="color-dot" data-sbg="#EEF4EE" style="--dot-c:#EEF4EE" aria-pressed="false" aria-label="浅绿"></button>
+    </div>
+    <div class="pop-sep"></div>
+    <button type="button" class="pop-item" id="btn-m-margin"><span>右侧留白</span><span class="mono" id="m-margin-st" style="margin-left:auto;color:var(--ink-3)">关</span></button>
+    <button type="button" class="pop-item" id="btn-m-clear"><span>清空手绘</span></button>
+    <button type="button" class="pop-item" id="btn-m-export"><svg class="ico" aria-hidden="true"><use href="#i-export"/></svg><span>导出</span></button>
+    <button type="button" class="pop-item" id="btn-m-diag"><svg class="ico" aria-hidden="true"><use href="#i-tune"/></svg><span>笔诊断</span></button>
+  </div>
+
+  <div id="pop-attach" popover="auto" class="anchored pop-list">
+    <button type="button" class="pop-item" data-att="当前页 p.1"><span>当前页</span><span class="mono" style="margin-left:auto;font-size:11px;color:var(--ink-3)">820 tok</span></button>
+    <button type="button" class="pop-item" data-att="伴随 Markdown"><span>伴随 Markdown</span><span class="mono" style="margin-left:auto;font-size:11px;color:var(--ink-3)">190 tok</span></button>
+    <button type="button" class="pop-item" data-att="整章 4 页"><span>整章</span><span class="mono" style="margin-left:auto;font-size:11px;color:var(--ink-3)">3.1k tok</span></button>
+  </div>
+
+  <!-- ==================== NATIVE MODAL DIALOGS ==================== -->
+  <dialog id="dlg-new" class="modal" closedby="any" aria-labelledby="dlg-new-t">
+    <div class="modal-head">
+      <h2 id="dlg-new-t">新建笔记本</h2>
+      <button type="button" class="icon-btn" data-x="dlg-new" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="new-grid">
+        <div class="book-cover surface-always-light" style="aspect-ratio:0.76;background:#FFFFFF">
+          <div class="book-spine" id="new-spine" style="background:#2563EB"></div>
+          <div id="new-pat-prev" style="position:absolute;inset:0;background-image:radial-gradient(rgba(24,25,27,0.18) 1px,transparent 1px);background-size:14px 14px"></div>
+          <div style="position:relative;z-index:2;padding:22px 14px 14px 22px">
+            <div id="new-name-prev" style="font-size:14px;font-weight:600;color:#18191b">未命名</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <input type="text" id="inp-new-name" class="field-inp" placeholder="笔记本名称">
+          <div style="display:flex;gap:8px">
+            <button type="button" class="chip-opt active" data-nmode="paged">分页</button>
+            <button type="button" class="chip-opt" data-nmode="infinite">无边画布</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="color-dot" data-ncov="#2563EB" style="--dot-c:#2563EB" aria-pressed="true" aria-label="蓝"></button>
+            <button type="button" class="color-dot" data-ncov="#D94436" style="--dot-c:#D94436" aria-pressed="false" aria-label="红"></button>
+            <button type="button" class="color-dot" data-ncov="#23865F" style="--dot-c:#23865F" aria-pressed="false" aria-label="绿"></button>
+            <button type="button" class="color-dot" data-ncov="#C98412" style="--dot-c:#C98412" aria-pressed="false" aria-label="黄"></button>
+            <button type="button" class="color-dot" data-ncov="#5C52C7" style="--dot-c:#5C52C7" aria-pressed="false" aria-label="紫"></button>
+            <button type="button" class="color-dot" data-ncov="#2C3038" style="--dot-c:#2C3038" aria-pressed="false" aria-label="墨"></button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="chip-opt active" data-npap="dot">点阵</button>
+            <button type="button" class="chip-opt" data-npap="line">横线</button>
+            <button type="button" class="chip-opt" data-npap="grid">方格</button>
+            <button type="button" class="chip-opt" data-npap="cornell">康奈尔</button>
+            <button type="button" class="chip-opt" data-npap="tian">田字格</button>
+            <button type="button" class="chip-opt" data-npap="blank">空白</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-flat" data-x="dlg-new">取消</button>
+      <button type="button" class="btn-solid" id="btn-create-go">创建</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-pal" class="modal pal" closedby="any" aria-labelledby="dlg-pal-t">
+    <h2 id="dlg-pal-t" class="sr-only">搜索</h2>
+    <div class="pal-head">
+      <svg class="ico" style="color:var(--ink-3)" aria-hidden="true"><use href="#i-search"/></svg>
+      <input type="text" id="pal-inp" placeholder="搜索笔记、卡片或命令…" autocomplete="off">
+      <button type="button" class="icon-btn" data-x="dlg-pal" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="pal-list" id="pal-list"></div>
+  </dialog>
+
+  <dialog id="dlg-diag" class="modal sm" closedby="any" aria-labelledby="dlg-diag-t">
+    <div class="modal-head">
+      <h2 id="dlg-diag-t">笔诊断</h2>
+      <button type="button" class="icon-btn" data-x="dlg-diag" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="diag-box surface-always-dark">
+        <div style="color:#5cc498">Focus Stylus · 84% · 240Hz · gb_boosting=1</div>
+        <div class="diag-area" id="diag-area">采样区</div>
+        <div class="diag-lines" id="diag-lines">
+          <div><span style="color:#5b92ff">[09:41:02]</span> PRIMARY_LONG → SNIP</div>
+          <div><span style="color:#5b92ff">[09:41:08]</span> PALM_REJECTED area=0.41</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-flat" id="btn-diag-clr">清空</button>
+      <button type="button" class="btn-solid" data-x="dlg-diag">完成</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-rename" class="modal sm" closedby="any" aria-labelledby="dlg-ren-t">
+    <div class="modal-head">
+      <h2 id="dlg-ren-t">笔记本信息</h2>
+      <button type="button" class="icon-btn" data-x="dlg-rename" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+      <input type="text" id="inp-ren-name" class="field-inp" placeholder="名称">
+      <input type="text" id="inp-ren-folder" class="field-inp" placeholder="文件夹">
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-text-danger" id="btn-ren-trash" style="margin-right:auto">移入回收站</button>
+      <button type="button" class="btn-flat" data-x="dlg-rename">取消</button>
+      <button type="button" class="btn-solid" id="btn-ren-save">保存</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-card" class="modal sm" closedby="any" aria-labelledby="dlg-card-t">
+    <div class="modal-head">
+      <h2 id="dlg-card-t">新建卡片</h2>
+      <button type="button" class="icon-btn" data-x="dlg-card" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+      <input type="text" id="inp-c-title" class="field-inp" placeholder="标题">
+      <textarea id="inp-c-body" class="field-inp" rows="4" style="padding:10px 12px" placeholder="内容"></textarea>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-flat" data-x="dlg-card">取消</button>
+      <button type="button" class="btn-solid" id="btn-c-save">保存</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-provider" class="modal sm" closedby="any" aria-labelledby="dlg-pv-t">
+    <div class="modal-head">
+      <h2 id="dlg-pv-t">添加 Provider</h2>
+      <button type="button" class="icon-btn" data-x="dlg-provider" aria-label="关闭"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+      <input type="text" id="inp-pv-name" class="field-inp" placeholder="名称（如：小米 MiMo）">
+      <input type="text" id="inp-pv-url" class="field-inp mono" placeholder="https://api.example.com/v1">
+      <input type="text" id="inp-pv-model" class="field-inp mono" placeholder="视觉模型 ID">
+      <select id="inp-pv-proto" class="field-inp">
+        <option value="OpenAI 兼容">OpenAI 兼容</option>
+        <option value="原生 Messages">Anthropic 原生</option>
+      </select>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn-flat" data-x="dlg-provider">取消</button>
+      <button type="button" class="btn-solid" id="btn-pv-save">保存</button>
+    </div>
+  </dialog>
+
+  <p id="toast" class="toast" role="status" aria-live="polite"></p>
+  <script src="app.js" defer></script>
+</body>
+</html>

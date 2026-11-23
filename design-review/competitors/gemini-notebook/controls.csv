@@ -1,0 +1,5 @@
+page_id,page_name,package,control_id,control_type,text,content_desc,bounds_px,normalized_bounds,screenshot,ui_xml,status
+P001_first_launch,首启欢迎页（门禁 1）：无账号不可用,com.google.android.apps.labs.language.tailwind,,View,,定格万象。   AI 创想。 将观察结果转化为数据洞见。无论是照片还是录音，都能随时随地即刻生成幻灯片和深度摘要。,"[0,632][2560,1032]","0.0000,0.3950,1.0000,0.6450",screenshots/P001_first_launch.png,ui/P001_first_launch.xml,ui_observed
+P001_first_launch,首启欢迎页（门禁 1）：无账号不可用,com.google.android.apps.labs.language.tailwind,,Button,,登录,"[1204,1404][1356,1500]","0.4703,0.8775,0.5297,0.9375",screenshots/P001_first_launch.png,ui/P001_first_launch.xml,ui_observed
+P002_sign_in,点击登录后：Google Play 服务「正在核对信息…」（门禁 2）,com.google.android.gms,suc_layout_title,TextView,正在核对信息…,,"[704,392][1204,462]","0.2750,0.2450,0.4703,0.2888",screenshots/P002_sign_in.png,ui/P002_sign_in.xml,ui_observed
+P003_sign_in_result,,com.google.android.gms,suc_layout_title,TextView,正在核对信息…,,"[704,392][1204,462]","0.2750,0.2450,0.4703,0.2888",screenshots/P003_sign_in_result.png,ui/P003_sign_in_result.xml,ui_observed

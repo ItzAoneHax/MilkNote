@@ -51,6 +51,12 @@ data class WriterUiState(
     val notebook: NotebookMeta? = null,
     val pages: List<NotebookPage> = emptyList(),
     val currentPageId: String = "p0001",
+    val openTabs: List<NotebookMeta> = emptyList(),
+    val splitEnabled: Boolean = false,
+    val splitNotebook: NotebookMeta? = null,
+    val splitPages: List<NotebookPage> = emptyList(),
+    val splitPageId: String = "p0001",
+    val pageMarkdown: String = "",
     val toolSettings: WriterToolSettings = WriterToolSettings(),
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -69,6 +75,7 @@ data class WriterUiState(
     val currentPageIndex: Int get() = pages.indexOfFirst { it.pageId == currentPageId }
     val canPreviousPage: Boolean get() = currentPageIndex > 0
     val canNextPage: Boolean get() = currentPageIndex >= 0 && currentPageIndex < pages.lastIndex
+    val splitPageIndex: Int get() = splitPages.indexOfFirst { it.pageId == splitPageId }
 }
 
 /** ④ 框选状态:IDLE → FROZEN(拖选中)→ CONFIRMED(松开待发) */
@@ -662,23 +669,44 @@ class WriterViewModel : ViewModel() {
 
     // ---- 打开/切页 ----
 
+    /** 双开分屏右侧独立控制器(支持对照阅读与直接手写批注) */
+    val splitController = InkController().apply {
+        onCommit = { commit -> persistSplitCommit(commit) }
+    }
+
     /** 设置快照(open() 整体重建 UiState 时保留,避免清掉已生效的设置) */
     @Volatile private var frontBufferFlag = false
 
-    fun open(nbId: String) {
-        if (notebookId == nbId) return
+    fun open(nbId: String, asSplit: Boolean = false) {
+        val allLive = repo.listNotebooks(includeTrashed = false)
+        val nb = allLive.firstOrNull { it.id == nbId } ?: return
+        if (asSplit && notebookId.isNotEmpty() && notebookId != nbId) {
+            val currentTabs = (_state.value.openTabs.map { it.id } + nbId).distinct()
+                .mapNotNull { id -> allLive.firstOrNull { it.id == id } }
+            loadSplitNotebook(nb, currentTabs)
+            return
+        }
+        if (notebookId == nbId && _state.value.notebook != null) {
+            if (asSplit && !_state.value.splitEnabled) toggleSplit()
+            return
+        }
         pageSwitchJob?.cancel()
         pendingPageId = null
         notebookId = nbId
         repo.markOpened(nbId)
-        val nb = repo.listNotebooks().firstOrNull { it.id == nbId } ?: return
         val pages = repo.listPages(nbId)
         val cur = pages.lastOrNull()?.pageId ?: repo.newPage(nbId)
-        _state.value = WriterUiState(
+        val existingTabs = _state.value.openTabs.map { it.id }
+        val tabIds = if (nbId in existingTabs) existingTabs else existingTabs + nbId
+        val resolvedTabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
+            .ifEmpty { listOf(nb) }
+        val md = repo.loadPageMarkdown(nbId, cur)
+        _state.value = _state.value.copy(
             notebook = nb,
             pages = repo.listPages(nbId),
             currentPageId = cur,
-            toolSettings = _state.value.toolSettings,
+            openTabs = resolvedTabs,
+            pageMarkdown = md,
             frontBufferEnabled = frontBufferFlag,
         )
         controller.loadStrokes(
@@ -689,6 +717,171 @@ class WriterViewModel : ViewModel() {
         )
         bindAgent(nb.id, cur)
         refreshAllThumbs()
+        if (asSplit) toggleSplit()
+    }
+
+    fun closeTab(tabId: String) {
+        val remaining = _state.value.openTabs.filter { it.id != tabId }
+        if (remaining.isEmpty()) return
+        _state.value = _state.value.copy(openTabs = remaining)
+        if (notebookId == tabId) {
+            notebookId = ""
+            open(remaining.first().id)
+        }
+    }
+
+    fun toggleSplit(targetNbId: String? = null) {
+        val st = _state.value
+        if (st.splitEnabled && targetNbId == null) {
+            _state.value = st.copy(splitEnabled = false)
+            return
+        }
+        val allLive = repo.listNotebooks(includeTrashed = false)
+        val candidate = when {
+            targetNbId != null -> allLive.firstOrNull { it.id == targetNbId }
+            st.splitNotebook != null && st.splitNotebook.id != notebookId -> st.splitNotebook
+            else -> st.openTabs.firstOrNull { it.id != notebookId }
+                ?: allLive.firstOrNull { it.id != notebookId }
+                ?: st.notebook
+        } ?: return
+        val tabIds = (st.openTabs.map { it.id } + candidate.id).distinct()
+        val tabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
+        loadSplitNotebook(candidate, tabs)
+    }
+
+    private fun loadSplitNotebook(nb: NotebookMeta, tabs: List<NotebookMeta>) {
+        val pages = repo.listPages(nb.id)
+        val cur = pages.firstOrNull()?.pageId ?: repo.newPage(nb.id)
+        splitController.tool = _state.value.toolSettings.effective
+        splitController.loadStrokes(
+            repo.loadPage(nb.id, cur),
+            repo.loadAnnotations(nb.id, cur),
+            repo.loadImages(nb.id, cur),
+            repo.loadMedia(nb.id, cur),
+        )
+        _state.value = _state.value.copy(
+            openTabs = tabs,
+            splitEnabled = true,
+            splitNotebook = nb,
+            splitPages = repo.listPages(nb.id),
+            splitPageId = cur,
+        )
+    }
+
+    fun stepSplitPage(delta: Int) {
+        val st = _state.value
+        val splitNb = st.splitNotebook ?: return
+        val nextId = adjacentPageId(st.splitPages, st.splitPageId, delta) ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val strokes = repo.loadPage(splitNb.id, nextId)
+            val cards = repo.loadAnnotations(splitNb.id, nextId)
+            val images = repo.loadImages(splitNb.id, nextId)
+            val media = repo.loadMedia(splitNb.id, nextId)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(splitPageId = nextId)
+                splitController.loadStrokes(strokes, cards, images, media)
+            }
+        }
+    }
+
+    fun updatePageMarkdown(markdown: String) {
+        val nbId = notebookId.takeIf { it.isNotEmpty() } ?: return
+        val pageId = _state.value.currentPageId
+        _state.value = _state.value.copy(pageMarkdown = markdown)
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.savePageMarkdown(nbId, pageId, markdown)
+        }
+    }
+
+    fun saveMarkdownAsCard() {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val md = _state.value.pageMarkdown.trim()
+        if (md.isBlank()) {
+            toast("当前页伴随 Markdown 为空")
+            return
+        }
+        val firstLine = md.lineSequence().firstOrNull { it.isNotBlank() }
+            ?.removePrefix("###")?.removePrefix("##")?.removePrefix("#")?.trim()
+            ?.takeIf { it.isNotBlank() } ?: "伴随笔记 · $pageId"
+        val tags = Regex("#([^\\s#<]+)").findAll(md).map { it.groupValues[1] }.distinct().toList()
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            ServiceLocator.cardRepository.upsert(
+                NoteCard(
+                    id = UUID.randomUUID().toString().substring(0, 12),
+                    title = firstLine,
+                    body = md,
+                    tags = tags,
+                    color = nb.coverColor,
+                    sourceNotebookId = nb.id,
+                    sourcePageId = pageId,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            withContext(Dispatchers.Main) { toast("已存入卡片") }
+        }
+    }
+
+    fun setPagePaper(paper: String) {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val updatedSpec = nb.pageSpec(pageId).copy(paper = paper)
+        val updatedNb = nb.copy(paper = paper, pageSpecs = nb.pageSpecs + (pageId to updatedSpec))
+        repo.updateMeta(updatedNb)
+        _state.value = _state.value.copy(notebook = updatedNb)
+        viewModelScope.launch { refreshThumbOf(pageId) }
+    }
+
+    fun setPagePaperColor(paperColor: String) {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        val updatedSpec = nb.pageSpec(pageId).copy(paperColor = paperColor)
+        val updatedNb = nb.copy(paperColor = paperColor, pageSpecs = nb.pageSpecs + (pageId to updatedSpec))
+        repo.updateMeta(updatedNb)
+        _state.value = _state.value.copy(notebook = updatedNb)
+        viewModelScope.launch { refreshThumbOf(pageId) }
+    }
+
+    fun outlineEntries(): List<Pair<String, String>> {
+        val nbId = notebookId.takeIf { it.isNotEmpty() } ?: return emptyList()
+        return _state.value.pages.mapIndexed { idx, pg ->
+            val md = if (pg.pageId == _state.value.currentPageId) _state.value.pageMarkdown
+            else repo.loadPageMarkdown(nbId, pg.pageId)
+            val heading = md.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("#") }
+                ?.trimStart('#', ' ')
+                ?.takeIf { it.isNotBlank() }
+                ?: run {
+                    val cards = if (pg.pageId == _state.value.currentPageId) controller.annotationCards()
+                    else repo.loadAnnotations(nbId, pg.pageId)
+                    cards.firstOrNull()?.text?.lineSequence()?.firstOrNull()?.take(24)
+                }
+                ?: "第 ${idx + 1} 页"
+            pg.pageId to heading
+        }
+    }
+
+    private fun persistSplitCommit(commit: InkCommit) {
+        val splitNb = _state.value.splitNotebook ?: return
+        val page = _state.value.splitPageId
+        when (commit) {
+            is InkCommit.Added, is InkCommit.Tombstoned -> repo.appendCommit(splitNb.id, page, commit)
+            is InkCommit.CardAdded, is InkCommit.CardRemoved ->
+                repo.saveAnnotations(splitNb.id, page, splitController.annotationCards())
+            is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
+                repo.saveImages(splitNb.id, page, splitController.images())
+            is InkCommit.MediaAdded, is InkCommit.MediaRemoved ->
+                repo.saveMedia(splitNb.id, page, splitController.media())
+            is InkCommit.LayersChanged -> {
+                repo.appendLayerStates(splitNb.id, page, splitController.page.strokes.toList())
+                repo.saveAnnotations(splitNb.id, page, splitController.annotationCards())
+                repo.saveImages(splitNb.id, page, splitController.images())
+                repo.saveMedia(splitNb.id, page, splitController.media())
+            }
+        }
     }
 
     private fun bindAgent(nbId: String, pageId: String) {
@@ -710,10 +903,11 @@ class WriterViewModel : ViewModel() {
             val cards = repo.loadAnnotations(notebookId, pageId)
             val images = repo.loadImages(notebookId, pageId)
             val media = repo.loadMedia(notebookId, pageId)
+            val md = repo.loadPageMarkdown(notebookId, pageId)
             withContext(Dispatchers.Main) {
                 if (pendingPageId != pageId) return@withContext
                 pendingPageId = null
-                _state.value = _state.value.copy(currentPageId = pageId)
+                _state.value = _state.value.copy(currentPageId = pageId, pageMarkdown = md)
                 controller.loadStrokes(strokes, cards, images, media)
                 bindAgent(notebookId, pageId)
             }
@@ -873,8 +1067,9 @@ class WriterViewModel : ViewModel() {
         val cards = repo.loadAnnotations(notebookId, pageId)
         val images = repo.loadImages(notebookId, pageId)
         val media = repo.loadMedia(notebookId, pageId)
+        val md = repo.loadPageMarkdown(notebookId, pageId)
         withContext(Dispatchers.Main) {
-            _state.value = _state.value.copy(pages = pages, currentPageId = pageId)
+            _state.value = _state.value.copy(pages = pages, currentPageId = pageId, pageMarkdown = md)
             controller.loadStrokes(strokes, cards, images, media)
             bindAgent(notebookId, pageId)
         }
@@ -927,6 +1122,10 @@ class WriterViewModel : ViewModel() {
         controller.eraserTargets = settings.eraserTargets
         controller.eraserAutoRevert = settings.eraserAutoRevert
         controller.tool = settings.effective
+        splitController.eraserWidthMm = settings.eraserWidthMm
+        splitController.eraserTargets = settings.eraserTargets
+        splitController.eraserAutoRevert = settings.eraserAutoRevert
+        splitController.tool = settings.effective
         _state.value = _state.value.copy(toolSettings = settings)
     }
 

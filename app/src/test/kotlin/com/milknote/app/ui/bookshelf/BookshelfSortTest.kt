@@ -88,4 +88,14 @@ class BookshelfSortTest {
 
         assertEquals(listOf("alpha", "zeta"), sorted.map { it.name })
     }
+
+    @Test
+    fun `pinned notebooks sort first in updated and lastOpened modes`() {
+        val input = listOf(
+            note("a", "alpha", 300L),
+            note("b", "beta", 100L).copy(pinned = true),
+        )
+        assertEquals(listOf("b", "a"), sortNotebooks(input, BookshelfSortMode.Updated).map { it.id })
+        assertEquals(listOf("b", "a"), sortNotebooks(input, BookshelfSortMode.LastOpened).map { it.id })
+    }
 }

@@ -64,11 +64,49 @@ class NotebookRepository(
 
     // ---- 列表 ----
 
-    fun listNotebooks(): List<NotebookMeta> =
+    fun listNotebooks(includeTrashed: Boolean = false): List<NotebookMeta> =
         notebooksDir().listFiles { f -> f.isDirectory && f.name.endsWith(".milk") }
             ?.mapNotNull { readMeta(it) }
+            ?.filter { includeTrashed || !it.trashed }
             ?.sortedByDescending { it.updatedAt }
             ?: emptyList()
+
+    fun listTrashedNotebooks(): List<NotebookMeta> =
+        listNotebooks(includeTrashed = true).filter { it.trashed }
+
+    fun getNotebook(notebookId: String): NotebookMeta? = synchronized(writeLock) {
+        readMeta(dirOf(notebookId))
+    }
+
+    fun setPinned(notebookId: String, pinned: Boolean): NotebookMeta? = synchronized(writeLock) {
+        val dir = dirOf(notebookId)
+        val meta = readMeta(dir) ?: return@synchronized null
+        val updated = meta.copy(pinned = pinned)
+        File(dir, "notebook.json").writeText(json.encodeToString(updated))
+        updated
+    }
+
+    fun moveToTrash(notebookId: String): NotebookMeta? = synchronized(writeLock) {
+        val dir = dirOf(notebookId)
+        val meta = readMeta(dir) ?: return@synchronized null
+        val updated = meta.copy(trashed = true, trashedAt = System.currentTimeMillis())
+        File(dir, "notebook.json").writeText(json.encodeToString(updated))
+        updated
+    }
+
+    fun restoreFromTrash(notebookId: String): NotebookMeta? = synchronized(writeLock) {
+        val dir = dirOf(notebookId)
+        val meta = readMeta(dir) ?: return@synchronized null
+        val updated = meta.copy(trashed = false, trashedAt = 0L)
+        File(dir, "notebook.json").writeText(json.encodeToString(updated))
+        updated
+    }
+
+    fun emptyTrash(): Int = withPageWrite {
+        val trashed = listTrashedNotebooks()
+        trashed.forEach { dirOf(it.id).deleteRecursively() }
+        trashed.size
+    }
 
     /** 页序由 notebook.json 的 pageOrder 决定;旧 .milk 无该字段时按 pageId 字典序。 */
     fun listPages(notebookId: String): List<NotebookPage> = synchronized(writeLock) {
@@ -201,9 +239,11 @@ class NotebookRepository(
         copySidecar(dir, "$sourcePageId.ann.json", "$pageId.ann.json")
         copySidecar(dir, "$sourcePageId.img.json", "$pageId.img.json")
         copySidecar(dir, "$sourcePageId.media.json", "$pageId.media.json")
+        copySidecar(dir, "$sourcePageId.md", "$pageId.md")
         File(dir, "$pageId.ann.json.tmp").delete()
         File(dir, "$pageId.img.json.tmp").delete()
         File(dir, "$pageId.media.json.tmp").delete()
+        File(dir, "$pageId.md.tmp").delete()
 
         val order = orderedPageIds(dir, existing).toMutableList()
         val sourceIndex = order.indexOf(sourcePageId)
@@ -262,9 +302,11 @@ class NotebookRepository(
         File(dir, "$pageId.ann.json").delete()
         File(dir, "$pageId.img.json").delete()
         File(dir, "$pageId.media.json").delete()
+        File(dir, "$pageId.md").delete()
         File(dir, "$pageId.ann.json.tmp").delete()
         File(dir, "$pageId.img.json.tmp").delete()
         File(dir, "$pageId.media.json.tmp").delete()
+        File(dir, "$pageId.md.tmp").delete()
         writePageOrderLocked(notebookId, orderedPageIds(dir, pageIds(dir)))
         readMeta(dir)?.let { meta ->
             File(dir, "notebook.json").writeText(
@@ -273,6 +315,29 @@ class NotebookRepository(
         }
         touchUpdatedAtLocked(notebookId)
         true
+    }
+
+    /** 逐页伴随 Markdown 笔记（<pageId>.md，随 .milk 目录本地存储与备份） */
+    fun loadPageMarkdown(notebookId: String, pageId: String): String = runCatching {
+        val f = File(dirOf(notebookId), "$pageId.md")
+        if (!f.exists()) "" else f.readText()
+    }.getOrDefault("")
+
+    fun savePageMarkdown(notebookId: String, pageId: String, markdown: String) = synchronized(writeLock) {
+        val dir = dirOf(notebookId)
+        if (!dir.exists()) return@synchronized
+        val f = File(dir, "$pageId.md")
+        if (markdown.isBlank()) {
+            f.delete()
+            File(dir, "$pageId.md.tmp").delete()
+            return@synchronized
+        }
+        val tmp = File(dir, "$pageId.md.tmp")
+        tmp.writeText(markdown)
+        if (!tmp.renameTo(f)) {
+            f.delete()
+            tmp.renameTo(f)
+        }
     }
 
     /** 首次创建笔记本时的第 1 页 */

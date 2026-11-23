@@ -2,30 +2,34 @@ package com.milknote.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ---- 亮色(奶白)· DESIGN-V0 §5.1 ----
-val PaperLight = Color(0xFFFAF9F5)
-val ChromeLight = Color(0xFFF3F1EA)
+// ---- 亮色(自然素白纸墨 · DESIGN-V2 §1) ----
+val PaperLight = Color(0xFFFFFFFF)
+val ChromeLight = Color(0xFFF6F6F8)
+val CanvasLight = Color(0xFFEFEFF2)
 val SurfaceLight = Color(0xFFFFFFFF)
-val InkLight = Color(0xFF23221E)
-val MutedLight = Color(0xFF666256)       // 次要文字:对比度 ≥4.5(奶白底),小字可读
-val LineLight = Color(0xFFE5E1D6)
-val AccentBlue = Color(0xFF3B5BEC)
-val AccentBlueSoft = Color(0xFF5C77F2)   // 渐变亮端
+val InkLight = Color(0xFF18191B)
+val MutedLight = Color(0xFF5A5F68)       // 次要文字:对比度 ≥4.5,小字可读
+val LineLight = Color(0xFFE2E4E9)
+val AccentBlue = Color(0xFF2563EB)
+val AccentBlueSoft = Color(0xFF3B7BF8)
 val HighlightYellow = Color(0xFFFFD65A)  // 荧光笔(默认 45% alpha)
-val RedPen = Color(0xFFD2483C)
-val WarnAmber = Color(0xFFD98E04)        // 警示(低电量等;原散落硬编码)
-val DotLight = Color(0xFFD8D4C8)         // 纸面点阵
+val RedPen = Color(0xFFD94436)
+val GreenOk = Color(0xFF23865F)
+val WarnAmber = Color(0xFFD98E04)        // 警示(低电量等)
+val DotLight = Color(0xFFD5D7DD)         // 纸面点阵
 
-// ---- 暗色 ----
-val PaperDark = Color(0xFF1B1C20)
-val ChromeDark = Color(0xFF232429)
-val SurfaceDark = Color(0xFF26272D)
-val InkDark = Color(0xFFE8E6E0)
-val MutedDark = Color(0xFFB7B3A8)        // 次要文字:对比度 ≥4.5(深纸底)
-val LineDark = Color(0xFF33343B)
-val AccentBlueDark = Color(0xFF7D92FF)
+// ---- 暗色(石墨静夜 · DESIGN-V2 §1) ----
+val PaperDark = Color(0xFF16171A)
+val ChromeDark = Color(0xFF111214)
+val CanvasDark = Color(0xFF0D0E10)
+val SurfaceDark = Color(0xFF1F2126)
+val InkDark = Color(0xFFECEEF0)
+val MutedDark = Color(0xFF9DA3AE)        // 次要文字:对比度 ≥4.5
+val LineDark = Color(0xFF2A2D34)
+val AccentBlueDark = Color(0xFF5B92FF)
+val GreenOkDark = Color(0xFF5CC498)
 val WarnAmberDark = Color(0xFFE8A838)
-val DotDark = Color(0xFF2C2D33)
+val DotDark = Color(0xFF282A30)
 
 // ---- 诊断终端(不随主题反转的固定深色;A-01) ----
 val ConsoleBg = Color(0xFF14161B)       // 终端底:两主题恒深

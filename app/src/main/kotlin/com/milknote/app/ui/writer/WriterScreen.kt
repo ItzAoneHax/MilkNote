@@ -379,9 +379,84 @@ fun WriterScreen(
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                .background(if (dark) com.milknote.app.ui.theme.CanvasDark else com.milknote.app.ui.theme.CanvasLight),
         ) {
-                PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
+                val splitNb = state.splitNotebook
+                if (state.splitEnabled && splitNb != null) {
+                    val splitStartPad = (if (!focusMode && railMode != null) WriterExpandedRailWidth else 0.dp) + 12.dp
+                    val splitEndPad = (if (!focusMode && agentDrawerOpen) 360.dp else 0.dp) + 12.dp
+                    Row(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(top = chromeHeight, start = splitStartPad, end = splitEndPad, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    state.notebook?.name ?: "",
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${state.currentPageIndex + 1} / ${state.pages.size.coerceAtLeast(1)}",
+                                    fontFamily = Mono,
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(6.dp))) {
+                                PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
+                            }
+                        }
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    splitNb.name,
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "‹",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { vm.stepSplitPage(-1) }.padding(horizontal = 6.dp),
+                                    )
+                                    Text(
+                                        "${(state.splitPageIndex + 1).coerceAtLeast(1)} / ${state.splitPages.size.coerceAtLeast(1)}",
+                                        fontFamily = Mono,
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        "›",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { vm.stepSplitPage(1) }.padding(horizontal = 6.dp),
+                                    )
+                                }
+                            }
+                            Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(6.dp))) {
+                                SplitPaperCanvas(vm, state, dark, penConnected, selectedMajorTool == WriterMajorTool.READING)
+                            }
+                        }
+                    }
+                } else {
+                    PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING)
+                }
                 // 纸面暗角(纯显示层,不参与导出)
                 Box(Modifier.matchParentSize().paperVignette(dark))
                 shapeConfig?.let { config ->
@@ -413,12 +488,25 @@ fun WriterScreen(
                         onSaveCard = vm::snipSaveCard,
                     )
                 }
-                // ⑤ Agent 抽屉(画布区右缘浮层,DESIGN-V0 §5.4)
+                // ⑤ 右侧三合一 Studio 抽屉(AI / Markdown / 关联，默认收起)
+                val cardsState by cardsVm.state.collectAsState()
+                val relatedNotebooks = remember(state.notebook?.id, state.openTabs) {
+                    ServiceLocator.repository.listNotebooks(includeTrashed = false)
+                        .filter { it.id != state.notebook?.id }
+                }
                 AgentDrawerHost(
                     onOpenSettings = onOpenSettings,
                     onSnip = vm::enterSnip,
                     onExplainPage = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.EXPLAIN) },
                     onSummarizeChapter = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.SUMMARIZE) },
+                    pageLabel = "第 ${state.currentPageIndex + 1} 页",
+                    pageMarkdown = state.pageMarkdown,
+                    onMarkdownChange = vm::updatePageMarkdown,
+                    onSaveMarkdownCard = vm::saveMarkdownAsCard,
+                    relatedNotebooks = relatedNotebooks,
+                    relatedCards = cardsState.cards,
+                    onOpenSplitNotebook = { vm.toggleSplit(it) },
+                    onInsertCard = { vm.insertLibraryCard(it, state.currentPageId) },
                     modifier = Modifier.align(Alignment.CenterEnd).padding(top = chromeHeight),
                 )
                 // 混合选区操作条:锚定当前选框,空间不足时自动换到下方。
@@ -475,6 +563,7 @@ fun WriterScreen(
                     onPrevious = vm::previousPage,
                     onNext = vm::nextPage,
                     onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
+                    onShowOutline = { railMode = WriterRailMode.OUTLINE },
                     modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
                 )
                 WriterRailMode.SNIPPETS -> WriterSnippetRail(
@@ -482,6 +571,14 @@ fun WriterScreen(
                     currentNotebookId = state.notebook?.id,
                     currentPageId = state.currentPageId,
                     onInsert = { vm.insertLibraryCard(it, state.currentPageId) },
+                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
+                )
+                WriterRailMode.OUTLINE -> WriterOutlineRail(
+                    state = state,
+                    entries = remember(state.currentPageId, state.pages, state.pageMarkdown) { vm.outlineEntries() },
+                    onSwitch = vm::switchPage,
+                    onShowPages = { railMode = WriterRailMode.PAGES },
+                    onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
                     modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
                 )
                 null -> Unit
@@ -555,6 +652,10 @@ fun WriterScreen(
                     onMore = { setCentralPanel(WriterPanel.MORE, true) },
                     agentOpen = agentDrawerOpen,
                     agentBusy = agentBusy,
+                    onSelectTab = { vm.open(it) },
+                    onCloseTab = vm::closeTab,
+                    onToggleSplit = { vm.toggleSplit() },
+                    onEnterFocus = { focusMode = true },
                 )
                 if (minorVisible && minorDock == MinorDock.TOP) {
                     minorBar(MinorDock.TOP)
@@ -786,13 +887,23 @@ fun WriterScreen(
                 )
             }
         }
-        WriterPanel.MORE -> WriterMorePanel(
-            onDismiss = ::closeCentralPanel,
-            onExport = { closeCentralPanel(); onOpenExport() },
-            onEnterFocus = { closeCentralPanel(); focusMode = true },
-            onOpenPalette = { closeCentralPanel(); onOpenPalette() },
-            onOpenDiagnostics = { closeCentralPanel(); onOpenDiagnostics() },
-        )
+        WriterPanel.MORE -> {
+            val spec = state.notebook?.pageSpec(state.currentPageId)
+            WriterMorePanel(
+                onDismiss = ::closeCentralPanel,
+                onExport = { closeCentralPanel(); onOpenExport() },
+                onEnterFocus = { closeCentralPanel(); focusMode = true },
+                onOpenPalette = { closeCentralPanel(); onOpenPalette() },
+                onOpenDiagnostics = { closeCentralPanel(); onOpenDiagnostics() },
+                currentPaper = spec?.paper ?: "dot",
+                currentPaperColor = spec?.paperColor ?: "#FFFFFF",
+                splitEnabled = state.splitEnabled,
+                onSelectPaper = vm::setPagePaper,
+                onSelectPaperColor = vm::setPagePaperColor,
+                onToggleSplit = { vm.toggleSplit() },
+                onClearPage = { vm.clearPage(state.currentPageId) },
+            )
+        }
         null -> Unit
     }
     }
@@ -1117,6 +1228,46 @@ private fun PaperCanvas(
             // 纸张尺寸+方向(旧笔记本缺字段 → A4 竖,几何与历史一致)
             val nb = state.notebook
             val (pw, ph) = nb?.pageMm(state.currentPageId, view.mmToPx) ?: (210f * view.mmToPx to 297f * view.mmToPx)
+            view.setPageSizePx(pw, ph)
+        },
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
+/** 双开分屏右侧独立纸面画布 */
+@Composable
+private fun SplitPaperCanvas(
+    vm: WriterViewModel,
+    state: WriterUiState,
+    dark: Boolean,
+    penConnected: Boolean,
+    readingMode: Boolean,
+) {
+    val splitNb = state.splitNotebook ?: return
+    AndroidView(
+        factory = { ctx ->
+            InkSurfaceView(ctx).apply {
+                inputInterceptor = ServiceLocator.penPort::onDispatchTouchEvent
+                onPreviousPage = { vm.stepSplitPage(-1) }
+                onNextPage = { vm.stepSplitPage(1) }
+            }
+        },
+        update = { view ->
+            view.controller = vm.splitController
+            val spec = splitNb.pageSpec(state.splitPageId)
+            view.paperStyle = spec.paper
+            view.imageDir = ServiceLocator.repository.notebookDir(splitNb.id)
+            view.frontBufferEnabled = state.frontBufferEnabled
+            view.readingMode = readingMode
+            view.darkTheme = dark
+            if (!dark) {
+                view.paperColor = runCatching { android.graphics.Color.parseColor(spec.paperColor) }
+                    .getOrDefault(0xFFFFFFFF.toInt())
+            }
+            view.penConnected = penConnected
+            view.canTurnPrevious = state.splitPageIndex > 0
+            view.canTurnNext = state.splitPageIndex >= 0 && state.splitPageIndex < state.splitPages.lastIndex
+            val (pw, ph) = splitNb.pageMm(state.splitPageId, view.mmToPx)
             view.setPageSizePx(pw, ph)
         },
         modifier = Modifier.fillMaxSize(),

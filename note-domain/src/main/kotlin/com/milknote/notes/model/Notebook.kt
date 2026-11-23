@@ -33,7 +33,15 @@ data class NotebookMeta(
     val paperColor: String = "#FAF9F5",
     /** PDF 等逐页尺寸；普通页缺省沿用笔记本级尺寸/纸张，旧数据无需迁移。 */
     val pageSpecs: Map<String, PageSpec> = emptyMap(),
+    /** 第二代：星标置顶（右上/左上朱砂红丝带书签） */
+    val pinned: Boolean = false,
+    /** 第二代：回收站软删除 */
+    val trashed: Boolean = false,
+    val trashedAt: Long = 0L,
 ) {
+    /** 是否为 PDF 导入笔记本（形态即说明：右上折角 + 右下 PDF 淡印） */
+    val isPdf: Boolean get() = pageSpecs.isNotEmpty() || name.endsWith(".pdf", ignoreCase = true)
+
     /** 页面物理尺寸(px @ mmToPx;方向生效) */
     fun pageMm(mmToPx: Float): Pair<Float, Float> {
         val (w, h) = PAGE_SIZES_MM[pageSize] ?: PAGE_SIZES_MM.getValue("A4")
@@ -68,8 +76,8 @@ val COVER_COLORS = listOf(
 
 /** 纸张模板 */
 val PAPER_KINDS = listOf(
-    "dot" to "点阵", "line" to "横线", "grid" to "方格", "blank" to "空白",
-    "english" to "英文", "tian" to "田字格",
+    "dot" to "点阵", "line" to "横线", "grid" to "方格", "cornell" to "康奈尔",
+    "tian" to "田字格", "english" to "英文", "blank" to "空白",
 )
 
 val PAPER_COLORS = listOf(

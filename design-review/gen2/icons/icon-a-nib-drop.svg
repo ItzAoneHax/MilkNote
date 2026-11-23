@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512" role="img" aria-label="牛奶笔记图标方案A：奶滴笔锋">
+  <defs>
+    <linearGradient id="bg-a" x1="18" y1="8" x2="92" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B7BF8"/>
+      <stop offset="100%" stop-color="#1E52D8"/>
+    </linearGradient>
+    <linearGradient id="drop-a" x1="34" y1="22" x2="74" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="72%" stop-color="#F8F9FB"/>
+      <stop offset="100%" stop-color="#E6EBF5"/>
+    </linearGradient>
+    <filter id="sh-a" x="-20%" y="-15%" width="140%" height="145%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#0E2A75" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect width="108" height="108" fill="url(#bg-a)"/>
+  <g filter="url(#sh-a)">
+    <path d="M54 22 C62.5 36, 77.5 48.5, 77.5 62.5 C77.5 75.8, 67 85.5, 54 85.5 C41 85.5, 30.5 75.8, 30.5 62.5 C30.5 48.5, 45.5 36, 54 22 Z" fill="url(#drop-a)"/>
+    <path d="M52.8 23.2 L55.2 23.2 L55.4 52.5 L52.6 52.5 Z" fill="#2156DD"/>
+    <circle cx="54" cy="55.5" r="4.8" fill="#2156DD"/>
+  </g>
+  <path d="M76.5 25 C77.1 29.2, 78.5 30.6, 82.7 31.2 C78.5 31.8, 77.1 33.2, 76.5 37.4 C75.9 33.2, 74.5 31.8, 70.3 31.2 C74.5 30.6, 75.9 29.2, 76.5 25 Z" fill="#FFFFFF" fill-opacity="0.92"/>
+</svg>

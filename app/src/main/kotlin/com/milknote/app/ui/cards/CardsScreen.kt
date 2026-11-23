@@ -331,7 +331,7 @@ internal fun CardEditorPanel(
 }
 
 @Composable
-private fun InsertCardPanel(card: NoteCard, onDismiss: () -> Unit, onInsert: (String, String) -> Unit) {
+internal fun InsertCardPanel(card: NoteCard, onDismiss: () -> Unit, onInsert: (String, String) -> Unit) {
     val notebooks by androidx.compose.runtime.produceState(emptyList<com.milknote.notes.model.NotebookMeta>()) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ServiceLocator.repository.listNotebooks() }
     }

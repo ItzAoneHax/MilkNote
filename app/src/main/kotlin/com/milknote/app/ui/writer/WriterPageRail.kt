@@ -80,10 +80,11 @@ internal fun WriterPageRail(
     onDuplicatePage: (String) -> Unit,
     onClearPage: (String) -> Unit,
     onDeletePage: (String) -> Unit,
-    onMovePage: (String, Int) -> Unit,
+    onMovePage: (String, Int) -> Unit = { _, _ -> },
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onShowSnippets: () -> Unit,
+    onShowOutline: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val nb = state.notebook
@@ -127,24 +128,12 @@ internal fun WriterPageRail(
                 .background(MaterialTheme.colorScheme.surface)
                 .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.65f), right = true),
         ) {
-        Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.width(8.dp))
-            IconToggleButton(
-                icon = { Icon(Icons.Outlined.GridOn, "页面", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
-                enabled = true,
-                active = true,
-                onClick = {},
-                modifier = Modifier.testTag("writer-page-grid-mode"),
-            )
-            Spacer(Modifier.weight(1f))
-            IconToggleButton(
-                icon = { Icon(Icons.Outlined.ContentCopy, "摘取", Modifier.size(20.dp)) },
-                enabled = true,
-                onClick = onShowSnippets,
-                modifier = Modifier.testTag("writer-page-show-snippets"),
-            )
-            Spacer(Modifier.width(8.dp))
-        }
+        WriterRailSegmentBar(
+            activeMode = WriterRailMode.PAGES,
+            onPages = {},
+            onSnippets = onShowSnippets,
+            onOutline = onShowOutline,
+        )
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -392,6 +381,114 @@ internal fun WriterPagePill(
             onClick = onNext,
             modifier = Modifier.testTag("writer-next-page"),
         )
+    }
+}
+
+@Composable
+internal fun WriterRailSegmentBar(
+    activeMode: WriterRailMode,
+    onPages: () -> Unit,
+    onSnippets: () -> Unit,
+    onOutline: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(cs.surfaceVariant)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        val tabs = listOf(
+            Triple(WriterRailMode.PAGES, "页面", "writer-page-grid-mode") to onPages,
+            Triple(WriterRailMode.SNIPPETS, "卡片", "writer-page-show-snippets") to onSnippets,
+            Triple(WriterRailMode.OUTLINE, "大纲", "writer-page-show-outline") to onOutline,
+        )
+        tabs.forEach { (info, action) ->
+            val (mode, label, tag) = info
+            val selected = activeMode == mode
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (selected) cs.surface else androidx.compose.ui.graphics.Color.Transparent)
+                    .clickable(onClick = action)
+                    .testTag(tag),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
+                    color = if (selected) cs.onSurface else cs.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** 第二代左侧抽屉「大纲」分栏：提取每页伴随 Markdown 标题与批注首行，一键跳页 */
+@Composable
+internal fun WriterOutlineRail(
+    state: WriterUiState,
+    entries: List<Pair<String, String>>,
+    onSwitch: (String) -> Unit,
+    onShowPages: () -> Unit,
+    onShowSnippets: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier
+            .width(WriterExpandedRailWidth)
+            .fillMaxHeight()
+            .background(cs.surface)
+            .edgeHairline(cs.outline.copy(alpha = 0.65f), right = true)
+            .testTag("writer-outline-panel"),
+    ) {
+        WriterRailSegmentBar(
+            activeMode = WriterRailMode.OUTLINE,
+            onPages = onShowPages,
+            onSnippets = onShowSnippets,
+            onOutline = {},
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            items(entries.size, key = { entries[it].first }) { index ->
+                val (pageId, title) = entries[index]
+                val active = pageId == state.currentPageId
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (active) cs.primary.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable { onSwitch(pageId) }
+                        .defaultMinSize(minHeight = 40.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        title,
+                        fontSize = 13.sp,
+                        fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
+                        color = if (active) cs.primary else cs.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${index + 1}",
+                        fontFamily = Mono,
+                        fontSize = 12.sp,
+                        color = if (active) cs.primary else cs.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 

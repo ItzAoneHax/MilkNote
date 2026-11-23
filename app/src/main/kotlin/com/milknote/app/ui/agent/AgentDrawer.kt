@@ -114,6 +114,14 @@ fun AgentDrawerHost(
     onExplainPage: () -> Unit,
     onSummarizeChapter: () -> Unit,
     modifier: Modifier = Modifier,
+    pageLabel: String = "第 1 页",
+    pageMarkdown: String = "",
+    onMarkdownChange: (String) -> Unit = {},
+    onSaveMarkdownCard: () -> Unit = {},
+    relatedNotebooks: List<com.milknote.notes.model.NotebookMeta> = emptyList(),
+    relatedCards: List<com.milknote.notes.model.NoteCard> = emptyList(),
+    onOpenSplitNotebook: (String) -> Unit = {},
+    onInsertCard: (com.milknote.notes.model.NoteCard) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
     val state by agent.state.collectAsState()
@@ -155,6 +163,14 @@ fun AgentDrawerHost(
                 onSnip = onSnip,
                 onExplainPage = onExplainPage,
                 onSummarizeChapter = onSummarizeChapter,
+                pageLabel = pageLabel,
+                pageMarkdown = pageMarkdown,
+                onMarkdownChange = onMarkdownChange,
+                onSaveMarkdownCard = onSaveMarkdownCard,
+                relatedNotebooks = relatedNotebooks,
+                relatedCards = relatedCards,
+                onOpenSplitNotebook = onOpenSplitNotebook,
+                onInsertCard = onInsertCard,
                 headerDragModifier = Modifier.draggable(
                     orientation = Orientation.Horizontal,
                     state = headerDragState,
@@ -215,11 +231,18 @@ private fun AgentDrawer(
     onSnip: () -> Unit,
     onExplainPage: () -> Unit,
     onSummarizeChapter: () -> Unit,
+    pageLabel: String = "第 1 页",
+    pageMarkdown: String = "",
+    onMarkdownChange: (String) -> Unit = {},
+    onSaveMarkdownCard: () -> Unit = {},
+    relatedNotebooks: List<com.milknote.notes.model.NotebookMeta> = emptyList(),
+    relatedCards: List<com.milknote.notes.model.NoteCard> = emptyList(),
+    onOpenSplitNotebook: (String) -> Unit = {},
+    onInsertCard: (com.milknote.notes.model.NoteCard) -> Unit = {},
     headerDragModifier: Modifier = Modifier,
 ) {
-    // 宿主在书写页画布区(顶栏下/底部状态条上,DESIGN-V0 §5.4);容器已吃 safeDrawing
-    // (含 IME)inset,此处不再重复 padding,否则顶进状态栏/盖住底条(真机实证)
     val density = LocalDensity.current
+    var studioTab by remember { mutableStateOf("ai") }
     Column(
         Modifier
             .width(with(density) { widthPx.toDp() })
@@ -230,22 +253,218 @@ private fun AgentDrawer(
             .border(0.5.dp, MaterialTheme.colorScheme.outline)
             .paintedShadow(RectangleShape, edge = 14.dp),
     ) {
-        DrawerHeader(state, headerDragModifier, onOpenSettings)
-        if (state.setupRequired) {
-            SetupGuide(onOpenSettings)
-        } else {
-            if (state.messages.isEmpty()) {
-                EmptyAgentActions(
-                    onSnip = onSnip,
-                    onExplainPage = onExplainPage,
-                    onSummarizeChapter = onSummarizeChapter,
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                Messages(state, Modifier.weight(1f))
+        DrawerHeader(
+            state = state,
+            studioTab = studioTab,
+            onSelectTab = { studioTab = it },
+            headerDragModifier = headerDragModifier,
+            onOpenSettings = onOpenSettings,
+        )
+        when (studioTab) {
+            "md" -> StudioMarkdownPane(
+                pageLabel = pageLabel,
+                markdown = pageMarkdown,
+                onMarkdownChange = onMarkdownChange,
+                onSaveCard = onSaveMarkdownCard,
+                modifier = Modifier.weight(1f),
+            )
+            "links" -> StudioLinksPane(
+                notebooks = relatedNotebooks,
+                cards = relatedCards,
+                onOpenSplit = onOpenSplitNotebook,
+                onInsertCard = onInsertCard,
+                modifier = Modifier.weight(1f),
+            )
+            else -> {
+                if (state.setupRequired) {
+                    SetupGuide(onOpenSettings)
+                } else {
+                    if (state.messages.isEmpty()) {
+                        EmptyAgentActions(
+                            onSnip = onSnip,
+                            onExplainPage = onExplainPage,
+                            onSummarizeChapter = onSummarizeChapter,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Messages(state, Modifier.weight(1f))
+                    }
+                    Composer(state)
+                    DrawerHints(state)
+                }
             }
-            Composer(state)
-            DrawerHints(state)
+        }
+    }
+}
+
+@Composable
+private fun StudioMarkdownPane(
+    pageLabel: String,
+    markdown: String,
+    onMarkdownChange: (String) -> Unit,
+    onSaveCard: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    var editSource by remember { mutableStateOf(false) }
+    val defaultMd = if (markdown.isBlank()) {
+        "### $pageLabel · 伴随笔记\n\n- 核心公式：\$A x = \\lambda x\$\n- 关联参考：[[线性代数讲义.pdf]]\n\n#笔记 #重点"
+    } else markdown
+
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .border(0.5.dp, cs.outline)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                pageLabel,
+                fontFamily = Mono,
+                fontSize = 12.sp,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            MilkChip(
+                label = if (editSource) "预览" else "源码",
+                selected = editSource,
+                onClick = {
+                    if (!editSource && markdown.isBlank()) onMarkdownChange(defaultMd)
+                    editSource = !editSource
+                },
+                small = true,
+            )
+            Spacer(Modifier.width(6.dp))
+            MilkChip(
+                label = "存卡片",
+                selected = false,
+                onClick = {
+                    if (markdown.isBlank()) onMarkdownChange(defaultMd)
+                    onSaveCard()
+                },
+                small = true,
+            )
+        }
+
+        if (editSource) {
+            BasicTextField(
+                value = if (markdown.isBlank()) defaultMd else markdown,
+                onValueChange = onMarkdownChange,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = Mono,
+                    fontSize = 12.5.sp,
+                    lineHeight = 20.sp,
+                    color = cs.onSurface,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(14.dp),
+            )
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .clickable {
+                        if (markdown.isBlank()) onMarkdownChange(defaultMd)
+                        editSource = true
+                    }
+                    .padding(14.dp),
+            ) {
+                MarkdownBlocks(defaultMd)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudioLinksPane(
+    notebooks: List<com.milknote.notes.model.NotebookMeta>,
+    cards: List<com.milknote.notes.model.NoteCard>,
+    onOpenSplit: (String) -> Unit,
+    onInsertCard: (com.milknote.notes.model.NoteCard) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            "双开对照与反向链接",
+            fontSize = 11.5.sp,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+        if (notebooks.isEmpty()) {
+            Text(
+                "书架中有其他笔记本时，点击即可在右侧双开分屏对照",
+                fontSize = 12.sp,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        } else {
+            notebooks.take(5).forEach { nb ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(9.dp))
+                        .clickable { onOpenSplit(nb.id) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    Text(nb.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
+                    Text(
+                        "点击双开分屏对照${if (nb.folder.isBlank()) "" else " · ${nb.folder}"}",
+                        fontSize = 12.sp,
+                        color = cs.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "知识卡片",
+            fontSize = 11.5.sp,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+        if (cards.isEmpty()) {
+            Text(
+                "框选或伴随笔记存为卡片后，可在此一键贴回当前页",
+                fontSize = 12.sp,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        } else {
+            cards.take(8).forEach { card ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(9.dp))
+                        .clickable { onInsertCard(card) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        card.title.ifBlank { "无标题卡片" },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = cs.primary,
+                    )
+                    Text(
+                        card.body.ifBlank { "点击贴回当前页" },
+                        fontSize = 12.sp,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+            }
         }
     }
 }
@@ -285,63 +504,106 @@ private fun EmptyAgentActions(
 @Composable
 private fun DrawerHeader(
     state: AgentUiState,
+    studioTab: String = "ai",
+    onSelectTab: (String) -> Unit = {},
     headerDragModifier: Modifier = Modifier,
     onOpenSettings: (page: String) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
+    val cs = MaterialTheme.colorScheme
     var showModels by remember { mutableStateOf(false) }
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .innerHighlight(strength = 0.25f)
-            .then(headerDragModifier)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(cs.surface)
+            .border(0.5.dp, cs.outline)
+            .then(headerDragModifier),
     ) {
-        Text("Agent", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.width(10.dp))
-        // 模型胶囊:模型名 mono + › 切换
+        // 第二代右侧 Studio 顶栏:三段标签切换 (AI | Markdown | 关联) + 关闭钮
         Row(
             Modifier
-                .clip(CircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                .clickable { showModels = !showModels }
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .fillMaxWidth()
+                .height(44.dp)
+                .padding(start = 10.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                state.activeModelId ?: "未配置",
-                style = com.milknote.app.ui.theme.MonoValue,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-            // 思考档位徽标(AUTO 不显示)
-            state.profiles.firstOrNull { it.id == state.activeProfileId }?.let { pf ->
-                val eff = runCatching { com.milknote.agent.ReasoningEffort.valueOf(pf.reasoningEffort) }
-                    .getOrDefault(com.milknote.agent.ReasoningEffort.AUTO)
-                if (eff != com.milknote.agent.ReasoningEffort.AUTO) {
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "思考·${effortLabel(eff)}",
-                        style = com.milknote.app.ui.theme.MonoMeta,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(cs.surfaceVariant)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                listOf("ai" to "AI", "md" to "Markdown", "links" to "关联").forEach { (id, label) ->
+                    val active = studioTab == id
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(if (active) cs.surface else Color.Transparent)
+                            .clickable { onSelectTab(id) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 12.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (active) cs.onSurface else cs.onSurfaceVariant,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.width(4.dp))
-            Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+            Spacer(Modifier.width(6.dp))
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .clickable { agent.closeDrawer() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Close, "收起", modifier = Modifier.size(16.dp), tint = cs.onSurfaceVariant)
+            }
         }
-        Spacer(Modifier.weight(1f))
-        // 关闭:48dp 命中(A-9),图标 16dp
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable { agent.closeDrawer() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.Close, "收起", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        // AI 页签下显示当前视觉模型与思考档位胶囊
+        if (studioTab == "ai") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier
+                        .clip(CircleShape)
+                        .border(1.dp, cs.outline, CircleShape)
+                        .clickable { showModels = !showModels }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        state.activeModelId ?: "未配置视觉模型",
+                        style = com.milknote.app.ui.theme.MonoValue,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    state.profiles.firstOrNull { it.id == state.activeProfileId }?.let { pf ->
+                        val eff = runCatching { com.milknote.agent.ReasoningEffort.valueOf(pf.reasoningEffort) }
+                            .getOrDefault(com.milknote.agent.ReasoningEffort.AUTO)
+                        if (eff != com.milknote.agent.ReasoningEffort.AUTO) {
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "思考·${effortLabel(eff)}",
+                                style = com.milknote.app.ui.theme.MonoMeta,
+                                color = cs.primary,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text("›", color = cs.onSurfaceVariant, fontSize = 14.sp)
+                }
+            }
         }
     }
     if (showModels) {

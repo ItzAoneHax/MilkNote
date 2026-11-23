@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512" role="img" aria-label="牛奶笔记图标方案C：墨砚奶滴">
+  <defs>
+    <linearGradient id="bg-c" x1="12" y1="8" x2="96" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#24272D"/>
+      <stop offset="100%" stop-color="#14161A"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" fill="url(#bg-c)"/>
+  <path d="M54 22 C62.5 36, 77.5 48.5, 77.5 62.5 C77.5 75.8, 67 85.5, 54 85.5 C41 85.5, 30.5 75.8, 30.5 62.5 C30.5 48.5, 45.5 36, 54 22 Z" fill="#F8F9FA"/>
+  <path d="M52.8 23.2 L55.2 23.2 L55.4 52.5 L52.6 52.5 Z" fill="#181A1F"/>
+  <circle cx="54" cy="55.5" r="4.8" fill="#181A1F"/>
+  <path d="M76.5 25 C77.1 29.2, 78.5 30.6, 82.7 31.2 C78.5 31.8, 77.1 33.2, 76.5 37.4 C75.9 33.2, 74.5 31.8, 70.3 31.2 C74.5 30.6, 75.9 29.2, 76.5 25 Z" fill="#5B92FF"/>
+</svg>

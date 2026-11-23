@@ -133,10 +133,10 @@ internal fun WriterMinorToolbar(
     shapeTool: InkTool,
     shapeColor: Long,
     shapeWidth: Float,
-    dock: MinorDock,
-    onDockDrag: ((dragged: Offset, handleCenter: Offset) -> Unit)?,
-    onDockDrop: ((dragged: Offset, handleCenter: Offset) -> Unit)?,
-    onDockCancel: (() -> Unit)?,
+    dock: MinorDock = MinorDock.TOP,
+    onDockDrag: ((dragged: Offset, handleCenter: Offset) -> Unit)? = null,
+    onDockDrop: ((dragged: Offset, handleCenter: Offset) -> Unit)? = null,
+    onDockCancel: (() -> Unit)? = null,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onCollapse: () -> Unit,
@@ -189,102 +189,115 @@ internal fun WriterMinorToolbar(
         }
     } else Modifier
 
-    val barBackground = Modifier.background(MaterialTheme.colorScheme.surface)
+    val barShape = if (dock == MinorDock.LEFT || dock == MinorDock.RIGHT) {
+        RoundedCornerShape(20.dp)
+    } else {
+        RoundedCornerShape(999.dp)
+    }
     if (dock == MinorDock.LEFT || dock == MinorDock.RIGHT) {
-        Column(
+        Box(
             Modifier
-                .width(WriterMinorBarThickness)
                 .fillMaxHeight()
-                .then(barBackground)
-                .edgeHairline(
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    left = dock == MinorDock.RIGHT,
-                    right = dock == MinorDock.LEFT,
-                )
-                .semantics { contentDescription = "书写页辅助工具栏(竖排)" },
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
+            Column(
                 Modifier
-                    .size(WriterMinorBarThickness, 40.dp)
-                    .onGloballyPositioned {
-                        handleCenter = it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)
-                    }
-                    .dragHandle(dragModifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.DragIndicator,
-                    "拖动停靠辅助栏",
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            MinorIconButton(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
-            MinorIconButton(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .testTag("writer-minor-tools")
-                    .semantics { contentDescription = "辅助工具带,可纵向滚动" },
+                    .width(WriterMinorBarThickness)
+                    .fillMaxHeight()
+                    .clip(barShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                    . edgeHairline(MaterialTheme.colorScheme.outline, left = true, right = true, top = true, bottom = true)
+                    .semantics { contentDescription = "书写页辅助工具栏(竖排)" },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                minorToolItems(items, enabled, spec)
+                Box(
+                    Modifier
+                        .size(WriterMinorBarThickness, 40.dp)
+                        .onGloballyPositioned {
+                            handleCenter = it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)
+                        }
+                        .dragHandle(dragModifier),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.DragIndicator,
+                        "拖动停靠辅助栏",
+                        Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                MinorIconButton(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
+                MinorIconButton(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .testTag("writer-minor-tools")
+                        .semantics { contentDescription = "辅助工具带,可纵向滚动" },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    minorToolItems(items, enabled, spec)
+                }
+                MinorIconButton(Icons.Outlined.KeyboardArrowUp, "收起辅助栏", true, false, onCollapse, "writer-collapse-minor")
             }
-            MinorIconButton(Icons.Outlined.KeyboardArrowUp, "收起辅助栏", true, false, onCollapse, "writer-collapse-minor")
         }
     } else {
-        Row(
+        Box(
             Modifier
                 .fillMaxWidth()
-                .height(WriterMinorToolbarHeight)
-                .then(barBackground)
-                .edgeHairline(
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    top = dock == MinorDock.BOTTOM,
-                    bottom = dock == MinorDock.TOP,
-                )
-                .semantics { contentDescription = "书写页辅助工具栏" },
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
+            Row(
                 Modifier
-                    .width(40.dp)
-                    .fillMaxHeight()
-                    .onGloballyPositioned {
-                        handleCenter = it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)
-                    }
-                    .dragHandle(dragModifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.DragIndicator,
-                    "拖动停靠辅助栏",
-                    Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            MinorIconButton(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
-            MinorIconButton(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
-            LazyRow(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .testTag("writer-minor-tools")
-                    .semantics { contentDescription = "辅助工具带,可横向滚动" },
-                horizontalArrangement = if (listState.canScrollForward || listState.canScrollBackward) {
-                    Arrangement.Start
-                } else {
-                    Arrangement.Center
-                },
+                    .fillMaxWidth()
+                    .height(WriterMinorToolbarHeight)
+                    .clip(barShape)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                    .edgeHairline(MaterialTheme.colorScheme.outline, left = true, right = true, top = true, bottom = true)
+                    .padding(horizontal = 4.dp)
+                    .semantics { contentDescription = "书写页辅助工具栏" },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                minorToolItems(items, enabled, spec)
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .fillMaxHeight()
+                        .onGloballyPositioned {
+                            handleCenter = it.positionInRoot() + Offset(it.size.width / 2f, it.size.height / 2f)
+                        }
+                        .dragHandle(dragModifier),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.DragIndicator,
+                        "拖动停靠辅助栏",
+                        Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                MinorIconButton(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
+                MinorIconButton(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
+                LazyRow(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .testTag("writer-minor-tools")
+                        .semantics { contentDescription = "辅助工具带,可横向滚动" },
+                    horizontalArrangement = if (listState.canScrollForward || listState.canScrollBackward) {
+                        Arrangement.Start
+                    } else {
+                        Arrangement.Center
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    minorToolItems(items, enabled, spec)
+                }
+                MinorIconButton(Icons.Outlined.KeyboardArrowUp, "收起辅助栏", true, false, onCollapse, "writer-collapse-minor")
             }
-            MinorIconButton(Icons.Outlined.KeyboardArrowUp, "收起辅助栏", true, false, onCollapse, "writer-collapse-minor")
         }
     }
 }
@@ -339,6 +352,7 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                     selected = abs(state.toolSettings.eraserWidthMm - width) < 0.1f,
                     enabled = enabled,
                     tag = "writer-eraser-width-$index",
+                    asBar = false,
                     onClick = { items.onEraserWidth(width) },
                 )
             }
@@ -549,16 +563,46 @@ private fun MinorWidthDot(
     enabled: Boolean,
     onClick: () -> Unit,
     tag: String,
+    asBar: Boolean = true,
 ) {
+    val cs = MaterialTheme.colorScheme
     Box(
-        Modifier.size(48.dp).clickable(enabled = enabled, onClick = onClick).testTag(tag)
+        Modifier
+            .size(44.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .testTag(tag)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier.size(diameter).clip(CircleShape)
-                .background(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        if (asBar) {
+            val barHeight = when {
+                diameter <= 5.dp -> 1.6.dp
+                diameter <= 8.dp -> 3.dp
+                else -> 5.dp
+            }
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(15.dp)
+                        .height(barHeight)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (selected) cs.primary else cs.onSurfaceVariant),
+                )
+            }
+        } else {
+            Box(
+                Modifier
+                    .size(diameter)
+                    .clip(CircleShape)
+                    .background(if (selected) cs.primary else cs.onSurfaceVariant),
+            )
+        }
     }
 }
 

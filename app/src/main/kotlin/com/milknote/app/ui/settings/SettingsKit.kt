@@ -99,12 +99,15 @@ internal fun SettingsNavRail(
     onSelect: (String) -> Unit,
     versionLine: String,
     onBack: () -> Unit,
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     Column(
         Modifier
             .width(248.dp)
-            .fillMaxHeight(),
+            .fillMaxHeight()
+            .background(cs.surfaceVariant),
     ) {
         Row(
             Modifier
@@ -128,6 +131,14 @@ internal fun SettingsNavRail(
             }
             Spacer(Modifier.width(10.dp))
             Text("设置", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+        }
+        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+            MilkTextField(
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                placeholder = "搜索设置…",
+                mono = false,
+            )
         }
         Column(
             Modifier

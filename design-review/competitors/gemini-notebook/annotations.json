@@ -1,0 +1,24 @@
+{
+  "app": "Gemini Notebook 1.67.7 (Android, 原 NotebookLM)",
+  "source_size": [2560, 1600],
+  "shots": [
+    {
+      "file": "P001_first_launch.png",
+      "title": "首启欢迎页（门禁 1）：无账号不可用",
+      "callouts": [
+        {"n": 1, "box": [60, 70, 500, 135], "label": "品牌标识「Gemini Notebook」（2026-07 由 NotebookLM 更名）"},
+        {"n": 2, "box": [0, 632, 2560, 1032], "label": "主张「定格万象。AI 创想。」：把照片/录音等观察结果转为洞见、幻灯片与深度摘要"},
+        {"n": 3, "box": [740, 1290, 1820, 1600], "label": "底部卡片：Google 标识 + 唯一入口「登录」；没有离线/跳过路径"},
+        {"n": 4, "box": [0, 1100, 2560, 1290], "label": "蓝→绿渐变背景（Google Material 3 Expressive 风格）"}
+      ]
+    },
+    {
+      "file": "P002_sign_in.png",
+      "title": "点击登录后：Google Play 服务「正在核对信息…」（门禁 2）",
+      "callouts": [
+        {"n": 1, "box": [615, 230, 1945, 1330], "label": "系统级 Google 登录卡片（suc_layout），需联网到 Google 并有可用账户"},
+        {"n": 2, "box": [704, 392, 1204, 462], "label": "「正在核对信息…」：测试机无 Google 账户且 Play 服务不可达，停留在此，后续页面无法进入"}
+      ]
+    }
+  ]
+}

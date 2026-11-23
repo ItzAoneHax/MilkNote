@@ -300,18 +300,30 @@ fun MilkRoot() {
                 when (s) {
                 is MilkScreen.Bookshelf -> BookshelfScreen(
                     vm = bookshelfVm,
-                    onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
+                    cardsVm = cardsVm,
+                    onOpenNotebook = { id -> writerVm.open(id, asSplit = false); screen = MilkScreen.Writer(id) },
+                    onOpenNotebookSplit = { id -> writerVm.open(id, asSplit = true); screen = MilkScreen.Writer(id) },
                     onOpenNotebookWithImage = { id, uri ->
                         writerVm.open(id)
                         writerVm.insertImage(uri)
                         screen = MilkScreen.Writer(id)
                     },
+                    onExportNotebook = { id ->
+                        writerVm.open(id)
+                        screen = MilkScreen.Export(id)
+                    },
+                    onInsertCard = { card, notebookId, pageId ->
+                        writerVm.open(notebookId)
+                        writerVm.insertLibraryCard(card, pageId)
+                        screen = MilkScreen.Writer(notebookId)
+                    },
                     onOpenDiagnostics = { showDiagnostics = true },
                     onOpenSettings = { openSettings(false, "appearance") },
+                    onOpenPenSettings = { openSettings(false, "pen") },
                     onOpenPalette = { showPalette = true },
                     onOpenCards = {
                         cardsVm.refresh()
-                        screen = MilkScreen.Cards
+                        bookshelfVm.setNav(com.milknote.app.ui.bookshelf.BookshelfNav.Cards)
                     },
                     showNewNotebook = showNewNotebook,
                     onNewNotebookHandled = { showNewNotebook = false },

@@ -16,7 +16,8 @@ fun sortNotebooks(
     mode: BookshelfSortMode,
 ): List<NotebookMeta> = when (mode) {
     BookshelfSortMode.Updated -> notebooks.sortedWith(
-        compareByDescending<NotebookMeta> { it.updatedAt }
+        compareByDescending<NotebookMeta> { it.pinned }
+            .thenByDescending { it.updatedAt }
             .thenBy { it.name.lowercase() }
             .thenBy { it.id },
     )
@@ -26,12 +27,14 @@ fun sortNotebooks(
             .thenBy { it.id },
     )
     BookshelfSortMode.LastOpened -> notebooks.sortedWith(
-        compareByDescending<NotebookMeta> { it.lastOpened }
+        compareByDescending<NotebookMeta> { it.pinned }
+            .thenByDescending { it.lastOpened }
             .thenByDescending { it.updatedAt }
             .thenBy { it.id },
     )
     BookshelfSortMode.Tag -> notebooks.sortedWith(
-        compareBy<NotebookMeta> { it.tagColor.ifBlank { it.coverColor } }
+        compareByDescending<NotebookMeta> { it.pinned }
+            .thenBy { it.tagColor.ifBlank { it.coverColor } }
             .thenBy { it.name.lowercase() }
             .thenBy { it.id },
     )

@@ -363,6 +363,18 @@ private fun PaperPattern(kind: String, paperColor: Color, modifier: Modifier = M
                     y += step
                 }
             }
+            "cornell" -> {
+                val step = 13.dp.toPx()
+                val headerY = size.height * 0.14f
+                val cueX = size.width * 0.25f
+                var y = headerY + step
+                while (y < size.height) {
+                    drawLine(line, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.7.dp.toPx())
+                    y += step
+                }
+                drawLine(Color(0xFF2563EB).copy(alpha = 0.35f), Offset(0f, headerY), Offset(size.width, headerY), strokeWidth = 1.dp.toPx())
+                drawLine(Color(0xFFD94436).copy(alpha = 0.42f), Offset(cueX, headerY), Offset(cueX, size.height), strokeWidth = 1.dp.toPx())
+            }
             "grid", "tian" -> {
                 val step = 12.dp.toPx()
                 var p = step

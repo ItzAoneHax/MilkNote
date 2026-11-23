@@ -204,9 +204,9 @@ fun formatRelative(ms: Long): String {
     }
 }
 
-/** 强调蓝渐变(CTA 背景) */
+/** 单一钢笔蓝实心填充(DESIGN-V2 §1 去渐变模板感) */
 fun accentBrush(): Brush = Brush.linearGradient(
-    listOf(Color(0xFF3B5BEC), Color(0xFF5C77F2)),
+    listOf(com.milknote.app.ui.theme.AccentBlue, com.milknote.app.ui.theme.AccentBlue),
 )
 
 /** 命令面板按钮 ⌘K(Codex 风) */

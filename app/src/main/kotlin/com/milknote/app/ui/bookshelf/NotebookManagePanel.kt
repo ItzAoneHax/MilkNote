@@ -97,7 +97,7 @@ internal fun NotebookManagePanel(
         Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MilkButton(
-                label = "删除笔记本",
+                label = if (meta.trashed) "彻底删除" else "移入回收站",
                 onClick = onDelete,
                 variant = MilkButtonVariant.TEXT,
                 destructive = true,

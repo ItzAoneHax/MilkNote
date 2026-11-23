@@ -7,6 +7,7 @@
 - [WWDC24-ANIMATION-NOTES.md](WWDC24-ANIMATION-NOTES.md)：Session 10145 转写文稿提炼；共享缩放、稳定来源、速度继承、可中断过渡及 Compose 落地规格。
 - [prototype/index.html](prototype/index.html)：无依赖独立高保真原型；文件头含预览说明。
 - [screenshots/](screenshots/)：24 张 `milk_pad` AVD 实机渲染截图，全部经本人逐张查看。
+- [competitors/](competitors/README.md)：7 款竞品笔记应用（Obsidian / SpeedyNote / StarNote / OneNote / Gemini Notebook / Goodnotes / 小米笔记）在 `kilonotes_x86` 平板模拟器上的逐屏截图、带编号的功能标注图、UI 层级与控件坐标表；功能对照见 [competitors/FEATURES.md](competitors/FEATURES.md)。
 
 ## 原型预览
 

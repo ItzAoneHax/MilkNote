@@ -18,7 +18,7 @@ enum class WriterMajorTool(val id: String, val label: String) {
     LASER("laser", "激光笔"),
 }
 
-enum class WriterRailMode { PAGES, SNIPPETS }
+enum class WriterRailMode { PAGES, SNIPPETS, OUTLINE }
 
 val writerMajorToolOrder: List<WriterMajorTool> = listOf(
     WriterMajorTool.BRUSH,
