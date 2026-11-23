@@ -129,6 +129,12 @@ tasks.register("publishGithub") {
             writeText("""{"versionName":"$version","buildTime":${apk.lastModified()},"apk":"app-debug.apk","size":${apk.length()}}""")
         }
         val gh = if (System.getProperty("os.name").lowercase().contains("windows")) "gh.exe" else "gh"
+        // tag 必须落在本次发布的提交上:gh 不传 --target 会落到默认分支(main)的 HEAD
+        val head = runCatching {
+            ProcessBuilder("git", "rev-parse", "HEAD").directory(rootDir).start()
+                .inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("")
+        val targetArgs = if (head.length >= 7) listOf("--target", head) else emptyList()
         // 固定 tag=latest:先删旧 Release 与 tag,再建新的(App 端 URL 恒定)
         exec {
             commandLine(gh, "release", "delete", "latest", "--yes", "--cleanup-tag", "--repo", repo)
@@ -141,6 +147,7 @@ tasks.register("publishGithub") {
                 "--title", "MilkNote $version",
                 "--notes", "构建于 ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date(apk.lastModified()))}(应用内检查更新可用)",
                 "--repo", repo,
+                *targetArgs.toTypedArray(),
             )
         }
         println("")
