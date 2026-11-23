@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Image as ImageIcon
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -516,37 +519,38 @@ private fun actionLabel(format: ExportFormat): String = when (format) {
 private fun hMmRatio(width: Float, height: Float): Float =
     if (height <= 0f) 0.707f else width / height
 
-/** 顶部返回条:‹ 返回书写(点击回书写页)| 右侧笔记本名(chrome 色带 + 顶缘内高光,同书写页顶栏) */
+/** 顶部返回条:surface 底 + 底部 hairline;返回钮 40dp + 标题;右侧笔记本名 mono */
 @Composable
 private fun ExportTopBar(notebookName: String, onBack: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .innerHighlight(strength = 0.3f)
-            .height(56.dp)
-            .padding(horizontal = 20.dp),
+            .background(MaterialTheme.colorScheme.surface)
+            .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), bottom = true)
+            .height(60.dp)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
             Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .clickable(onClick = onBack)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .defaultMinSize(minHeight = 44.dp)
+                .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Outlined.ArrowBack, null,
+                Icons.AutoMirrored.Outlined.ArrowBack, "返回书写",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.height(18.dp),
+                modifier = Modifier.height(20.dp),
             )
-            Spacer(Modifier.width(8.dp))
-            Text("返回书写", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(10.dp))
+            Text("导出", style = MaterialTheme.typography.titleMedium)
         }
         Spacer(Modifier.weight(1f))
         Text(
             notebookName,
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = Mono),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -635,7 +639,7 @@ private fun formatIcon(format: ExportFormat): ImageVector = when (format) {
     ExportFormat.ZIP -> Icons.Outlined.Archive
 }
 
-/** 范围胶囊:选中=蓝底蓝字,未选=灰底灰字;48dp 命中由外层行高保证。 */
+/** 范围胶囊:复用共享 MilkChip,三等分 */
 @Composable
 private fun RangeChip(
     label: String,
@@ -644,41 +648,13 @@ private fun RangeChip(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        tween(180),
-        label = "rangeChipBg",
+    com.milknote.app.ui.common.MilkChip(
+        label = label,
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier.height(42.dp),
+        enabled = enabled,
     )
-    val fg by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        tween(180),
-        label = "rangeChipFg",
-    )
-    Box(
-        modifier
-            .alpha(if (enabled) 1f else 0.45f)
-            .height(42.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .border(
-                1.dp,
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                else MaterialTheme.colorScheme.outline,
-                CircleShape,
-            )
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.Medium else null,
-            color = fg,
-            maxLines = 1,
-        )
-    }
 }
 
 /** 缩略图多选:首行计数/全选/取消全选,下方自适应网格。 */
@@ -830,11 +806,16 @@ private fun ResultLine(msg: String) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(tint.copy(alpha = 0.08f))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(if (ok) "✓" else "✗", fontSize = 12.sp, color = tint)
-        Spacer(Modifier.width(8.dp))
-        Text(msg, fontSize = 12.sp, lineHeight = 17.sp, color = tint)
+        Icon(
+            if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+            contentDescription = if (ok) "成功" else "失败",
+            tint = tint,
+            modifier = Modifier.size(18.dp).padding(top = 0.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(msg, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 19.sp), color = tint)
     }
 }

@@ -8,23 +8,24 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,21 +41,26 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkKeyCap
+import com.milknote.app.ui.common.MilkPanelHeader
+import com.milknote.app.ui.common.MilkSectionLabel
+import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSlider
-import com.milknote.app.ui.common.milkDialogSurface
-import com.milknote.app.ui.common.innerHighlight
-import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softShadow
 import com.milknote.ink.model.CardTextAlign
 import com.milknote.ink.model.CardTextStyle
 import com.milknote.ink.model.InkTool
 
+/** 文字框编辑面板:内容 → 字号 → 对齐 → 样式 → 颜色,眉标分区 */
 @Composable
 internal fun TextBoxDialog(
     existing: com.milknote.ink.model.AnnotationCard? = null,
@@ -64,75 +70,102 @@ internal fun TextBoxDialog(
 ) {
     var text by remember(existing?.id) { mutableStateOf(existing?.text.orEmpty()) }
     var style by remember(existing?.id) { mutableStateOf(existing?.textStyle ?: initialStyle) }
-    MilkCenterPanel(title = if (existing == null) "插入文字框" else "编辑文字", onDismiss = onDismiss, maxWidth = 520.dp) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 450.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
+    MilkCenterPanel(
+        title = if (existing == null) "插入文字框" else "编辑文字",
+        subtitle = "输入内容并选择样式；插入后可在纸上拖动、缩放",
+        onDismiss = onDismiss,
+        maxWidth = 540.dp,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 480.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll"),
+        ) {
             Spacer(Modifier.height(12.dp))
+            MilkSectionLabel("内容")
+            Spacer(Modifier.height(8.dp))
             Box(
-                Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 136.dp)
+                    .clip(MaterialTheme.shapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)).padding(14.dp),
+                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f), MaterialTheme.shapes.medium)
+                    .padding(14.dp),
             ) {
+                if (text.isEmpty()) {
+                    Text("输入文字…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                }
                 BasicTextField(
-                    value = text, onValueChange = { text = it },
+                    value = text,
+                    onValueChange = { text = it },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxSize(),
-                    decorationBox = { inner ->
-                        if (text.isEmpty()) Text("输入文字…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        inner()
-                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            Text("字号", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(20.dp))
+            MilkSectionLabel("字号")
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(16f, 24f, 36f, 48f).forEach { size ->
-                    TextStyleChip("${size.toInt()}", style.fontSizePx == size) { style = style.copy(fontSizePx = size) }
+                    MilkChip(label = "${size.toInt()}", selected = style.fontSizePx == size, onClick = { style = style.copy(fontSizePx = size) })
                 }
+                Spacer(Modifier.weight(1f))
+                Text("px", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
             }
+            Spacer(Modifier.height(18.dp))
+            MilkSectionLabel("对齐")
+            Spacer(Modifier.height(8.dp))
+            MilkSegmented(
+                options = listOf(CardTextAlign.START, CardTextAlign.CENTER, CardTextAlign.END),
+                selected = style.align,
+                label = {
+                    when (it) {
+                        CardTextAlign.START -> "左对齐"
+                        CardTextAlign.CENTER -> "居中"
+                        CardTextAlign.END -> "右对齐"
+                    }
+                },
+                onSelect = { style = style.copy(align = it) },
+            )
+            Spacer(Modifier.height(18.dp))
+            MilkSectionLabel("样式")
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextStyleChip("左对齐", style.align == CardTextAlign.START) { style = style.copy(align = CardTextAlign.START) }
-                TextStyleChip("居中", style.align == CardTextAlign.CENTER) { style = style.copy(align = CardTextAlign.CENTER) }
-                TextStyleChip("右对齐", style.align == CardTextAlign.END) { style = style.copy(align = CardTextAlign.END) }
+                MilkChip("粗体", style.bold, { style = style.copy(bold = !style.bold) })
+                MilkChip("斜体", style.italic, { style = style.copy(italic = !style.italic) })
+                MilkChip("下划线", style.underline, { style = style.copy(underline = !style.underline) })
+                MilkChip("删除线", style.strikethrough, { style = style.copy(strikethrough = !style.strikethrough) })
             }
+            Spacer(Modifier.height(18.dp))
+            MilkSectionLabel("颜色")
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextStyleChip("粗体", style.bold) { style = style.copy(bold = !style.bold) }
-                TextStyleChip("斜体", style.italic) { style = style.copy(italic = !style.italic) }
-                TextStyleChip("下划线", style.underline) { style = style.copy(underline = !style.underline) }
-                TextStyleChip("删除线", style.strikethrough) { style = style.copy(strikethrough = !style.strikethrough) }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { color ->
-                    InkColorDot(color = color, label = "文字颜色", active = style.colorArgb == color,
-                        onClick = { style = style.copy(colorArgb = color) })
+                    InkColorDot(
+                        color = color,
+                        label = "文字颜色",
+                        active = style.colorArgb == color,
+                        onClick = { style = style.copy(colorArgb = color) },
+                    )
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             MilkButton(label = if (existing == null) "插入" else "保存", enabled = text.isNotBlank(), onClick = { onCreate(text.trim(), style) })
         }
     }
 }
 
-@Composable
-private fun TextStyleChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(999.dp))
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick).defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-    ) { Text(label, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) }
-}
-
 // public:WriterViewModel.addShape 为 public 函数,参数类型不可 internal(可见性暴露)
 data class ShapeConfig(val tool: InkTool, val color: Long, val widthMm: Float)
 
+/** 图形面板:图形网格 → 轮廓粗细 → 颜色 */
 @Composable
 internal fun ShapeSettingsDialog(
     initialTool: InkTool = InkTool.RECT,
@@ -144,62 +177,75 @@ internal fun ShapeSettingsDialog(
     var tool by remember { mutableStateOf(initialTool) }
     var color by remember { mutableStateOf(initialColor) }
     var width by remember { mutableStateOf(initialWidth) }
-    val form: @Composable () -> Unit = {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = 430.dp)
-                .verticalScroll(rememberScrollState())
-                .testTag("writer-panel-scroll"),
-        ) {
-            Spacer(Modifier.height(12.dp))
-            writerShapeToolOrder.chunked(4).forEach { group ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                    group.forEach { (candidate, label) ->
-                        val active = tool == candidate
-                        Box(
-                            Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
-                                .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                                .border(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                .clickable { tool = candidate }.padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(label, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+    WriterFloatingPanel(onDismiss = onDismiss, width = 440.dp, maxHeight = 620.dp) {
+        Column(Modifier.fillMaxWidth()) {
+            MilkPanelHeader(title = "图形", subtitle = "选择图形、描边与颜色，然后在纸上拖动绘制", onDismiss = onDismiss)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("writer-panel-scroll")
+                    .padding(horizontal = 24.dp),
+            ) {
+                Spacer(Modifier.height(10.dp))
+                MilkSectionLabel("图形")
+                Spacer(Modifier.height(10.dp))
+                writerShapeToolOrder.chunked(4).forEach { group ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        group.forEach { (candidate, label) ->
+                            val active = tool == candidate
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                    .border(1.dp, if (active) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(12.dp))
+                                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { tool = candidate })
+                                    .height(48.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (active) FontWeight.Medium else null,
+                                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        // 不足 4 个时补空位,保持列宽一致
+                        repeat(4 - group.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("轮廓粗细", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.weight(1f))
+                    Text("%.2f mm".format(width), style = MaterialTheme.typography.labelMedium.copy(fontFamily = com.milknote.app.ui.theme.Mono), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
+                MilkSlider(value = width, onValueChange = { width = it }, valueRange = 0.2f..3f)
+                Spacer(Modifier.height(20.dp))
+                MilkSectionLabel("颜色")
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { candidate ->
+                        InkColorDot(color = candidate, label = "图形颜色", active = color == candidate, onClick = { color = candidate })
                     }
                 }
-            }
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("轮廓粗细", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.weight(1f))
-                Text("%.2f mm".format(width), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-            }
-            MilkSlider(value = width, onValueChange = { width = it }, valueRange = 0.2f..3f)
-            Spacer(Modifier.height(8.dp))
-            Text("颜色", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(8.dp))
-            Row {
-                listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { candidate ->
-                    InkColorDot(color = candidate, label = "图形颜色", active = color == candidate, onClick = { color = candidate })
+                Spacer(Modifier.height(24.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    MilkKeyCap("Esc")
+                    Spacer(Modifier.width(6.dp))
+                    Text("关闭", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.weight(1f))
+                    MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+                    Spacer(Modifier.width(10.dp))
+                    MilkButton(label = "开始绘制", onClick = { onStart(ShapeConfig(tool, color, width)) })
                 }
+                Spacer(Modifier.height(20.dp))
             }
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-                Spacer(Modifier.width(8.dp))
-                MilkButton(label = "开始绘制", onClick = { onStart(ShapeConfig(tool, color, width)) })
-            }
-        }
-    }
-    WriterFloatingPanel(onDismiss = onDismiss, width = 420.dp, maxHeight = 600.dp) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
-            Text("图形绘制", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Text(
-                "选择图形、描边与颜色",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-            form()
         }
     }
 }
@@ -243,16 +289,28 @@ internal fun ShapeOverlay(config: ShapeConfig, onComplete: (Offset, Offset) -> U
                 })
             }
         }
-        Text(
-            "拖动绘制${when (config.tool) {
-                InkTool.RECT -> "矩形"; InkTool.OVAL -> "椭圆"; InkTool.DASHED_LINE -> "虚线"
-                InkTool.ARROW -> "箭头"; InkTool.TRIANGLE -> "三角形"; InkTool.STAR -> "星形"
-                InkTool.POLYGON -> "六边形"; else -> "直线"
-            }}",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 7.dp),
-        )
-        TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.TopEnd)) { Text("退出图形") }
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 14.dp)
+                .softShadow(6.dp, RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(999.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
+                .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "在纸上拖动绘制${when (config.tool) {
+                    InkTool.RECT -> "矩形"; InkTool.OVAL -> "椭圆"; InkTool.DASHED_LINE -> "虚线"
+                    InkTool.ARROW -> "箭头"; InkTool.TRIANGLE -> "三角形"; InkTool.STAR -> "星形"
+                    InkTool.POLYGON -> "六边形"; else -> "直线"
+                }}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.width(6.dp))
+            MilkIconButton(Icons.Outlined.Close, "退出图形", onClick = onCancel, iconSize = 18.dp)
+        }
     }
 }

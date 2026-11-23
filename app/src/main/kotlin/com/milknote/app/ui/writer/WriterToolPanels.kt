@@ -7,6 +7,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -14,55 +16,55 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Brush
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.app.di.ServiceLocator
-import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkCenterPanel
-import com.milknote.app.ui.common.MilkPanelAction
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.PageImageKind
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 套索内容筛选:多选芯片,选中即生效 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LassoFilterPanel(
     selected: Set<LassoContent>,
     onToggle: (LassoContent) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    MilkCenterPanel(title = "套索内容筛选", subtitle = "默认混合选择；取消的类型不会被圈入", onDismiss = onDismiss) {
+    MilkCenterPanel(title = "套索内容筛选", subtitle = "默认混合选择；取消的类型不会被圈入", onDismiss = onDismiss, maxWidth = 480.dp) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
                 .testTag("writer-panel-scroll").padding(top = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            LassoContent.entries.chunked(3).forEach { group ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    group.forEach { filter ->
-                        val active = filter in selected
-                        Text(
-                            filter.label,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(CircleShape)
-                                .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant)
-                                .border(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
-                                .clickable { onToggle(filter) }.defaultMinSize(minHeight = 48.dp)
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                        )
-                    }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LassoContent.entries.forEach { filter ->
+                    MilkChip(label = filter.label, selected = filter in selected, onClick = { onToggle(filter) })
                 }
             }
         }
@@ -87,29 +89,40 @@ internal fun MaterialLibraryPanel(
                 .map { LocalMaterial(it, it.nameWithoutExtension) }.toList()
         }
     }
-    MilkCenterPanel(title = "本地素材", subtitle = "图片、图案笔、胶带与贴纸；无商店或云端下载", onDismiss = onDismiss) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
+    val cs = MaterialTheme.colorScheme
+    MilkCenterPanel(title = "本地素材", subtitle = "图片、图案笔、胶带与贴纸；无商店或云端下载", onDismiss = onDismiss, maxWidth = 520.dp) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MaterialAction("导入图片", onImportImage)
-                MaterialAction("图案笔", onDoodle)
+                MaterialAction("导入图片", Icons.Outlined.Image, onImportImage)
+                MaterialAction("图案笔", Icons.Outlined.Brush, onDoodle)
             }
-            Spacer(Modifier.height(16.dp))
-            Text("胶带", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-tapes").padding(vertical = 8.dp)) {
-                (0..3).forEach { MaterialAction("胶带 ${it + 1}") { onBuiltin(PageImageKind.TAPE, it) } }
+            Spacer(Modifier.height(20.dp))
+            MilkSectionLabel("胶带")
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-tapes"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (0..3).forEach { MaterialAction("胶带 ${it + 1}", null) { onBuiltin(PageImageKind.TAPE, it) } }
             }
-            Text("贴纸", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-stickers").padding(vertical = 8.dp)) {
-                (0..3).forEach { MaterialAction("星形贴纸 ${it + 1}") { onBuiltin(PageImageKind.STICKER, it) } }
+            Spacer(Modifier.height(18.dp))
+            MilkSectionLabel("贴纸")
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-stickers"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (0..3).forEach { MaterialAction("星形贴纸 ${it + 1}", null) { onBuiltin(PageImageKind.STICKER, it) } }
             }
-            Text("我的素材", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(18.dp))
+            MilkSectionLabel("我的素材")
+            Spacer(Modifier.height(6.dp))
             if (materials.isEmpty()) {
-                Text("导入图片或插入胶带/贴纸后会保留在这里", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "导入图片或插入胶带 / 贴纸后，会保留在这里。",
+                    Modifier.padding(vertical = 14.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                )
             }
             materials.forEach { item ->
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
                         .clickable {
                             val kind = when {
                                 item.file.name.startsWith("tape-") -> PageImageKind.TAPE
@@ -118,25 +131,35 @@ internal fun MaterialLibraryPanel(
                             }
                             onMaterial(item.file, kind)
                         }
-                        .defaultMinSize(minHeight = 48.dp).padding(horizontal = 12.dp, vertical = 12.dp),
+                        .heightIn(min = 48.dp).padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(item.label, maxLines = 1)
-                    Spacer(Modifier.weight(1f))
-                    Text("插入", color = MaterialTheme.colorScheme.primary)
+                    Text(item.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text("插入", style = MaterialTheme.typography.labelLarge, color = cs.primary, modifier = Modifier.padding(start = 12.dp))
                 }
             }
         }
     }
 }
 
+/** 素材动作按钮:淡灰圆角块 + 可选图标,48dp 命中 */
 @Composable
-private fun MaterialAction(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick).defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    )
+private fun MaterialAction(label: String, icon: ImageVector?, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(cs.surfaceVariant.copy(alpha = 0.6f))
+            .border(1.dp, cs.outline.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+        }
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
+    }
 }

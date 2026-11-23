@@ -28,9 +28,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +62,11 @@ import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkPanelHeader
+import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.dashedBorder
@@ -134,21 +141,35 @@ fun AgentSettingsSection() {
             Spacer(Modifier.height(10.dp))
         }
 
-        // 新增(虚线框行,DESIGN-V0 §5.4 语言)
+        // 新增(虚线卡:图标容器 + 标题 + 说明 + 箭头)
         Row(
             Modifier
                 .fillMaxWidth()
-                .dashedBorder(MaterialTheme.colorScheme.outline, cornerRadius = 12.dp)
+                .dashedBorder(MaterialTheme.colorScheme.outline.copy(alpha = 0.9f), cornerRadius = 18.dp)
+                .clip(RoundedCornerShape(18.dp))
                 .clickable { adding = true }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("+ 新增 Provider", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.weight(1f))
-            Text("预设 12 家 / 自定义", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("新增 Provider", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(2.dp))
+                Text("预设 12 家，或自定义兼容端点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
 
-        FooterHint("思考档位按模型声明,每家不同;拉取不覆盖已调过的声明。")
+        FooterHint("思考档位按模型声明，每家不同；拉取不覆盖已调过的声明。")
     }
 
     if (adding) {
@@ -163,12 +184,12 @@ fun AgentSettingsSection() {
 
     // 删除确认(A-27):Provider 整套配置 / 模型声明均不可静默丢失
     deleteReq?.let { req ->
-        ConfirmDialog(
-            title = if (req.modelId == null) "删除 Provider「${req.providerTitle}」?" else "删除模型 ${req.modelId}?",
+        MilkConfirmDialog(
+            title = if (req.modelId == null) "删除 Provider「${req.providerTitle}」？" else "删除模型 ${req.modelId}？",
             body = if (req.modelId == null)
-                "端点、已声明模型与思考档设置将一并删除;已保存的会话记录不受影响。"
+                "端点、已声明模型与思考档设置将一并删除；已保存的会话记录不受影响。"
             else
-                "将从「${req.providerTitle}」的模型目录移除;正在进行的对话不受影响。",
+                "将从「${req.providerTitle}」的模型目录移除；正在进行的对话不受影响。",
             confirmLabel = "删除",
             onDismiss = { deleteReq = null },
             onConfirm = {
@@ -742,6 +763,7 @@ private fun AddProviderDialog(
 
     DialogCard(
         title = "新增 Provider",
+        subtitle = "先选预设，再填 Key；协议按端点实际情况切换",
         onDismiss = onCancel,
         actions = {
             MilkButton(
@@ -764,102 +786,82 @@ private fun AddProviderDialog(
         },
     ) {
         Column {
-            ProviderRegistry.presets.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { preset ->
-                        val sel = preset.id == presetId
-                        val chipBg by animateColorAsState(
-                            if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            tween(200), label = "presetChipBg",
-                        )
-                        Text(
-                            preset.title,
-                            fontSize = 11.sp,
-                            fontWeight = if (sel) FontWeight.Medium else null,
-                            color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(chipBg)
-                                .clickable {
-                                    presetId = preset.id
-                                    if (preset.id == "custom") { title = ""; baseUrl = "" }
-                                    else { title = preset.title; baseUrl = preset.baseUrl; anthropic = preset.protocol == Protocol.ANTHROPIC }
-                                }
-                                .defaultMinSize(minHeight = 48.dp)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ProviderRegistry.presets.forEach { preset ->
+                    val sel = preset.id == presetId
+                    MilkChip(
+                        label = preset.title,
+                        selected = sel,
+                        onClick = {
+                            presetId = preset.id
+                            if (preset.id == "custom") { title = ""; baseUrl = "" }
+                            else { title = preset.title; baseUrl = preset.baseUrl; anthropic = preset.protocol == Protocol.ANTHROPIC }
+                        },
+                        small = true,
+                    )
                 }
-                Spacer(Modifier.height(6.dp))
             }
+            Spacer(Modifier.height(16.dp))
+            MilkSegmented(
+                options = listOf(false, true),
+                selected = anthropic,
+                label = { if (it) "Anthropic" else "OpenAI 兼容" },
+                onSelect = { anthropic = it },
+            )
+            if (anthropic) {
+                Spacer(Modifier.height(6.dp))
+                MonoMetaLine("POST {base}/v1/messages")
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsInputField(value = title, onValueChange = { title = it }, label = "名称", mono = false, compact = true)
+            SettingsInputField(value = baseUrl, onValueChange = { baseUrl = it }, label = "baseUrl", mono = true, compact = true)
+            SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key（仅存本机）", mono = true, mask = true, compact = true)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("协议", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(10.dp))
-            TextAction(if (!anthropic) "OpenAI 兼容 ✓" else "OpenAI 兼容", primary = !anthropic) { anthropic = false }
-            Spacer(Modifier.width(6.dp))
-            TextAction(if (anthropic) "Anthropic ✓" else "Anthropic", primary = anthropic) { anthropic = true }
-            Spacer(Modifier.weight(1f))
-            if (anthropic) MonoMetaLine("POST {base}/v1/messages")
-        }
-        SettingsInputField(value = title, onValueChange = { title = it }, label = "名称", mono = false, compact = true)
-        SettingsInputField(value = baseUrl, onValueChange = { baseUrl = it }, label = "baseUrl", mono = true, compact = true)
-        SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key(仅存本机)", mono = true, mask = true, compact = true)
     }
 }
 
-/** 危险操作确认(A-27):Milk 弹窗语言,440dp 上限 */
+/** 标准浮层卡片(新增 Provider 等):统一头 + 可滚动内容 + 右对齐动作行 */
 @Composable
-private fun ConfirmDialog(
+internal fun DialogCard(
     title: String,
-    body: String,
-    confirmLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier
-                .widthIn(max = 440.dp)   // 先限宽再 fill
+                .widthIn(max = 600.dp)
                 .fillMaxWidth()
-                .milkDialogSurface()
-                .padding(24.dp),
+                .padding(horizontal = 24.dp)
+                .imePadding()
+                .heightIn(max = 640.dp)
+                .milkDialogSurface(),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(18.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    "取消",
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .softClickable(onClick = onDismiss)
-                        .defaultMinSize(minHeight = 48.dp)
-                        .padding(horizontal = 14.dp),
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    confirmLabel,
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .softClickable(onClick = onConfirm)
-                        .defaultMinSize(minHeight = 48.dp)
-                        .padding(horizontal = 14.dp),
-                    textAlign = TextAlign.Center,
-                )
+            MilkPanelHeader(title = title, subtitle = subtitle, onDismiss = onDismiss)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp),
+            ) {
+                content()
+                Spacer(Modifier.height(16.dp))
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                actions()
             }
         }
     }
 }
-
-// ==================== 小控件 ====================
 
 @Composable
 private fun MonoMetaLine(text: String) {
@@ -885,32 +887,3 @@ private object ThinkingDispatchUI {
         raw.mapNotNull { runCatching { ReasoningEffort.valueOf(it) }.getOrNull() }
 }
 
-@Composable
-internal fun DialogCard(
-    title: String,
-    onDismiss: () -> Unit,
-    actions: @Composable RowScope.() -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            Modifier
-                .widthIn(max = 600.dp)
-                .fillMaxWidth()
-                .imePadding()
-                .heightIn(max = 620.dp)
-                .milkDialogSurface()
-                .padding(24.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                content()
-            }
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                actions()
-            }
-        }
-    }
-}

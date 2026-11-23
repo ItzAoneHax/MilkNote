@@ -76,6 +76,7 @@ import androidx.core.content.ContextCompat
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
@@ -154,86 +155,66 @@ internal fun RecentImagesDialog(
                 .widthIn(max = maxWidth)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight)
-                .milkDialogSurface()
-                .padding(20.dp),
+                .milkDialogSurface(),
         ) {
-            RecentImagesHeader(itemCount = items?.size, onDismiss = onDismiss)
-            Spacer(Modifier.height(14.dp))
-
-            when {
-                !granted -> PermissionRationaleBody(
-                    permanentlyDenied = permanentlyDenied,
-                    onRetry = { launcher.launch(permission) },
-                    onOpenSettings = { openAppSettings(context) },
-                    onDismiss = onDismiss,
-                )
-                items == null -> LoadingBody()
-                items!!.isEmpty() -> EmptyBody()
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 92.dp),
-                    modifier = Modifier.weight(1f, fill = false).testTag("writer-panel-scroll"),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 2.dp),
-                ) {
-                    items(items!!, key = { it.id }) { item ->
-                        RecentImageCell(
-                            item = item,
-                            targetPx = thumbTargetPx,
-                            onClick = {
-                                onSelect(item.uri)
-                                onDismiss()
-                            },
+            MilkPanelHeader(
+                title = "最近图片",
+                subtitle = items?.size?.let { "$it 张 · 点击图片即插入，插入时会先复制到笔记" } ?: "点击图片即插入 · 插入时会先复制到笔记",
+                onDismiss = onDismiss,
+                icon = {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Collections,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp),
                         )
+                    }
+                },
+            )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 18.dp),
+            ) {
+                when {
+                    !granted -> PermissionRationaleBody(
+                        permanentlyDenied = permanentlyDenied,
+                        onRetry = { launcher.launch(permission) },
+                        onOpenSettings = { openAppSettings(context) },
+                        onDismiss = onDismiss,
+                    )
+                    items == null -> LoadingBody()
+                    items!!.isEmpty() -> EmptyBody()
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 92.dp),
+                        modifier = Modifier.weight(1f, fill = false).testTag("writer-panel-scroll"),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(top = 6.dp, bottom = 2.dp),
+                    ) {
+                        items(items!!, key = { it.id }) { item ->
+                            RecentImageCell(
+                                item = item,
+                                targetPx = thumbTargetPx,
+                                onClick = {
+                                    onSelect(item.uri)
+                                    onDismiss()
+                                },
+                            )
+                        }
                     }
                 }
             }
-
-            if (granted) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "点击图片即插入 · 插入时会先复制到笔记",
-                    style = MonoMeta,
-                    fontSize = 10.sp,
-                    fontFamily = Mono,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-            }
         }
-    }
-}
-
-// ---------------- 标题行 ----------------
-
-@Composable
-private fun RecentImagesHeader(itemCount: Int?, onDismiss: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            Icons.Outlined.Collections,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text("最近图片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.width(8.dp))
-        if (itemCount != null) {
-            Text(
-                "$itemCount 张",
-                style = MonoMeta,
-                fontFamily = Mono,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        MilkIconButton(
-            imageVector = Icons.Outlined.Close,
-            contentDescription = "关闭最近图片",
-            onClick = onDismiss,
-            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), CircleShape),
-        )
     }
 }
 

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -28,22 +29,29 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.theme.PillShape
 
-/** 模态表面统一配方:L5 20dp 圆角、16dp 阴影、主题 surface 与 hairline。 */
+/**
+ * 模态表面统一配方:L2 浮层 = 24dp 圆角、16dp 柔和阴影、surface 底、hairline 边、顶缘内高光。
+ * 所有 Dialog / 中央面板 / 命令面板共用,层级一致(A-31 token 语义化)。
+ */
 @Composable
 fun Modifier.milkDialogSurface(): Modifier = this
-    .softShadow(16.dp, RoundedCornerShape(20.dp))
-    .clip(RoundedCornerShape(20.dp))
+    .softShadow(16.dp, MaterialTheme.shapes.extraLarge)
+    .clip(MaterialTheme.shapes.extraLarge)
     .background(MaterialTheme.colorScheme.surface)
-    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-    .innerHighlight()
-    .paintedShadow(RoundedCornerShape(20.dp))
+    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.9f), MaterialTheme.shapes.extraLarge)
+    .innerHighlight(strength = 0.35f)
+    .paintedShadow(MaterialTheme.shapes.extraLarge)
 
 enum class MilkButtonVariant { PRIMARY, SECONDARY, TEXT }
 
-/** 统一文字按钮:48dp 高、胶囊轮廓;Primary 支持忙碌指示并阻止重复点击。 */
+/**
+ * 统一文字按钮:48dp 高、胶囊;Primary 支持忙碌指示并阻止重复点击;
+ * destructive = 危险动作(删除等)用 error 实心,视觉上与普通主操作区分。
+ */
 @Composable
 fun MilkButton(
     label: String,
@@ -52,22 +60,27 @@ fun MilkButton(
     variant: MilkButtonVariant = MilkButtonVariant.PRIMARY,
     enabled: Boolean = true,
     busy: Boolean = false,
+    destructive: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
 ) {
+    val cs = MaterialTheme.colorScheme
     val shadow = if (variant == MilkButtonVariant.PRIMARY) Modifier.softShadow(5.dp, PillShape) else Modifier
-    val background = when (variant) {
-        MilkButtonVariant.PRIMARY -> Modifier.background(accentBrush())
-        MilkButtonVariant.SECONDARY -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-        MilkButtonVariant.TEXT -> Modifier
+    val background = when {
+        variant == MilkButtonVariant.PRIMARY && destructive -> Modifier.background(cs.error, PillShape)
+        variant == MilkButtonVariant.PRIMARY -> Modifier.background(accentBrush(), PillShape)
+        variant == MilkButtonVariant.SECONDARY -> Modifier.background(cs.surfaceVariant.copy(alpha = 0.7f), PillShape)
+        else -> Modifier
     }
-    val border = if (variant == MilkButtonVariant.SECONDARY) {
-        Modifier.border(1.dp, MaterialTheme.colorScheme.outline, PillShape)
-    } else {
-        Modifier
+    val border = when {
+        variant == MilkButtonVariant.SECONDARY -> Modifier.border(1.dp, cs.outline, PillShape)
+        variant == MilkButtonVariant.TEXT && destructive -> Modifier.border(1.dp, cs.error.copy(alpha = 0.5f), PillShape)
+        else -> Modifier
     }
-    val contentColor = when (variant) {
-        MilkButtonVariant.PRIMARY -> Color.White
-        MilkButtonVariant.SECONDARY -> MaterialTheme.colorScheme.onSurface
-        MilkButtonVariant.TEXT -> MaterialTheme.colorScheme.primary
+    val contentColor = when {
+        variant == MilkButtonVariant.PRIMARY -> Color.White
+        variant == MilkButtonVariant.SECONDARY -> cs.onSurface
+        destructive -> cs.error
+        else -> cs.primary
     }
     Row(
         modifier
@@ -78,7 +91,7 @@ fun MilkButton(
             .then(border)
             .softClickable(enabled = enabled && !busy, onClick = onClick)
             .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -90,10 +103,15 @@ fun MilkButton(
             )
             Spacer(Modifier.width(8.dp))
         }
+        leading?.let {
+            it()
+            Spacer(Modifier.width(6.dp))
+        }
         Text(
             label,
             color = contentColor,
             style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
         )
@@ -126,7 +144,7 @@ fun MilkSlider(
         enabled = enabled,
         valueRange = valueRange,
         thumb = {
-            androidx.compose.foundation.layout.Box(
+            Box(
                 Modifier
                     .size(18.dp)
                     .background(thumbColor, CircleShape)
@@ -151,7 +169,7 @@ fun MilkSlider(
                     }
                 }
                 drawRoundRect(
-                    outline,
+                    outline.copy(alpha = 0.7f),
                     size = size,
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
                     style = Stroke(width = 0.5.dp.toPx()),

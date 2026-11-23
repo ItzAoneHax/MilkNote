@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +65,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkKeyCap
 import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.MonoText
 import com.milknote.app.ui.common.PenBatteryCapsule
@@ -273,52 +277,15 @@ fun BookshelfScreen(
         )
     }
 
-    // ---- 删除确认(Milk 弹窗语言:边框+软阴影+高光,替代 M3 AlertDialog;440dp 上限) ----
+    // ---- 删除确认(统一危险确认弹窗:图标 + 标题 + 说明 + 红色确认键) ----
     deleteTarget?.let { target ->
-        androidx.compose.ui.window.Dialog(onDismissRequest = { deleteTarget = null }) {
-            Column(
-                Modifier
-                    .widthIn(max = 440.dp)   // 先限宽再 fill
-                    .fillMaxWidth()
-                    .softShadow(12.dp, RoundedCornerShape(20.dp))
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
-                    .innerHighlight()
-                    .paintedShadow(RoundedCornerShape(20.dp))
-                    .padding(24.dp),
-            ) {
-                Text("删除「${target.name}」?", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "笔记本目录(${target.id}.milk)将被整体删除,包括全部页面笔迹。此操作不可撤销。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(18.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Text(
-                        "取消",
-                        fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .softClickable { deleteTarget = null }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "删除",
-                        fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .softClickable { vm.delete(target.id); deleteTarget = null }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
+        com.milknote.app.ui.common.MilkConfirmDialog(
+            title = "删除「${target.name}」？",
+            body = "笔记本目录（${target.id}.milk）将被整体删除，包括全部页面笔迹。此操作不可撤销。",
+            confirmLabel = "删除",
+            onDismiss = { deleteTarget = null },
+            onConfirm = { vm.delete(target.id); deleteTarget = null },
+        )
     }
 }
 
@@ -336,99 +303,85 @@ private fun BookshelfTopBar(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(76.dp)
             .padding(horizontal = 28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("牛奶笔记", style = MaterialTheme.typography.titleLarge)
+        Column {
+            Text("牛奶笔记", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "MILKNOTE",
+                fontFamily = Mono,
+                fontSize = 10.sp,
+                letterSpacing = 2.2.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.width(10.dp))
         Text(
-            "MILKNOTE",
-            fontFamily = Mono,
-            fontSize = 11.sp,
-            letterSpacing = 2.sp,
+            "$count 本",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
         )
         Spacer(Modifier.weight(1f))
 
         // 搜索 → ⌘K 命令面板(DESIGN-V0 §5.4 统一入口;识别检索 M3)
         SearchCommandPill(onClick = onOpenPalette)
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(6.dp))
 
-        // 排序(P057):48dp 命中,图标 19dp;点击打开中央排序面板
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onSort),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Outlined.Sort, "排序",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(19.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
+        // 排序(P057):48dp 命中,图标 20dp;点击打开中央排序面板
+        MilkIconButton(
+            imageVector = Icons.AutoMirrored.Outlined.Sort,
+            contentDescription = "排序",
+            onClick = onSort,
+        )
+        Spacer(Modifier.width(4.dp))
 
         Box(
             Modifier
                 .clip(CircleShape)
-                .combinedClickable(onClick = onOpenSettings, onLongClick = onBatteryLongPress)
+                .combinedClickable(onClick = onOpenSettings, onLongClick = onBatteryLongPress),
         ) {
             PenBatteryCapsule(level = battery)
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(4.dp))
 
-        // 设置入口(笔与手势;48dp 命中,图标 19dp 保持)
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onOpenSettings),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Outlined.Settings, "设置",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(19.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
+        // 设置入口(笔与手势;48dp 命中)
+        MilkIconButton(
+            imageVector = Icons.Outlined.Settings,
+            contentDescription = "设置",
+            onClick = onOpenSettings,
+        )
+        Spacer(Modifier.width(12.dp))
 
-        // [+ 新建笔记本] 胶囊主按钮(柔和渐变 + 轻投影 + 按压缩放)
-        Row(
-            modifier = Modifier
-                .softShadow(6.dp, CircleShape)
-                .clip(CircleShape)
-                .background(accentBrush())
-                .softClickable(onClick = onNew)
-                .padding(horizontal = 18.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Add, null, tint = Color.White, modifier = Modifier.size(17.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("新建笔记本", color = Color.White, style = MaterialTheme.typography.labelLarge)
-        }
+        // [+ 新建笔记本] 胶囊主按钮
+        MilkButton(
+            label = "新建笔记本",
+            onClick = onNew,
+            leading = { Icon(Icons.Outlined.Add, null, tint = Color.White, modifier = Modifier.size(18.dp)) },
+        )
     }
 }
 
-/** 搜索→⌘K 胶囊(书架顶栏) */
+/** 搜索→⌘K 胶囊(书架顶栏):填充式淡灰,40dp 高 */
 @Composable
 internal fun SearchCommandPill(onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
             .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .defaultMinSize(minHeight = 40.dp)
+            .padding(start = 14.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+        Icon(Icons.Outlined.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text("搜索", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(14.dp))
-        Text("⌘K", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("搜索", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(12.dp))
+        com.milknote.app.ui.common.MilkKeyCap("⌘K")
     }
 }
 
@@ -444,14 +397,14 @@ private fun NotebookCard(
 ) {
     val cover = runCatching { Color(android.graphics.Color.parseColor(meta.coverColor)) }.getOrDefault(Color(0xFF3B5BEC))
     val tagColor = runCatching { Color(android.graphics.Color.parseColor(meta.tagColor.ifBlank { meta.coverColor })) }.getOrDefault(cover)
-    // 等高框架(A-05):封面固定 aspectRatio + 元信息固定 68dp,新建卡复用同一骨架
+    // 等高框架(A-05):封面固定 aspectRatio + 元信息固定 72dp,新建卡复用同一骨架
     Column(
         modifier = Modifier
             .softCard()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surface)
             .combinedClickable(onClick = onOpen, onLongClick = onManage)
-            .innerHighlight()
+            .innerHighlight(strength = 0.3f)
             .padding(12.dp),
     ) {
         Box(
@@ -475,12 +428,12 @@ private fun NotebookCard(
                 Box(
                     Modifier
                         .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .background(Color(0xCCFAF9F5), CircleShape)
+                        .padding(10.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), CircleShape)
                         .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 ) {
-                    Text("最近", fontSize = 10.sp, color = Color(0xFF23221E))
+                    Text("最近", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             // 可见管理入口：重命名/标签/移动/删除统一进入中央管理面板。
@@ -492,21 +445,21 @@ private fun NotebookCard(
                     Icon(
                         Icons.Outlined.MoreVert, "笔记本操作",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.fillMaxWidth().height(68.dp)) {
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(72.dp)) {
             Column(Modifier.align(Alignment.CenterStart)) {
                 Text(
                     meta.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(7.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(7.dp).background(tagColor, CircleShape))
                     Spacer(Modifier.width(6.dp))
@@ -519,9 +472,9 @@ private fun NotebookCard(
                     Box(
                         Modifier
                             .background(tagColor.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
-                        Text(meta.purpose, fontSize = 10.sp, color = tagFg)
+                        Text(meta.purpose, fontSize = 10.5.sp, color = tagFg)
                     }
                 }
             }
@@ -535,8 +488,8 @@ private fun NewNotebookCard(onNew: () -> Unit) {
     Column(
         modifier = Modifier
             .softCard()
-            .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = 20.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = 18.dp)
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
             .clickable(onClick = onNew)
             .padding(12.dp),
@@ -547,16 +500,25 @@ private fun NewNotebookCard(onNew: () -> Unit) {
                 .fillMaxWidth()
                 .aspectRatio(1.18f)
                 .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Outlined.Edit, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(26.dp))
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Add, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.fillMaxWidth().height(68.dp), contentAlignment = Alignment.Center) {
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("新建笔记本", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
+                Text("新建笔记本", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(5.dp))
                 MonoText("NEW .MILK")
             }
         }

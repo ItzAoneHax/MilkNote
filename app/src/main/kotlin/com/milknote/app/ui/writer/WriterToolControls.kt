@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +29,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -50,52 +54,58 @@ internal fun InkColorDot(
     LaunchedEffect(hovered, enabled) { onHoverChanged(hovered && enabled) }
     val scale by animateFloatAsState(
         when {
-            hovered && enabled -> 1.24f
-            active && enabled -> 1.16f
+            hovered && enabled -> 1.08f
+            active && enabled -> 1.04f
             squeezed -> 0.94f
             else -> 1f
         },
         tween(160), label = "inkScale",
     )
-    val slot by animateFloatAsState(
-        when {
-            hovered && enabled -> 1.10f
-            active && enabled -> 1.06f
-            squeezed -> 0.96f
-            else -> 1f
-        },
-        tween(160), label = "inkSlot",
-    )
     val ring by animateColorAsState(
         if ((active || hovered) && enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
         tween(200), label = "inkRing",
     )
+    val cs = MaterialTheme.colorScheme
+    val dotColor = Color(color.toInt())
+    // 对比勾色:深墨用白勾,浅色用黑勾
+    val checkTint = if (dotColor.luminance() > 0.55f) Color(0xCC101010) else Color(0xCCFFFFFF)
     Box(
         modifier
-            .size(48.dp * slot)
+            .size(44.dp)
             .clip(CircleShape)
             .hoverable(interaction)
             .clickable(
                 interactionSource = interaction,
                 indication = androidx.compose.foundation.LocalIndication.current,
                 enabled = enabled,
+                role = androidx.compose.ui.semantics.Role.RadioButton,
                 onClick = onClick,
             )
-            .semantics { contentDescription = if (active) "$label，再次点击详细设定颜色" else label },
+            .semantics { contentDescription = if (active) "$label，当前颜色，再次点击详细设定" else label },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(22.dp)
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale
                     alpha = if (enabled) 1f else 0.35f
                 }
+                .size(26.dp)
                 .clip(CircleShape)
-                .background(Color(color.toInt()))
+                .background(dotColor)
                 .border(if (active || hovered) 2.dp else 1.dp, ring, CircleShape),
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            if (active) {
+                Icon(
+                    Icons.Outlined.Check,
+                    contentDescription = null,
+                    tint = checkTint,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 

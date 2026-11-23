@@ -32,7 +32,7 @@ internal fun WriterFloatingPanel(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.12f))
+                .background(com.milknote.app.ui.theme.MilkScrim)
                 .clickable(onClick = onDismiss)
                 .testTag("writer-floating-panel-scrim"),
         )

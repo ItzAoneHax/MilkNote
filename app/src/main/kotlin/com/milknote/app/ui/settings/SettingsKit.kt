@@ -1,8 +1,6 @@
 package com.milknote.app.ui.settings
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,22 +15,25 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Gesture
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,22 +49,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.focus.onFocusChanged
+import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChoicePanel
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkSwitch
+import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.LocalMilkWarning
+import com.milknote.app.ui.theme.MilkEyebrow
 import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.MonoValue
 
 /**
- * 设置组件套件(A2.7,Codex/ZCode 设置页调研收敛):
- * - 骨架 = 左导航(分组小标题+图标行,选中=淡蓝胶囊) + 右侧 ≤560dp 居中列
- * - 行 = 左(标题+灰副题)/右(控件),行间 hairline;值列「当前值 ›」,选择器=中央单选面板(✓ 标当前)
+ * 设置组件套件(视觉升级 2026-11):
+ * - 骨架 = 与页面同色的左导航(眉标分组 + 44dp 图标行,选中 = 淡蓝胶囊) + 右侧 ≤640dp 居中列
+ * - 页头 = 22sp 标题 + 13sp 灰说明;分区 = 眉标小标题(不再重复大标题)
+ * - 卡片 = 18dp 圆角 + hairline + 2dp 软阴影;行 ≥60dp,标题 15sp / 副题 12.5sp;值列 = 灰值 + 细箭头
  * - 纪律:mono 只用于值/URL/id/数字;蓝仅激活态;即时生效优先,显式输入才出「保存」
  */
 
@@ -86,7 +92,7 @@ internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = li
     ),
 )
 
-/** 左侧导航栏:分组小标题 + 图标行;选中 = 淡蓝填充胶囊;底部 mono 版本号(ZCode 式) */
+/** 左侧导航栏:与页面同色,右侧上下渐隐 hairline;分组眉标 + 44dp 图标行;底部 mono 版本号 */
 @Composable
 internal fun SettingsNavRail(
     selected: String,
@@ -94,29 +100,34 @@ internal fun SettingsNavRail(
     versionLine: String,
     onBack: () -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     Column(
         Modifier
-            .width(224.dp)
-            .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .width(248.dp)
+            .fillMaxHeight(),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 12.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onBack)
-                .padding(horizontal = 4.dp),
+                .height(64.dp)
+                .padding(start = 10.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.AutoMirrored.Outlined.ArrowBack, null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.height(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("设置", style = MaterialTheme.typography.titleMedium)
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onBack),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack, "返回",
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text("设置", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
         }
         Column(
             Modifier
@@ -127,76 +138,83 @@ internal fun SettingsNavRail(
             SETTINGS_NAV_GROUPS.forEach { (group, items) ->
                 Text(
                     group,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 6.dp),
+                    style = MilkEyebrow,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 14.dp, top = 18.dp, bottom = 8.dp),
                 )
                 items.forEach { item ->
                     val active = item.key == selected
                     val itemBg by animateColorAsState(
-                        targetValue = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
-                        animationSpec = tween(200),
+                        targetValue = if (active) cs.primary.copy(alpha = 0.10f) else Color.Transparent,
+                        animationSpec = tween(180),
                         label = "navItemBg",
                     )
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .padding(bottom = 2.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(itemBg)
                             .clickable { onSelect(item.key) }
-                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                            .heightIn(min = 44.dp)
+                            .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             item.icon, null,
-                            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.height(18.dp),
+                            tint = if (active) cs.primary else cs.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
                             item.label,
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (active) FontWeight.Medium else null,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (active) cs.primary else cs.onSurfaceVariant,
                         )
                     }
                 }
             }
         }
-        Text(
-            versionLine,
-            fontFamily = Mono, fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        Box(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(
+                versionLine,
+                style = com.milknote.app.ui.theme.MonoMeta,
+                color = cs.onSurfaceVariant,
+            )
+        }
     }
 }
 
 // ==================== 页面与分区 ====================
 
-/** 页头:标题(普通大小写)+ 一行弱化副标题(Codex "Changes save automatically" 位) */
+/** 页头:22sp 标题 + 13sp 弱化说明(Codex "Changes save automatically" 位) */
 @Composable
 internal fun SettingsPageHeader(title: String, subtitle: String) {
-    Column(Modifier.padding(bottom = 8.dp)) {
+    Column(Modifier.padding(bottom = 6.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(4.dp))
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 19.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-/** 小节标题(卡外):15sp SemiBold + 可选灰说明 */
+/** 分区眉标:11.5sp 加字距 + 可选灰说明;卡外、小节之上 */
 @Composable
 internal fun SettingsSectionHeader(title: String, description: String? = null) {
-    Column(Modifier.padding(bottom = 8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+    Column(Modifier.padding(top = 6.dp, bottom = 10.dp)) {
+        Text(title, style = MilkEyebrow, color = MaterialTheme.colorScheme.onSurfaceVariant)
         description?.let {
-            Spacer(Modifier.height(2.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(3.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f))
         }
     }
 }
 
-/** 设置卡:surface 底 + 16dp 圆角 + 1dp hairline 边框 + 轻软阴影/顶缘内高光;卡内零 padding,由行自带 */
+/** 设置卡:18dp 圆角 + hairline + 轻软阴影/顶缘内高光;卡内零 padding,由行自带 */
 @Composable
 internal fun SettingsCard(
     modifier: Modifier = Modifier,
@@ -207,11 +225,11 @@ internal fun SettingsCard(
     Column(
         modifier
             .fillMaxWidth()
-            .softShadow(3.dp, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
+            .softShadow(2.dp, MaterialTheme.shapes.large)
+            .clip(MaterialTheme.shapes.large)
             .background(containerColor)
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
-            .innerHighlight(),
+            .border(1.dp, borderColor, MaterialTheme.shapes.large)
+            .innerHighlight(strength = 0.3f),
     ) { content() }
 }
 
@@ -219,14 +237,14 @@ internal fun SettingsCard(
 @Composable
 internal fun Hairline() {
     HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
         modifier = Modifier.padding(start = 16.dp),
     )
 }
 
 // ==================== 行与控件 ====================
 
-/** 设置行模板:左(标题+灰副题)/右(trailing 控件),min 高 56dp */
+/** 设置行模板:左(15sp 标题 + 12.5sp 灰副题)/右(trailing 控件),min 高 60dp */
 @Composable
 internal fun SettingsRow(
     title: String,
@@ -234,39 +252,52 @@ internal fun SettingsRow(
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
+    val cs = MaterialTheme.colorScheme
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .heightIn(min = 56.dp)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
+            .heightIn(min = 60.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                color = if (enabled) cs.onBackground else cs.onSurfaceVariant.copy(alpha = 0.5f),
+            )
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
         }
         if (trailing != null) {
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(16.dp))
             trailing(this)
         }
     }
 }
 
-/** 值列:当前值(mono 按需)+ ›(可进入下一级;Codex "value ›") */
+/** 值列:当前值(mono 按需)+ 细箭头(可进入下一级;Codex "value ›") */
 @Composable
 internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     Text(
         value,
-        fontSize = 13.sp,
-        fontFamily = if (mono) Mono else null,
+        style = if (mono) MonoValue else MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
-    Spacer(Modifier.width(6.dp))
-    Text("›", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.width(2.dp))
+    Icon(
+        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        modifier = Modifier.size(18.dp),
+    )
 }
 
 /** 选择行:点击打开中央单选面板,✓ 标当前项,点选即关闭。 */
@@ -299,7 +330,7 @@ internal fun <T> SelectRow(
     }
 }
 
-/** 原地展开的候选列表(inset 面板;✓ 蓝=当前项,当前项加粗) */
+/** 原地展开的候选列表(inset 面板;单选圆点 = 当前项,当前项加粗) */
 @Composable
 internal fun <T> InlineSelectionList(
     items: List<T>,
@@ -307,13 +338,14 @@ internal fun <T> InlineSelectionList(
     label: (T) -> String,
     onPick: (T) -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-            .padding(vertical = 4.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .background(cs.surfaceVariant.copy(alpha = 0.45f))
+            .padding(4.dp),
     ) {
         Column(
             Modifier
@@ -325,22 +357,28 @@ internal fun <T> InlineSelectionList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (isSel) cs.primary.copy(alpha = 0.08f) else Color.Transparent)
                         .clickable { onPick(item) }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .heightIn(min = 46.dp)
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        if (isSel) "✓" else " ",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.width(18.dp),
-                    )
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, if (isSel) cs.primary else cs.outline, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isSel) Box(Modifier.size(9.dp).clip(CircleShape).background(cs.primary))
+                    }
+                    Spacer(Modifier.width(12.dp))
                     Text(
                         label(item),
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (isSel) FontWeight.Medium else null,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = if (isSel) cs.primary else cs.onBackground,
                     )
                 }
             }
@@ -348,47 +386,7 @@ internal fun <T> InlineSelectionList(
     }
 }
 
-/** 胶囊开关:on = 蓝轨白 thumb / off = 灰轨灰 thumb(ZCode 式;轨道/描边颜色 200ms 过渡) */
-@Composable
-internal fun MilkSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
-    val thumbX by animateDpAsState(
-        targetValue = if (checked) 22.dp else 2.dp,
-        animationSpec = tween(200),
-        label = "milkSwitchThumb",
-    )
-    val trackColor by animateColorAsState(
-        targetValue = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-        animationSpec = tween(200),
-        label = "milkSwitchTrack",
-    )
-    val trackBorder by animateColorAsState(
-        targetValue = if (checked) Color.Transparent else MaterialTheme.colorScheme.outline,
-        animationSpec = tween(200),
-        label = "milkSwitchBorder",
-    )
-    Box(
-        Modifier
-            .size(width = 46.dp, height = 26.dp)
-            .clip(CircleShape)
-            .background(trackColor)
-            .border(1.dp, trackBorder, CircleShape)
-            .clickable { onChange(!checked) },
-    ) {
-        Box(
-            Modifier
-                .align(Alignment.CenterStart)
-                .offset(x = thumbX)
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(
-                    if (checked) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-        )
-    }
-}
-
-/** 文字操作钮(13sp Medium;primary=蓝字,danger=红字;带按压缩放) */
+/** 文字操作钮(14sp Medium;primary=蓝字,danger=红字;40dp 高命中 + ripple) */
 @Composable
 internal fun TextAction(
     label: String,
@@ -397,29 +395,31 @@ internal fun TextAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     val fg by animateColorAsState(
         targetValue = when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            danger -> MaterialTheme.colorScheme.error
-            primary -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onBackground
+            !enabled -> cs.onSurfaceVariant.copy(alpha = 0.45f)
+            danger -> cs.error
+            primary -> cs.primary
+            else -> cs.onBackground
         },
-        animationSpec = tween(200),
+        animationSpec = tween(160),
         label = "textActionFg",
     )
     Text(
         label,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium, fontSize = 14.sp),
         color = fg,
+        maxLines = 1,
         modifier = Modifier
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(10.dp))
             .softClickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
     )
 }
 
-/** 状态行:✓/⚠/✗ 前缀 + 单色文字(Codex 警告行式,不用弹窗) */
+/** 状态行:16dp 语义图标 + 13sp 单色文字(Codex 警告行式,不用弹窗) */
 internal enum class StatusTone { NEUTRAL, OK, WARN, ERROR }
 
 @Composable
@@ -429,40 +429,47 @@ internal fun StatusLine(
     mono: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val cs = MaterialTheme.colorScheme
     val color = when (tone) {
-        StatusTone.OK -> MaterialTheme.colorScheme.primary
+        StatusTone.OK -> cs.primary
         StatusTone.WARN -> LocalMilkWarning.current
-        StatusTone.ERROR -> MaterialTheme.colorScheme.error
-        StatusTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+        StatusTone.ERROR -> cs.error
+        StatusTone.NEUTRAL -> cs.onSurfaceVariant
     }
     Row(
-        modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         if (tone != StatusTone.NEUTRAL) {
-            Text(
+            Icon(
                 when (tone) {
-                    StatusTone.OK -> "✓"
-                    StatusTone.WARN -> "⚠"
-                    StatusTone.ERROR -> "✗"
-                    StatusTone.NEUTRAL -> ""
+                    StatusTone.OK -> Icons.Outlined.CheckCircle
+                    StatusTone.WARN -> Icons.Outlined.Warning
+                    StatusTone.ERROR -> Icons.Outlined.ErrorOutline
+                    StatusTone.NEUTRAL -> Icons.Outlined.Info
                 },
-                fontSize = 12.sp,
-                color = color,
+                contentDescription = when (tone) {
+                    StatusTone.OK -> "正常"
+                    StatusTone.WARN -> "注意"
+                    StatusTone.ERROR -> "错误"
+                    StatusTone.NEUTRAL -> "信息"
+                },
+                tint = color,
+                modifier = Modifier.padding(top = 1.dp).size(16.dp),
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
         }
         Text(
             text,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            fontFamily = if (mono) Mono else null,
-            color = color,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 19.sp, fontFamily = if (mono) Mono else null),
+            color = if (tone == StatusTone.NEUTRAL) cs.onSurfaceVariant else color,
         )
     }
 }
 
-/** 输入框:值按需 mono;脏(≠源值)时描边变蓝并出「保存/取消」(ZCode 显式保存行式);compact=去掉外层行距(弹窗/面板内) */
+/** 输入框:复用共享 MilkTextField(填充式);脏(≠源值)时描边变蓝并出「保存/取消」;compact=去掉外层行距 */
 @Composable
 internal fun SettingsInputField(
     value: String,
@@ -477,59 +484,26 @@ internal fun SettingsInputField(
     onCancel: (() -> Unit)? = null,
     compact: Boolean = false,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val boxBorder by animateColorAsState(
-        targetValue = when {
-            focused || dirty -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.outline
-        },
-        animationSpec = tween(200),
-        label = "inputBorder",
-    )
     Column(
-        modifier.fillMaxWidth().then(
-            if (compact) Modifier.padding(vertical = 6.dp) else Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        ),
+        modifier
+            .fillMaxWidth()
+            .then(if (compact) Modifier.padding(vertical = 4.dp) else Modifier.padding(horizontal = 16.dp, vertical = 10.dp)),
     ) {
-        label?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp),
+        Row(verticalAlignment = Alignment.Bottom) {
+            MilkTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f),
+                label = label,
+                placeholder = placeholder,
+                mono = mono,
+                mask = mask,
+                dirty = dirty,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                onDone = { if (dirty && onSave != null) onSave() },
             )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, boxBorder, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                if (value.isEmpty()) {
-                    Text(
-                        placeholder,
-                        fontFamily = if (mono) Mono else null,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    )
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = if (mono) Mono else null,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    ),
-                    visualTransformation = if (mask) PasswordVisualTransformation() else VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
-                )
-            }
             if (dirty && onSave != null) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(4.dp))
                 TextAction("保存", primary = true, onClick = onSave)
                 if (onCancel != null) TextAction("取消", onClick = onCancel)
             }
@@ -542,37 +516,18 @@ internal fun SettingsInputField(
 internal fun FooterHint(text: String, mono: Boolean = false) {
     Text(
         text,
-        fontSize = if (mono) 11.sp else 12.sp,
-        lineHeight = if (mono) 15.sp else 17.sp,
-        fontFamily = if (mono) Mono else null,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp),
+        style = MaterialTheme.typography.bodySmall.copy(
+            fontSize = if (mono) 11.5.sp else 12.5.sp,
+            lineHeight = if (mono) 16.sp else 18.sp,
+            fontFamily = if (mono) Mono else null,
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+        modifier = Modifier.padding(top = 10.dp),
     )
 }
 
-/** 多选胶囊(思考档位/输入类型声明等):on = 淡蓝底蓝字,off = 灰底灰字;颜色 200ms 过渡 */
+/** 多选胶囊(思考档位/输入类型声明等):复用共享 MilkChip(small) */
 @Composable
 internal fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(
-        targetValue = if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        animationSpec = tween(200),
-        label = "toggleChipBg",
-    )
-    val fg by animateColorAsState(
-        targetValue = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(200),
-        label = "toggleChipFg",
-    )
-    Text(
-        label,
-        fontSize = 11.sp,
-        fontWeight = if (on) FontWeight.Medium else null,
-        color = fg,
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
+    MilkChip(label = label, selected = on, onClick = onClick, small = true)
 }

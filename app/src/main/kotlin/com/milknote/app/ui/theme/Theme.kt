@@ -52,17 +52,23 @@ val LocalMilkDark = androidx.compose.runtime.staticCompositionLocalOf { false }
  */
 val LocalMilkMotion = androidx.compose.runtime.staticCompositionLocalOf { false }
 
-/** 圆角比例(§5.1 视觉语言):卡片/弹窗 ~20,缩略图 ~10,小控件全胶囊 */
+/**
+ * 圆角层级(视觉升级 2026-11):同一层级同一答案——
+ * 弹窗/中央面板 24(extraLarge) · 卡片 18(large) · 输入框/嵌套面板 14(medium) · 缩略图 10(small) · 微元素 8。
+ */
 val MilkShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(10.dp),
     medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(20.dp),
-    extraLarge = RoundedCornerShape(26.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 /** 全胶囊 */
 val PillShape = RoundedCornerShape(999.dp)
+
+/** 模态遮罩:40% 黑,足以把注意力交给浮层,又不至于像关灯 */
+val MilkScrim = Color(0x66000000)
 
 @Composable
 fun MilkTheme(darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme(), content: @Composable () -> Unit) {

@@ -26,6 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.CropFree
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Summarize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -180,41 +188,41 @@ fun MilkRoot() {
         is MilkScreen.Writer -> {
             val st = writerVm.state.value
             listOfNotNull(
-                CommandItem("id_snip", "框选讲解", hint = "笔键长按", section = "Agent") {
+                CommandItem("id_snip", "框选讲解", hint = "笔键长按", section = "Agent", icon = Icons.Outlined.CropFree) {
                     writerVm.enterSnip()
                 },
-                CommandItem("id_explain", "讲解本页", hint = st.currentPageId, section = "Agent") {
+                CommandItem("id_explain", "讲解本页", hint = st.currentPageId, section = "Agent", icon = Icons.Outlined.AutoAwesome) {
                     val nb = st.notebook ?: return@CommandItem
                     ServiceLocator.agentController.let {
                         it.bindPage(com.milknote.agent.PageRef(nb.id, st.currentPageId))
                         it.quickIntent(com.milknote.agent.Intents.Id.EXPLAIN)
                     }
                 },
-                CommandItem("id_chapter", "归纳本章", hint = "${st.pages.size} 页", section = "Agent") {
+                CommandItem("id_chapter", "归纳本章", hint = "${st.pages.size} 页", section = "Agent", icon = Icons.Outlined.Summarize) {
                     val nb = st.notebook ?: return@CommandItem
                     ServiceLocator.agentController.let {
                         it.bindPage(com.milknote.agent.PageRef(nb.id, st.currentPageId))
                         it.quickIntent(com.milknote.agent.Intents.Id.SUMMARIZE)
                     }
                 },
-                CommandItem("id_export", "导出笔记", hint = "PNG · PDF", section = "笔记") {
+                CommandItem("id_export", "导出笔记", hint = "PNG · PDF", section = "笔记", icon = Icons.Outlined.FileDownload) {
                     screen = MilkScreen.Export(s.notebookId)
                 },
-                CommandItem("id_newpage", "新建页", section = "笔记") { writerVm.newPage() },
-                CommandItem("id_settings", "设置", section = "通用") { openSettings(true, "appearance") },
+                CommandItem("id_newpage", "新建页", section = "笔记", icon = Icons.Outlined.Add) { writerVm.newPage() },
+                CommandItem("id_settings", "设置", section = "通用", icon = Icons.Outlined.Settings) { openSettings(true, "appearance") },
             )
         }
         else -> {
             val notebooks = bookshelfVm.notebooks.value
             listOf(
-                CommandItem("id_new", "新建笔记本", hint = "↵", section = "笔记本") { showNewNotebook = true },
+                CommandItem("id_new", "新建笔记本", hint = "↵", section = "笔记本", icon = Icons.Outlined.Add) { showNewNotebook = true },
             ) + notebooks.take(6).map { nb ->
-                CommandItem("nb_${nb.id}", nb.name, hint = "${bookshelfVm.pageCountOf(nb.id)} 页", section = "切换笔记本") {
+                CommandItem("nb_${nb.id}", nb.name, hint = "${bookshelfVm.pageCountOf(nb.id)} 页", section = "切换笔记本", icon = Icons.AutoMirrored.Outlined.MenuBook) {
                     writerVm.open(nb.id)
                     screen = MilkScreen.Writer(nb.id)
                 }
             } + listOf(
-                CommandItem("id_settings", "设置", section = "通用") { openSettings(false, "appearance") },
+                CommandItem("id_settings", "设置", section = "通用", icon = Icons.Outlined.Settings) { openSettings(false, "appearance") },
             )
         }
     }
@@ -346,11 +354,11 @@ fun MilkRoot() {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Color(0x52000000))
+                        .background(com.milknote.app.ui.theme.MilkScrim)
                         .clickable { showPalette = false },
                     contentAlignment = Alignment.TopCenter,
                 ) {
-                    Box(Modifier.padding(top = 90.dp).clickable(enabled = false) {}) {
+                    Box(Modifier.padding(top = 96.dp).clickable(enabled = false) {}) {
                         // 减弱动效:取消缩放,仅 ≤80ms 淡化(红线三.11)
                         val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
                         AnimatedVisibility(

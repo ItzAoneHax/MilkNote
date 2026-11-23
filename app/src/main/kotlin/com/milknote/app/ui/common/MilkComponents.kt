@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -191,15 +192,15 @@ fun MonoText(text: String, modifier: Modifier = Modifier, color: Color = Materia
     Text(text, modifier = modifier, style = MonoMeta, fontFamily = Mono, color = color, fontSize = 11.sp)
 }
 
-/** 时间友好显示(书架「最近编辑」) */
+/** 时间友好显示(书架「最近编辑」):<1h 刚刚/N 分钟;<1d N 小时;<60d N 天;否则 N 个月(四舍五入,至少 1) */
 fun formatRelative(ms: Long): String {
     val d = System.currentTimeMillis() - ms
     return when {
         d < 60_000 -> "刚刚"
         d < 3_600_000 -> "${d / 60_000} 分钟前"
         d < 86_400_000 -> "${d / 3_600_000} 小时前"
-        d < 7 * 86_400_000L -> "${d / 86_400_000} 天前"
-        else -> "${d / (30 * 86_400_000L)} 个月前"
+        d < 60 * 86_400_000L -> "${d / 86_400_000} 天前"
+        else -> "${((d / 86_400_000L + 15) / 30).coerceAtLeast(1)} 个月前"
     }
 }
 
@@ -223,7 +224,7 @@ fun CommandKeyCapsule(onClick: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** 通用线性图标按钮:48dp 命中、18dp 图标，供弹窗与设置行复用。 */
+/** 通用线性图标按钮:48dp 命中、18–20dp 图标;container=true 时画 40dp 淡灰圆底(浮层关闭钮/次级操作) */
 @Composable
 fun MilkIconButton(
     imageVector: ImageVector,
@@ -232,18 +233,23 @@ fun MilkIconButton(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     enabled: Boolean = true,
+    container: Boolean = false,
+    iconSize: Dp = 20.dp,
 ) {
     Box(
         modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .then(
+                if (container) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)) else Modifier,
+            )
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = imageVector,
             contentDescription = contentDescription,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(iconSize),
             tint = if (enabled) tint else tint.copy(alpha = 0.38f),
         )
     }

@@ -1,24 +1,17 @@
 package com.milknote.app.ui.bookshelf
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,16 +22,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkColorDot
+import com.milknote.app.ui.common.MilkSectionLabel
+import com.milknote.app.ui.common.MilkTextField
 import com.milknote.notes.model.COVER_COLORS
 import com.milknote.notes.model.NotebookMeta
-import androidx.compose.ui.unit.dp
 
-/** 重命名、标签颜色与文件夹集中在同一中央面板，避免多层 Dialog。 */
+/** 重命名、标签颜色与文件夹集中在同一中央面板,避免多层 Dialog。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NotebookManagePanel(
     meta: NotebookMeta,
@@ -50,49 +46,65 @@ internal fun NotebookManagePanel(
     var name by remember(meta.id) { mutableStateOf(meta.name) }
     var folder by remember(meta.id) { mutableStateOf(meta.folder) }
     var tagColor by remember(meta.id) { mutableStateOf(meta.tagColor.ifBlank { meta.coverColor }) }
-    MilkCenterPanel(title = "管理笔记本", subtitle = meta.id, onDismiss = onDismiss, maxWidth = 520.dp) {
+    MilkCenterPanel(
+        title = "管理笔记本",
+        subtitle = "${meta.name} · ${meta.id}",
+        onDismiss = onDismiss,
+        maxWidth = 520.dp,
+    ) {
         Column(
-            Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Spacer(Modifier.height(2.dp))
-            PanelInput(value = name, onValueChange = { name = it }, hint = "笔记本名称")
-            Text("标签颜色", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                COVER_COLORS.forEach { hex ->
-                    val selected = tagColor.equals(hex, ignoreCase = true)
-                    Box(
-                        Modifier.size(48.dp).clickable { tagColor = hex },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier.size(30.dp).clip(CircleShape)
-                                .background(Color(android.graphics.Color.parseColor(hex)))
-                                .border(
-                                    if (selected) 3.dp else 1.dp,
-                                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                    CircleShape,
-                                ),
+            MilkTextField(value = name, onValueChange = { name = it }, placeholder = "笔记本名称", label = "名称", mono = false)
+            Column {
+                MilkSectionLabel("标签颜色")
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    COVER_COLORS.forEach { hex ->
+                        MilkColorDot(
+                            color = androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex)),
+                            selected = tagColor.equals(hex, ignoreCase = true),
+                            onClick = { tagColor = hex },
+                            contentDescription = "标签颜色",
                         )
                     }
                 }
             }
-            Text("移动到文件夹", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FolderChip("未分组", folder.isBlank()) { folder = "" }
-                folders.filter { it != folder }.take(3).forEach { item ->
-                    FolderChip(item, false) { folder = item }
+            Column {
+                MilkSectionLabel("移动到文件夹")
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    MilkChip("未分组", folder.isBlank(), onClick = { folder = "" })
+                    folders.filter { it != folder }.take(3).forEach { item ->
+                        MilkChip(item, false, onClick = { folder = item })
+                    }
                 }
-            }
-            PanelInput(value = folder, onValueChange = { folder = it }, hint = "新文件夹名称（留空为未分组）")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-                MilkButton(label = "删除笔记本", onClick = onDelete, variant = MilkButtonVariant.SECONDARY)
+                Spacer(Modifier.height(12.dp))
+                MilkTextField(
+                    value = folder,
+                    onValueChange = { folder = it },
+                    placeholder = "输入新文件夹名，留空为未分组",
+                    label = "文件夹",
+                    mono = false,
+                )
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MilkButton(
+                label = "删除笔记本",
+                onClick = onDelete,
+                variant = MilkButtonVariant.TEXT,
+                destructive = true,
+            )
+            Spacer(Modifier.weight(1f))
             MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             MilkButton(
                 label = "保存",
                 enabled = name.isNotBlank(),
@@ -102,39 +114,4 @@ internal fun NotebookManagePanel(
             )
         }
     }
-}
-
-@Composable
-private fun PanelInput(value: String, onValueChange: (String) -> Unit, hint: String) {
-    Box(
-        Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 13.dp),
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.fillMaxWidth(),
-            decorationBox = { inner ->
-                if (value.isEmpty()) Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                inner()
-            },
-        )
-    }
-}
-
-@Composable
-private fun FolderChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.clip(CircleShape)
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
-            .clickable(onClick = onClick).defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-    )
 }
