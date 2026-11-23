@@ -61,10 +61,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkPanelAction
+import com.milknote.app.ui.common.dashedBorder
+import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.PillShape
 import kotlin.math.roundToInt
 
-internal val WriterClosedRailWidth = 116.dp
 internal val WriterExpandedRailWidth = 310.dp
 
 /** P058：双列页面缩略图覆盖于固定纸面之上，页码与前后翻页固定在栏底。
@@ -167,7 +169,7 @@ internal fun WriterPageRail(
                         Column(
                             Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(3.dp))
+                                .clip(RoundedCornerShape(6.dp))
                                 .border(
                                     width = when {
                                         hoverTarget -> 2.dp
@@ -179,7 +181,7 @@ internal fun WriterPageRail(
                                         active -> MaterialTheme.colorScheme.primary
                                         else -> MaterialTheme.colorScheme.outline
                                     },
-                                    shape = RoundedCornerShape(3.dp),
+                                    shape = RoundedCornerShape(6.dp),
                                 )
                                 .onGloballyPositioned { thumbOrigin = it.positionInRoot() }
                                 .pointerInput(page.pageId) {
@@ -259,21 +261,29 @@ internal fun WriterPageRail(
                 }
             }
             item(key = "__add__") {
-                Box(
+                // 与书架「新建笔记本」卡同一语言:虚线圆角框 + 图标 + 文字,不再是直角空框
+                Row(
                     Modifier
                         .fillMaxWidth()
-                        .defaultMinSize(minHeight = 52.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                        .height(56.dp)
+                        .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = 14.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable { onNewPage(state.currentPageId) }
-                        .testTag("writer-rail-new-page"),
-                    contentAlignment = Alignment.Center,
+                        .testTag("writer-rail-new-page")
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.Add, "新建页面", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "新建页面",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
-        WriterPageNavigation(state, onPrevious, onNext, true)
+        WriterPageNavigation(state, onPrevious, onNext)
         }
         // 浮动缩略影:跟随拖拽点,落在目标格中央
         dragPageId?.let { pid ->
@@ -343,27 +353,44 @@ internal fun WriterPageRail(
     }
 }
 
+/** 侧栏收起时的紧凑悬浮页码与翻页胶囊，不占用左侧竖条空间。 */
 @Composable
-internal fun WriterClosedRail(
+internal fun WriterPagePill(
     state: WriterUiState,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    Row(
         modifier
-            .width(WriterClosedRailWidth)
-            .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.45f), right = true)
-            .testTag("writer-closed-rail"),
+            .height(48.dp)
+            .softShadow(6.dp, PillShape)
+            .clip(PillShape)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), PillShape)
+            .padding(horizontal = 4.dp)
+            .testTag("writer-page-status"),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        WriterPageNavigation(
-            state = state,
-            onPrevious = onPrevious,
-            onNext = onNext,
-            expanded = false,
-            modifier = Modifier.align(Alignment.BottomCenter),
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
+            enabled = state.canPreviousPage,
+            onClick = onPrevious,
+            modifier = Modifier.testTag("writer-previous-page"),
+        )
+        Text(
+            "${state.currentPageIndex + 1}/${state.pages.size}",
+            modifier = Modifier.padding(horizontal = 6.dp),
+            fontFamily = Mono,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
+            enabled = state.canNextPage,
+            onClick = onNext,
+            modifier = Modifier.testTag("writer-next-page"),
         )
     }
 }
@@ -373,62 +400,32 @@ private fun WriterPageNavigation(
     state: WriterUiState,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    expanded: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (expanded) {
-        Row(
-            modifier.fillMaxWidth().height(56.dp).testTag("writer-page-status"),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconToggleButton(
-                icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
-                enabled = state.canPreviousPage,
-                onClick = onPrevious,
-                modifier = Modifier.testTag("writer-previous-page"),
-            )
-            Text(
-                "${state.currentPageIndex + 1}/${state.pages.size}",
-                modifier = Modifier.width(64.dp),
-                fontFamily = Mono,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            IconToggleButton(
-                icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
-                enabled = state.canNextPage,
-                onClick = onNext,
-                modifier = Modifier.testTag("writer-next-page"),
-            )
-        }
-    } else {
-        Column(
-            modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("writer-page-status"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                "${state.currentPageIndex + 1}/${state.pages.size}",
-                fontFamily = Mono,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-            Row(horizontalArrangement = Arrangement.Center) {
-                IconToggleButton(
-                    icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
-                    enabled = state.canPreviousPage,
-                    onClick = onPrevious,
-                    modifier = Modifier.testTag("writer-previous-page"),
-                )
-                IconToggleButton(
-                    icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
-                    enabled = state.canNextPage,
-                    onClick = onNext,
-                    modifier = Modifier.testTag("writer-next-page"),
-                )
-            }
-        }
+    Row(
+        modifier.fillMaxWidth().height(56.dp).testTag("writer-page-status"),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
+            enabled = state.canPreviousPage,
+            onClick = onPrevious,
+            modifier = Modifier.testTag("writer-previous-page"),
+        )
+        Text(
+            "${state.currentPageIndex + 1}/${state.pages.size}",
+            modifier = Modifier.width(64.dp),
+            fontFamily = Mono,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconToggleButton(
+            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
+            enabled = state.canNextPage,
+            onClick = onNext,
+            modifier = Modifier.testTag("writer-next-page"),
+        )
     }
 }

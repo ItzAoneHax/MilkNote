@@ -460,6 +460,8 @@ fun WriterScreen(
             }
 
         if (!focusMode) {
+            val railWidth = if (railMode == null) 0.dp else WriterExpandedRailWidth
+            val minorVisible = !minorCollapsed && selectedMajorTool != WriterMajorTool.READING
             when (railMode) {
                 WriterRailMode.PAGES -> WriterPageRail(
                     state = state,
@@ -482,12 +484,7 @@ fun WriterScreen(
                     onInsert = { vm.insertLibraryCard(it, state.currentPageId) },
                     modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
                 )
-                null -> WriterClosedRail(
-                    state = state,
-                    onPrevious = vm::previousPage,
-                    onNext = vm::nextPage,
-                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
-                )
+                null -> Unit
             }
             // 千本 drag_point(本轮实测):拖拽松手后按指针最近边吸附,四边均可停靠;
             // 拖动中在目标边实时显示停靠预览条(松手前可见"会停到哪")
@@ -559,19 +556,23 @@ fun WriterScreen(
                     agentOpen = agentDrawerOpen,
                     agentBusy = agentBusy,
                 )
-                if (!minorCollapsed && selectedMajorTool != WriterMajorTool.READING && minorDock == MinorDock.TOP) {
+                if (minorVisible && minorDock == MinorDock.TOP) {
                     minorBar(MinorDock.TOP)
                 }
             }
-            if (!minorCollapsed && selectedMajorTool != WriterMajorTool.READING && minorDock != MinorDock.TOP) {
+            if (minorVisible && minorDock != MinorDock.TOP) {
                 when (minorDock) {
                     MinorDock.BOTTOM -> Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) { minorBar(MinorDock.BOTTOM) }
                     MinorDock.LEFT -> Box(
-                        Modifier.align(Alignment.CenterStart).padding(
-                            start = if (railMode == null) WriterClosedRailWidth else WriterExpandedRailWidth,
-                        ),
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = WriterMajorToolbarHeight, start = railWidth),
                     ) { minorBar(MinorDock.LEFT) }
-                    MinorDock.RIGHT -> Box(Modifier.align(Alignment.CenterEnd)) { minorBar(MinorDock.RIGHT) }
+                    MinorDock.RIGHT -> Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = WriterMajorToolbarHeight),
+                    ) { minorBar(MinorDock.RIGHT) }
                     MinorDock.TOP -> Unit
                 }
             }
@@ -589,12 +590,13 @@ fun WriterScreen(
                         .fillMaxWidth()
                         .height(WriterMinorToolbarHeight)
                     MinorDock.LEFT -> Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = if (railMode == null) WriterClosedRailWidth else WriterExpandedRailWidth)
+                        .align(Alignment.TopStart)
+                        .padding(top = WriterMajorToolbarHeight, start = railWidth)
                         .width(WriterMinorBarThickness)
                         .fillMaxHeight()
                     MinorDock.RIGHT -> Modifier
-                        .align(Alignment.CenterEnd)
+                        .align(Alignment.TopEnd)
+                        .padding(top = WriterMajorToolbarHeight)
                         .width(WriterMinorBarThickness)
                         .fillMaxHeight()
                 }
@@ -615,23 +617,40 @@ fun WriterScreen(
                     )
                 }
             }
-            if (minorCollapsed) {
-                val railWidth = when (railMode) {
-                    null -> WriterClosedRailWidth
-                    else -> WriterExpandedRailWidth
-                }
-                Box(
+            val showRestoreMinor = minorCollapsed && selectedMajorTool != WriterMajorTool.READING
+            val showPagePill = railMode == null
+            if (showRestoreMinor || showPagePill) {
+                val startInset = railWidth + if (minorVisible && minorDock == MinorDock.LEFT) WriterMinorBarThickness else 0.dp
+                val bottomInset = if (minorVisible && minorDock == MinorDock.BOTTOM) WriterMinorToolbarHeight + 12.dp else 12.dp
+                Row(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = railWidth + 4.dp, bottom = 12.dp)
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .clickable { minorCollapsed = false }
-                        .testTag("writer-restore-minor"),
-                    contentAlignment = Alignment.Center,
+                        .padding(start = startInset + 12.dp, bottom = bottomInset),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.KeyboardArrowDown, "展开辅助栏", tint = MaterialTheme.colorScheme.primary)
+                    if (showRestoreMinor) {
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .softShadow(6.dp, PillShape)
+                                .clip(PillShape)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), PillShape)
+                                .clickable { minorCollapsed = false }
+                                .testTag("writer-restore-minor"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Outlined.KeyboardArrowDown, "展开辅助栏", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    if (showPagePill) {
+                        WriterPagePill(
+                            state = state,
+                            onPrevious = vm::previousPage,
+                            onNext = vm::nextPage,
+                        )
+                    }
                 }
             }
         }
@@ -950,7 +969,7 @@ internal fun IconToggleButton(
             .clip(RoundedCornerShape(8.dp))
             .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
             .alpha(if (enabled) 1f else 0.38f)
-            .clickable(enabled = enabled, onClick = onClick),
+            .softClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         icon()

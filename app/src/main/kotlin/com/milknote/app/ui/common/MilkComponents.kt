@@ -243,7 +243,7 @@ fun MilkIconButton(
             .then(
                 if (container) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)) else Modifier,
             )
-            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+            .softClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

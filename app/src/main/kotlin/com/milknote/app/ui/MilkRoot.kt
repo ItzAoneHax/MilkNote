@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -286,7 +287,17 @@ fun MilkRoot() {
             com.milknote.app.ui.theme.LocalMilkMotion provides reducedMotion,
         ) {
         Box(Modifier.fillMaxSize()) {
-            when (val s = screen) {
+            // 页面切换:160–180ms 交叉淡化(纸张不做位移/缩放);AnimatedContent 自带
+            // SaveableStateHolder,书写页的工具栏停靠/专注态在往返导出/设置后得以保留
+            androidx.compose.animation.AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    com.milknote.app.ui.theme.MilkMotion.pageEnter(reducedMotion)
+                        .togetherWith(com.milknote.app.ui.theme.MilkMotion.pageExit(reducedMotion))
+                },
+                label = "milkScreen",
+            ) { s ->
+                when (s) {
                 is MilkScreen.Bookshelf -> BookshelfScreen(
                     vm = bookshelfVm,
                     onOpenNotebook = { id -> writerVm.open(id); screen = MilkScreen.Writer(id) },
@@ -343,6 +354,7 @@ fun MilkRoot() {
                         } else MilkScreen.Bookshelf
                     },
                 )
+                }
             }
 
             // ⌘K 命令面板(顶层;scrim 淡入,面板本体 0.97→1 缩放入场)

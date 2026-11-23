@@ -60,6 +60,7 @@ import com.milknote.app.ui.theme.MilkEyebrow
 import com.milknote.app.ui.theme.Mono
 import com.milknote.app.ui.theme.MonoMeta
 import com.milknote.app.ui.theme.PillShape
+import com.milknote.app.ui.theme.milkPanelEnter
 
 /**
  * 共享表单控件(视觉升级 2026-11):所有页面/面板统一使用,不再各自拼装。
@@ -425,6 +426,7 @@ fun MilkConfirmDialog(
             modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
+                .milkPanelEnter()
                 .milkDialogSurface()
                 .padding(24.dp),
         ) {

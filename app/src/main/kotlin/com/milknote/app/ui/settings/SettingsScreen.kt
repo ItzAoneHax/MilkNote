@@ -3,6 +3,7 @@ package com.milknote.app.ui.settings
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -82,6 +83,7 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
 
     // A-17:Agent「管理模型」直达 agent 页;key 随入口变化重初始化
     var page by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
+    val reducedMotion = com.milknote.app.ui.theme.LocalMilkMotion.current
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -129,7 +131,18 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                     .padding(horizontal = 32.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
-                when (page) {
+                // 分区切换:160–180ms 交叉淡化(导航项底色已过渡,内容不再瞬切)
+                androidx.compose.animation.AnimatedContent(
+                    targetState = page,
+                    transitionSpec = {
+                        com.milknote.app.ui.theme.MilkMotion.pageEnter(reducedMotion)
+                            .togetherWith(com.milknote.app.ui.theme.MilkMotion.pageExit(reducedMotion))
+                    },
+                    label = "settingsPage",
+                ) { p ->
+                    // AnimatedContent 要求每个状态单一根节点;各分区页直接吐出多个兄弟节点会被逐个叠放
+                    Column(Modifier.fillMaxWidth()) {
+                    when (p) {
                     "appearance" -> AppearancePage(appSettings = appSettings, setThemeMode = { scope.launch { settings.setThemeMode(it) } })
                     "writing" -> WritingPage(
                         appSettings = appSettings,
@@ -145,6 +158,8 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                         AgentSettingsSection()
                     }
                     "updates" -> UpdatesPage(appSettings = appSettings)
+                    }
+                    }
                 }
             }
         }
@@ -173,15 +188,21 @@ private fun AppearancePage(appSettings: AppSettings, setThemeMode: (ThemeMode) -
 @Composable
 private fun ThemeModeCard(mode: ThemeMode, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (selected) cs.primary else cs.outline,
+        androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+        label = "themeCardBorder",
+    )
+    val borderWidth by androidx.compose.animation.core.animateDpAsState(
+        if (selected) 1.5.dp else 1.dp,
+        androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+        label = "themeCardBorderW",
+    )
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(cs.surface)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) cs.primary else cs.outline,
-                shape = RoundedCornerShape(16.dp),
-            )
+            .border(width = borderWidth, color = borderColor, shape = MaterialTheme.shapes.large)
             .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
             .padding(10.dp),
     ) {
@@ -274,15 +295,21 @@ private fun WritingPage(
 @Composable
 private fun PressureCurveCard(gamma: PressureGamma, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (selected) cs.primary else cs.outline,
+        androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+        label = "pressureCardBorder",
+    )
+    val borderWidth by androidx.compose.animation.core.animateDpAsState(
+        if (selected) 1.5.dp else 1.dp,
+        androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+        label = "pressureCardBorderW",
+    )
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(cs.surface)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) cs.primary else cs.outline,
-                shape = RoundedCornerShape(16.dp),
-            )
+            .border(width = borderWidth, color = borderColor, shape = MaterialTheme.shapes.large)
             .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -99,6 +100,7 @@ fun BookshelfScreen(
     val notebooks by vm.notebooks.collectAsState()
     val sortMode by vm.sortMode.collectAsState()
     val importing by vm.importing.collectAsState()
+    val covers by vm.covers.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var showCreateActions by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
@@ -172,6 +174,7 @@ fun BookshelfScreen(
                         meta = nb,
                         pageCount = vm.pageCountOf(nb.id),
                         recent = nb.id == recentId,
+                        coverThumb = covers[nb.id],
                         onOpen = { onOpenNotebook(nb.id) },
                         onManage = { manageTarget = nb },
                     )
@@ -308,8 +311,21 @@ private fun BookshelfTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column {
-            Text("牛奶笔记", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("牛奶笔记", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.width(10.dp))
+                // 计数与标题同基线:mono 小胶囊,不再夹在标题与副标题之间
+                Text(
+                    "$count 本",
+                    style = com.milknote.app.ui.theme.MonoMeta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            Spacer(Modifier.height(3.dp))
             Text(
                 "MILKNOTE",
                 fontFamily = Mono,
@@ -318,13 +334,7 @@ private fun BookshelfTopBar(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            "$count 本",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
+
         Spacer(Modifier.weight(1f))
 
         // 搜索 → ⌘K 命令面板(DESIGN-V0 §5.4 统一入口;识别检索 M3)
@@ -385,13 +395,14 @@ internal fun SearchCommandPill(onClick: () -> Unit) {
     }
 }
 
-/** 笔记本卡片:封面(迷你点阵纸 + 淡彩渐染 + 色点呼应)+ 元信息 */
+/** 笔记本卡片:封面(淡彩渐染 + 首页真实缩略图 / 无内容时点阵)+ 元信息 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NotebookCard(
     meta: NotebookMeta,
     pageCount: Int,
     recent: Boolean,
+    coverThumb: androidx.compose.ui.graphics.ImageBitmap?,
     onOpen: () -> Unit,
     onManage: () -> Unit,
 ) {
@@ -418,10 +429,44 @@ private fun NotebookCard(
                     )
                 ),
         ) {
-            // 迷你点阵纸纹(点阵示意)
+            // 迷你点阵纸纹(无缩略图时作为封面主体;有缩略图时退为衬底)
             MiniDotsPaper(
                 modifier = Modifier.fillMaxSize(),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (coverThumb != null) 0.14f else 0.22f),
+            )
+            // 首页真实缩略图(A-06):按纸张比例从顶部铺满封面(裁切显示首页上部——
+            // 标题/首行通常在这里),像一本翻开看到的笔记本;淡彩仅留在书脊与底部渐隐
+            if (coverThumb != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = coverThumb,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    alignment = Alignment.TopStart,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(34.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, cover.copy(alpha = 0.28f)),
+                            )
+                        ),
+                )
+                // 深色书架:缩略图纸张按导出规范恒亮,叠 10% 暗色蒙版避免暗底上刺眼
+                if (com.milknote.app.ui.theme.LocalMilkDark.current) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.10f)))
+                }
+            }
+            // 封面色书脊:左侧 6dp 竖条,呼应新建弹窗的预览
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(6.dp)
+                    .background(Brush.horizontalGradient(listOf(cover.copy(alpha = 0.9f), cover.copy(alpha = 0.55f)))),
             )
             // 「最近」徽标
             if (recent) {

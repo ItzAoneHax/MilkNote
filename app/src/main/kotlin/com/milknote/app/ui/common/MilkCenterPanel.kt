@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.milknote.app.ui.theme.milkPanelEnter
 
 /**
  * 所有「居中浮层」的统一骨架(视觉升级 2026-11):
@@ -82,6 +83,7 @@ fun MilkCenterPanel(
                     .widthIn(max = maxWidth)
                     .fillMaxWidth()
                     .heightIn(max = maxHeight)
+                    .milkPanelEnter()
                     .milkDialogSurface(),
             ) {
                 MilkPanelHeader(title = title, subtitle = subtitle, icon = icon, closable = closable, onDismiss = onDismiss)
@@ -158,6 +160,7 @@ data class MilkPanelAction(
     val label: String,
     val onClick: () -> Unit,
     val icon: ImageVector? = null,
+    /** 右侧 mono 提示(页数 / 锚点页 id / 「当前」);「当前项」语义由调用方以 leading ✓ 表达 */
     val trailingText: String? = null,
     val enabled: Boolean = true,
     val destructive: Boolean = false,
@@ -201,7 +204,7 @@ private fun MilkActionRow(action: MilkPanelAction) {
             .clip(RoundedCornerShape(14.dp))
             .clickable(enabled = action.enabled, role = Role.Button, onClick = action.onClick)
             .heightIn(min = 56.dp)
-            .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 10.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -227,15 +230,8 @@ private fun MilkActionRow(action: MilkPanelAction) {
         if (action.trailingText != null) {
             Text(
                 action.trailingText,
-                style = MaterialTheme.typography.labelMedium,
+                style = com.milknote.app.ui.theme.MonoValue,
                 color = cs.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.Outlined.Check,
-                contentDescription = null,
-                tint = cs.primary,
-                modifier = Modifier.size(18.dp),
             )
         }
     }

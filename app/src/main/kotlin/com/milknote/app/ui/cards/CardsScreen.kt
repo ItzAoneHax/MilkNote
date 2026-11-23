@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -85,16 +86,28 @@ fun CardsScreen(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing),
     ) {
-        // ---- 顶栏:标题 + 搜索 + 新建 ----
+        // ---- 顶栏:标题 + 搜索(≤560dp,与书架顶栏同高 76dp)+ 新建 ----
         Row(
-            Modifier.fillMaxWidth().height(92.dp).padding(horizontal = 28.dp),
+            Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("卡片", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("卡片", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "${state.cards.size} 张",
+                        style = com.milknote.app.ui.theme.MonoMeta,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    "${state.cards.size} 张 · 摘取即保存",
+                    "摘取即保存 · 可反复插入任意笔记",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -104,7 +117,7 @@ fun CardsScreen(
                 value = state.query,
                 onValueChange = vm::search,
                 placeholder = "搜索卡片标题和内容",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).widthIn(max = 560.dp),
                 mono = false,
                 leading = {
                     Icon(

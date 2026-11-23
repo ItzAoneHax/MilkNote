@@ -256,7 +256,7 @@ fun SnipOverlay(
                     // 状态条(§4.2:渲染源说明)
                     Text(
                         "选区将连同手写层一起送入 Agent · 书写已暂停",
-                        fontSize = 10.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
                         color = Color(0xCCFAF9F5),
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))

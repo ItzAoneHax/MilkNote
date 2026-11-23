@@ -43,12 +43,51 @@ class BookshelfViewModel : ViewModel() {
     /** 页数缓存(打开书架时刷新;删除笔记本后失效) */
     private val pageCounts = mutableMapOf<String, Int>()
 
+    /** 封面缩略图:每本首页的真实渲染(含笔迹/图片/批注);空白页不入表,卡片回退到点阵封面 */
+    private val _covers = MutableStateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>>(emptyMap())
+    val covers: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> = _covers
+    private var coverJob: kotlinx.coroutines.Job? = null
+
     init { refresh() }
 
     fun refresh() {
         loaded = repo.listNotebooks()
         pageCounts.clear()
         _notebooks.value = sortNotebooks(loaded, _sortMode.value)
+        renderCovers(loaded)
+    }
+
+    /** 首页缩略图在 Default 线程逐本渲染、逐本发布,书架先出卡片再补封面 */
+    private fun renderCovers(list: List<NotebookMeta>) {
+        coverJob?.cancel()
+        coverJob = viewModelScope.launch(Dispatchers.Default) {
+            val next = _covers.value.toMutableMap()
+            next.keys.retainAll(list.map { it.id }.toSet())
+            _covers.value = next
+            for (nb in list) {
+                val page = runCatching { repo.listPages(nb.id).firstOrNull() }.getOrNull() ?: continue
+                val strokes = repo.loadPage(nb.id, page.pageId)
+                val cards = repo.loadAnnotations(nb.id, page.pageId)
+                val images = repo.loadImages(nb.id, page.pageId)
+                val media = repo.loadMedia(nb.id, page.pageId)
+                // 从书写页返回 = 内容可能已变,每次刷新都重渲染;旧图在替换前保持可见,不闪点阵
+                if (strokes.isEmpty() && cards.isEmpty() && images.isEmpty() && media.isEmpty()) {
+                    _covers.value = _covers.value - nb.id
+                    continue
+                }
+                val spec = nb.pageSpec(page.pageId)
+                val bmp = runCatching {
+                    com.milknote.app.ui.writer.renderPageThumb(
+                        strokes, cards, spec.paper, nb.pageSize, nb.orientation,
+                        images = images, media = media,
+                        imageDir = repo.notebookDir(nb.id).absolutePath,
+                        paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
+                        widthPx = 320,
+                    )
+                }.getOrNull() ?: continue
+                _covers.value = _covers.value + (nb.id to bmp)
+            }
+        }
     }
 
     /** 切换排序立即生效;同一 ViewModel 生命周期内的后续 refresh 继续沿用。 */

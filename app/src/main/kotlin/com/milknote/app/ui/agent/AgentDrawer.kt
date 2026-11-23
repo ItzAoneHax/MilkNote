@@ -47,10 +47,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,11 +91,15 @@ import com.milknote.app.ui.theme.LocalMilkMotion
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 import com.milknote.app.ui.common.MilkActionPanel
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.accentBrush
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
 
 /**
@@ -263,38 +269,16 @@ private fun EmptyAgentActions(
         Spacer(Modifier.height(6.dp))
         Text(
             "动作会把对应页面快照(含手写层)发给已连接的视觉模型",
-            fontSize = 11.sp, lineHeight = 16.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(18.dp))
-        EmptyAction("框选讲解", primary = true, onSnip)
+        MilkButton("框选讲解", onClick = onSnip, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        EmptyAction("讲解本页", primary = false, onExplainPage)
+        MilkButton("讲解本页", onClick = onExplainPage, modifier = Modifier.fillMaxWidth(), variant = MilkButtonVariant.SECONDARY)
         Spacer(Modifier.height(8.dp))
-        EmptyAction("归纳本章", primary = false, onSummarizeChapter)
-    }
-}
-
-@Composable
-private fun EmptyAction(label: String, primary: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (primary) Modifier.background(accentBrush())
-                else Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = if (primary) Color.White else MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.labelLarge,
-        )
+        MilkButton("归纳本章", onClick = onSummarizeChapter, modifier = Modifier.fillMaxWidth(), variant = MilkButtonVariant.SECONDARY)
     }
 }
 
@@ -328,7 +312,7 @@ private fun DrawerHeader(
         ) {
             Text(
                 state.activeModelId ?: "未配置",
-                fontFamily = Mono, fontSize = 11.sp,
+                style = com.milknote.app.ui.theme.MonoValue,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
@@ -340,13 +324,13 @@ private fun DrawerHeader(
                     Spacer(Modifier.width(4.dp))
                     Text(
                         "思考·${effortLabel(eff)}",
-                        fontFamily = Mono, fontSize = 9.sp,
+                        style = com.milknote.app.ui.theme.MonoMeta,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
             Spacer(Modifier.width(4.dp))
-            Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         }
         Spacer(Modifier.weight(1f))
         // 关闭:48dp 命中(A-9),图标 16dp
@@ -391,54 +375,12 @@ private fun SetupGuide(onOpenSettings: (page: String) -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text(
             "MilkNote 的全部 Agent 能力依赖多模态视觉模型。\n设置 → Agent:选厂商预设,填入你的 API Key。",
-            fontSize = 12.sp,
-            lineHeight = 18.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(14.dp))
-        Box(
-            Modifier
-                .clip(CircleShape)
-                .background(accentBrush())
-                .clickable(onClick = { onOpenSettings("agent") })
-                .defaultMinSize(minHeight = 48.dp)
-                .padding(horizontal = 20.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("去设置", color = Color.White, style = MaterialTheme.typography.labelLarge)
-        }
-    }
-}
-
-/** 上下文 chips:选区 N / 当前页 p.X / +整章 + 预估(§5.2);颜色 200ms 过渡 */
-@Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        animationSpec = tween(200),
-        label = "chipBg",
-    )
-    val borderC by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.Transparent,
-        animationSpec = tween(200),
-        label = "chipBorder",
-    )
-    Box(
-        Modifier
-            .clip(CircleShape)
-            .background(bg)
-            .border(1.dp, borderC, CircleShape)
-            .clickable(onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label, fontSize = 11.sp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp),
-        )
+        MilkButton("去设置", onClick = { onOpenSettings("agent") })
     }
 }
 
@@ -520,26 +462,27 @@ private fun ReasoningBlock(msg: com.milknote.agent.UiMessage) {
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                 .clickable { expanded = !expanded }
+                .defaultMinSize(minHeight = 34.dp)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 if (streamingThought) "✻ 思考中…" else "✻ 思考过程 · ${msg.reasoning.length} 字",
-                fontFamily = Mono, fontSize = 10.sp,
+                style = com.milknote.app.ui.theme.MonoMeta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(4.dp))
-            Text(if (expanded) "▾" else "▸", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (expanded) "▾" else "▸", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (expanded) {
             Spacer(Modifier.height(4.dp))
             Text(
                 msg.reasoning,
-                fontFamily = Mono, fontSize = 10.sp, lineHeight = 15.sp,
+                style = com.milknote.app.ui.theme.MonoMeta.copy(lineHeight = 16.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
@@ -565,10 +508,11 @@ private fun UserMessage(msg: com.milknote.agent.UiMessage) {
                 Icon(Icons.Outlined.Description, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(6.dp))
                 Column {
-                    Text(att.logicalName, fontFamily = Mono, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(att.logicalName, style = com.milknote.app.ui.theme.MonoMeta, color = MaterialTheme.colorScheme.onSurface)
                     Text(
                         "${att.widthPx}×${att.heightPx}px · 已含手写层与批注",
-                        fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -581,7 +525,7 @@ private fun UserMessage(msg: com.milknote.agent.UiMessage) {
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text(msg.text, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(msg.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -609,16 +553,16 @@ private fun AssistantMessage(state: AgentUiState, msg: com.milknote.agent.UiMess
                 }
             }
             if (meta.isNotBlank()) {
-                Text(meta, fontFamily = Mono, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(meta, style = com.milknote.app.ui.theme.MonoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.weight(1f))
         }
-        // 状态与操作 chips(§9):复制 / 插入批注层(幂等)
+        // 状态与操作 chips(§9):复制 / 插入批注层(幂等)——统一走共享 MilkChip
         when (msg.phase) {
             AgentMessage.Phase.STREAMING -> {}
             AgentMessage.Phase.FAILED -> ActionChip("重试", accent = true) { agent.retry() }
             AgentMessage.Phase.INTERRUPTED -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("已中断", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("已中断", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ActionChip("重试", accent = true) { agent.retry() }
             }
             AgentMessage.Phase.DONE -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -646,53 +590,32 @@ private fun ActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit,
 ) {
-    val bg by animateColorAsState(
-        targetValue = when {
-            !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            accent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-        },
-        animationSpec = tween(200),
-        label = "actionChipBg",
+    MilkChip(
+        label = label,
+        selected = accent,
+        enabled = enabled,
+        onClick = onClick,
+        small = true,
+        leading = icon?.let { { Icon(it, null, modifier = Modifier.size(14.dp)) } },
     )
-    Row(
-        Modifier
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        icon?.let {
-            Spacer(Modifier.width(10.dp))
-            Icon(it, null, modifier = Modifier.size(12.dp), tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline)
-        }
-        Text(
-            label, fontSize = 11.sp,
-            color = when {
-                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                accent -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.padding(start = if (icon != null) 4.dp else 10.dp, end = 10.dp),
-        )
-    }
 }
 
-/** 状态展示胶囊(无点击语义) */
+/** 状态展示胶囊(无点击语义):与 MilkChip 同尺寸/同底色,但不可点 */
 @Composable
 private fun StaticChip(label: String) {
     Row(
         Modifier
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .defaultMinSize(minHeight = 48.dp),
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            .defaultMinSize(minHeight = 34.dp)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            label, fontSize = 11.sp,
+            label,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp),
         )
     }
 }
@@ -708,8 +631,8 @@ private fun ErrorBanner(error: AgentError) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(errorTitle(error), fontSize = 12.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
-            Text(error.detail, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            Text(errorTitle(error), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+            Text(error.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
         }
     }
 }
@@ -766,8 +689,8 @@ private fun Composer(state: AgentUiState) {
             Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
                 Text(
                     "${state.draftAttachments.size} 个附件 · ≈${agent.estTokensNow()} tok",
-                    fontFamily = Mono, fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    style = com.milknote.app.ui.theme.MonoMeta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -923,13 +846,13 @@ private fun AttachmentPanel(
             AttachPick("当前页 ${boundPage?.pageId ?: ""}") { onPickCurrent() }
             AttachPick("整章 · 其余 ${maxOf(pages.size - 1, 0)} 页") { onPickChapter() }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(14.dp))
         Text(
             "本笔记本页面(点按附加,可多选)",
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            style = com.milknote.app.ui.theme.MilkEyebrow,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         // 页列表(排除当前页——上面已有快捷);超限内部滚动(A-18)
         Column(
             Modifier
@@ -941,14 +864,17 @@ private fun AttachmentPanel(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable { onPickPage(pg) }
-                        .defaultMinSize(minHeight = 48.dp),
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(pg.pageId, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 8.dp))
+                    Text(pg.pageId, style = com.milknote.app.ui.theme.MonoValue, color = MaterialTheme.colorScheme.onBackground)
                     Spacer(Modifier.weight(1f))
-                    Text("+ 附加", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                    Icon(Icons.Outlined.Add, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(2.dp))
+                    Text("附加", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -957,21 +883,7 @@ private fun AttachmentPanel(
 
 @Composable
 private fun AttachPick(label: String, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-            .clickable(onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 10.dp),
-        )
-    }
+    MilkChip(label = label, selected = false, onClick = onClick)
 }
 
 /** 草稿附件卡片(logicalName + 尺寸 + ✕ 移除;移除命中扩大) */
@@ -981,31 +893,32 @@ private fun DraftAttachmentCard(d: com.milknote.agent.DraftAttachment, onRemove:
         Modifier
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-            .border(0.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+            .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Outlined.Description, null,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(Modifier.width(4.dp))
-            Text(d.logicalName, fontFamily = Mono, fontSize = 9.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(d.logicalName, style = com.milknote.app.ui.theme.MonoMeta, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
             Box(
                 Modifier
                     .size(32.dp)
+                    .clip(CircleShape)
                     .clickable(onClick = onRemove),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("✕", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Outlined.Close, "移除附件", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(
             "${d.widthPx}×${d.heightPx}px" + if (d.source == com.milknote.agent.Attachment.Source.SNIP) " · 选区" else "",
-            fontSize = 8.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 6.dp),
         )
     }
 }
@@ -1020,14 +933,14 @@ private fun DrawerHints(state: AgentUiState) {
     ) {
         Text(
             "笔键长按 再次框选 · 结果可贴回批注层",
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            style = com.milknote.app.ui.theme.MonoMeta,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
         Text(
             state.boundPage?.pageId ?: "",
-            fontFamily = Mono, fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            style = com.milknote.app.ui.theme.MonoMeta,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -1042,7 +955,7 @@ private fun ModelSheet(
 ) {
     val agent = ServiceLocator.agentController
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-        // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉)
+        // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉);行 = 共享单选行
         Column(
             Modifier
                 .fillMaxWidth()
@@ -1052,34 +965,36 @@ private fun ModelSheet(
             state.profiles.forEach { profile ->
                 Text(
                     profile.title,
-                    fontSize = 10.sp,
+                    style = com.milknote.app.ui.theme.MilkEyebrow,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp),
                 )
                 profile.models.filter { it.vision }.forEach { m ->
                     val active = profile.id == state.activeProfileId && m.id == state.activeModelId
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                            .softClickable {
                                 agent.selectModel(profile.id, m.id)
                                 onDismiss()
                             }
-                            .defaultMinSize(minHeight = 48.dp),
+                            .defaultMinSize(minHeight = 48.dp)
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             Modifier
-                                .padding(start = 12.dp)
-                                .size(8.dp)
+                                .size(18.dp)
                                 .clip(CircleShape)
-                                .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(m.id, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(Modifier.weight(1f))
+                                .border(2.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (active) Box(Modifier.size(9.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(m.id, style = com.milknote.app.ui.theme.MonoValue, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -1098,18 +1013,19 @@ private fun ModelSheet(
             )
         val current = runCatching { com.milknote.agent.ReasoningEffort.valueOf(activeProfile?.reasoningEffort ?: "AUTO") }
             .getOrDefault(com.milknote.agent.ReasoningEffort.AUTO)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             "思考强度 · ${activeModel?.id ?: state.activeModelId ?: ""}",
-            fontSize = 10.sp,
+            style = com.milknote.app.ui.theme.MilkEyebrow,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 12.dp),
         )
+        Spacer(Modifier.height(8.dp))
         Row(
             Modifier
-                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .padding(horizontal = 12.dp)
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             EffortChip("自动", current == com.milknote.agent.ReasoningEffort.AUTO) {
                 agent.setReasoningEffort(com.milknote.agent.ReasoningEffort.AUTO)
@@ -1120,28 +1036,32 @@ private fun ModelSheet(
                 }
             }
         }
+        Spacer(Modifier.height(8.dp))
         Text(
             "档位映射因厂商而异;自动=不发参数。完整说明见 设置 · Agent。",
-            fontSize = 10.sp, lineHeight = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp),
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
         // A-17:真正进入 设置 · Agent(此前只关面板不导航)
-        Box(
+        Row(
             Modifier
                 .padding(horizontal = 12.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable {
+                .clip(RoundedCornerShape(12.dp))
+                .softClickable {
                     onDismiss()
                     onOpenSettings("agent")
                 }
-                .defaultMinSize(minHeight = 48.dp),
-            contentAlignment = Alignment.CenterStart,
+                .defaultMinSize(minHeight = 48.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(Icons.Outlined.Settings, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(10.dp))
             Text(
                 "管理模型 → 设置 · Agent",
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
@@ -1161,27 +1081,7 @@ private fun effortLabel(e: com.milknote.agent.ReasoningEffort): String = when (e
 
 @Composable
 private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        animationSpec = tween(200),
-        label = "effortChipBg",
-    )
-    Box(
-        Modifier
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick)
-            .defaultMinSize(minHeight = 48.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            fontSize = 11.sp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp),
-        )
-    }
+    MilkChip(label = label, selected = selected, onClick = onClick, small = true)
 }
 
 // ---------------- Markdown 渲染(§6.3 容错子集) ----------------
@@ -1228,7 +1128,7 @@ fun MarkdownBlocks(text: String, modifier: Modifier = Modifier) {
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                         ) {
-                            Text("#$tag", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("#$tag", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }

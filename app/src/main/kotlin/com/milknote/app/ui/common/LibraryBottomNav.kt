@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,10 +56,20 @@ fun LibraryBottomNav(selected: String, onNotes: () -> Unit, onCards: () -> Unit)
         items.forEach { item ->
             val active = item.key == selected
             val cs = MaterialTheme.colorScheme
+            val pillBg by androidx.compose.animation.animateColorAsState(
+                targetValue = if (active) cs.primary.copy(alpha = 0.12f) else Color.Transparent,
+                animationSpec = androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+                label = "navPillBg",
+            )
+            val fg by androidx.compose.animation.animateColorAsState(
+                targetValue = if (active) cs.primary else cs.onSurfaceVariant,
+                animationSpec = androidx.compose.animation.core.tween(com.milknote.app.ui.theme.MilkMotion.color),
+                label = "navPillFg",
+            )
             Row(
                 Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (active) cs.primary.copy(alpha = 0.12f) else Color.Transparent)
+                    .background(pillBg)
                     .clickable(onClick = actions.getValue(item.key))
                     .defaultMinSize(minWidth = 136.dp, minHeight = 48.dp)
                     .padding(horizontal = 22.dp),
@@ -68,7 +79,7 @@ fun LibraryBottomNav(selected: String, onNotes: () -> Unit, onCards: () -> Unit)
                 Icon(
                     item.icon,
                     contentDescription = null,
-                    tint = if (active) cs.primary else cs.onSurfaceVariant,
+                    tint = fg,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.size(8.dp))
@@ -77,7 +88,7 @@ fun LibraryBottomNav(selected: String, onNotes: () -> Unit, onCards: () -> Unit)
                         item.label,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (active) FontWeight.Medium else null,
-                        color = if (active) cs.primary else cs.onSurfaceVariant,
+                        color = fg,
                     )
                 }
             }

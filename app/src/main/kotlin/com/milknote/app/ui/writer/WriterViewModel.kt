@@ -1083,14 +1083,15 @@ internal fun renderPageThumb(
     paperColor: String = "#FAF9F5",
     pageWidthMm: Float? = null,
     pageHeightMm: Float? = null,
+    widthPx: Int = 132,
 ): ImageBitmap {
     val data = AgentBridge.PageData(
         strokes, cards, paper, pageSize, orientation, images = images, media = media, imageDir = imageDir,
         paperColor = paperColor, pageWidthMm = pageWidthMm, pageHeightMm = pageHeightMm,
     )
     val (pageW, pageH) = PageRenderer.pageDimsPx(data)
-    val w = 132
-    val bmp = Bitmap.createBitmap(w, (pageH / pageW * w).toInt(), Bitmap.Config.ARGB_8888)
+    val w = widthPx.coerceAtLeast(32)
+    val bmp = Bitmap.createBitmap(w, (pageH / pageW * w).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bmp)
     val scale = w / pageW
     canvas.scale(scale, scale)
