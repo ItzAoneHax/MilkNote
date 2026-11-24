@@ -3,6 +3,7 @@ package com.milknote.app.ui.agent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
@@ -90,9 +91,9 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.theme.LocalMilkMotion
 import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
+import com.milknote.app.ui.common.MilkActionChip
 import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkButton
-import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkPanelAction
@@ -127,6 +128,7 @@ fun AgentDrawerHost(
 ) {
     val agent = ServiceLocator.agentController
     val state by agent.state.collectAsState()
+    BackHandler(enabled = state.drawerOpen) { agent.closeDrawer() }
     val scope = rememberCoroutineScope()
     val reduced = LocalMilkMotion.current
     val density = LocalDensity.current
@@ -286,7 +288,7 @@ private fun AgentDrawer(
                 if (state.setupRequired) {
                     SetupGuide(onOpenSettings)
                 } else {
-                    // 消息区:空会话时留白(快捷动作在 composer 上方的 chips 里,不再堆三个大按钮)
+                    // 空会话保留输入区，快捷动作位于 composer 上方。
                     if (state.messages.isNotEmpty()) {
                         Messages(state, Modifier.weight(1f), onSaveCard = onSaveMessageCard)
                     } else {
@@ -323,10 +325,6 @@ private fun StudioMarkdownPane(
         allNotebooks.firstOrNull { it.name.removeSuffix(".pdf").equals(key, ignoreCase = true) }
             ?.let { onOpenSplit(it.id) }
     }
-    val defaultMd = if (markdown.isBlank()) {
-        "### $pageLabel · 伴随笔记\n\n- 核心公式：\$A x = \\lambda x\$\n- 关联参考：[[线性代数讲义.pdf]]\n\n#笔记 #重点"
-    } else markdown
-
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -342,30 +340,23 @@ private fun StudioMarkdownPane(
                 color = cs.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            MilkChip(
+            MilkActionChip(
                 label = if (editSource) "预览" else "源码",
-                selected = editSource,
-                onClick = {
-                    if (!editSource && markdown.isBlank()) onMarkdownChange(defaultMd)
-                    editSource = !editSource
-                },
+                onClick = { editSource = !editSource },
                 small = true,
             )
             Spacer(Modifier.width(6.dp))
-            MilkChip(
+            MilkActionChip(
                 label = "存卡片",
-                selected = false,
-                onClick = {
-                    if (markdown.isBlank()) onMarkdownChange(defaultMd)
-                    onSaveCard()
-                },
+                enabled = markdown.isNotBlank(),
+                onClick = onSaveCard,
                 small = true,
             )
         }
 
         if (editSource) {
             BasicTextField(
-                value = if (markdown.isBlank()) defaultMd else markdown,
+                value = markdown,
                 onValueChange = onMarkdownChange,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     fontFamily = Mono,
@@ -373,6 +364,14 @@ private fun StudioMarkdownPane(
                     lineHeight = 20.sp,
                     color = cs.onSurface,
                 ),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (markdown.isBlank()) {
+                            Text("记录本页要点…", color = cs.onSurfaceVariant, fontSize = 12.5.sp)
+                        }
+                        innerTextField()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -384,13 +383,14 @@ private fun StudioMarkdownPane(
                     .fillMaxWidth()
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .clickable {
-                        if (markdown.isBlank()) onMarkdownChange(defaultMd)
-                        editSource = true
-                    }
+                    .clickable { editSource = true }
                     .padding(14.dp),
             ) {
-                MarkdownBlocks(defaultMd, onWikilink = openWikilink)
+                if (markdown.isBlank()) {
+                    Text("记录本页要点…", color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    MarkdownBlocks(markdown, onWikilink = openWikilink)
+                }
             }
         }
     }
@@ -485,38 +485,6 @@ private fun StudioLinksPane(
     }
 }
 
-/** 空会话引导(A-19):只给三个真实动作 + 一句最小上传说明;composer 仍可自定义提问 */
-@Composable
-private fun EmptyAgentActions(
-    onSnip: () -> Unit,
-    onExplainPage: () -> Unit,
-    onSummarizeChapter: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("随写随问", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "动作会把对应页面快照(含手写层)发给已连接的视觉模型",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(18.dp))
-        MilkButton("框选讲解", onClick = onSnip, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-        MilkButton("讲解本页", onClick = onExplainPage, modifier = Modifier.fillMaxWidth(), variant = MilkButtonVariant.SECONDARY)
-        Spacer(Modifier.height(8.dp))
-        MilkButton("归纳本章", onClick = onSummarizeChapter, modifier = Modifier.fillMaxWidth(), variant = MilkButtonVariant.SECONDARY)
-    }
-}
-
 @Composable
 private fun DrawerHeader(
     state: AgentUiState,
@@ -583,7 +551,7 @@ private fun DrawerHeader(
             }
         }
         // AI 页签下显示当前视觉模型与思考档位胶囊
-        if (studioTab == "ai") {
+        if (studioTab == "ai" && !state.setupRequired) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -637,28 +605,26 @@ private fun DrawerHeader(
     }
 }
 
-/** 无可用视觉模型 → 引导卡(§3.4:入口即视觉,不显示空对话) */
 @Composable
 private fun SetupGuide(onOpenSettings: (page: String) -> Unit) {
     Column(
         Modifier
-            .fillMaxWidth()
-            .padding(20.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .padding(18.dp),
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("配置视觉模型后开始", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(6.dp))
+        Text("尚未设置模型", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
         Text(
-            "MilkNote 的全部 Agent 能力依赖多模态视觉模型。\n设置 → Agent:选厂商预设,填入你的 API Key。",
-            style = MaterialTheme.typography.bodySmall,
+            "设置视觉模型后，AI 教师即可讲解页面、归纳章节和回答提问。",
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(14.dp))
-        MilkButton("去设置", onClick = { onOpenSettings("agent") })
+        Spacer(Modifier.height(18.dp))
+        MilkButton("设置模型", onClick = { onOpenSettings("agent") })
     }
 }
 
@@ -861,7 +827,7 @@ private fun ActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit,
 ) {
-    MilkChip(
+    MilkActionChip(
         label = label,
         selected = accent,
         enabled = enabled,
@@ -959,9 +925,9 @@ private fun Composer(
                 Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                MilkChip(label = "框选题目", selected = false, onClick = onSnip, small = true)
-                MilkChip(label = "讲解本页", selected = false, onClick = onExplainPage, small = true)
-                MilkChip(label = "归纳本章", selected = false, onClick = onSummarizeChapter, small = true)
+                MilkActionChip(label = "框选题目", onClick = onSnip, small = true)
+                MilkActionChip(label = "讲解本页", onClick = onExplainPage, small = true)
+                MilkActionChip(label = "归纳本章", onClick = onSummarizeChapter, small = true)
             }
         }
         // 附件卡片行:挂在输入框上方,✕ 可移除,随下一条消息发出
@@ -1156,7 +1122,7 @@ private fun AttachmentPanel(
 
 @Composable
 private fun AttachPick(label: String, onClick: () -> Unit) {
-    MilkChip(label = label, selected = false, onClick = onClick)
+    MilkActionChip(label = label, onClick = onClick)
 }
 
 /** 草稿附件卡片(logicalName + 尺寸 + ✕ 移除;移除命中扩大) */

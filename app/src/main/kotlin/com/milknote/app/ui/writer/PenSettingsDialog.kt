@@ -244,10 +244,10 @@ internal fun PenSettingsDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("笔盒", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         if (presets.isNotEmpty()) {
-                            com.milknote.app.ui.common.MilkChip(label = "清空", selected = false, onClick = onClearPresets, small = true)
+                            com.milknote.app.ui.common.MilkActionChip(label = "清空", onClick = onClearPresets, small = true)
                             Spacer(Modifier.width(6.dp))
                         }
-                        com.milknote.app.ui.common.MilkChip(label = "+ 收藏", selected = true, onClick = onSavePreset, small = true)
+                        com.milknote.app.ui.common.MilkActionChip(label = "+ 收藏", selected = true, onClick = onSavePreset, small = true)
                     }
                     Spacer(Modifier.height(8.dp))
                     if (presets.isEmpty()) {

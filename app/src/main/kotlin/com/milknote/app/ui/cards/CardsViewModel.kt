@@ -19,6 +19,7 @@ data class CardsUiState(
     val query: String = "",
     val tag: CardTagFilter = CardTagFilter.All,
     val color: String? = null,
+    val sourceLabels: Map<String, String> = emptyMap(),
 )
 
 class CardsViewModel : ViewModel() {
@@ -69,9 +70,19 @@ class CardsViewModel : ViewModel() {
             val filtered = repo.filterCards(all, current.query, current.tag, current.color)
             val tags = all.flatMap { it.tags }.map { it.trim() }.filter { it.isNotEmpty() }
                 .distinctBy { it.lowercase() }.sorted()
+            val notebookRepo = ServiceLocator.repository
+            val sourceIds = all.mapNotNull { it.sourceNotebookId }.distinct()
+            val notebooks = sourceIds.associateWith { notebookRepo.getNotebook(it) }
+            val pageIds = sourceIds.associateWith { id ->
+                notebooks[id]?.let { notebookRepo.listPages(id).map { page -> page.pageId } }.orEmpty()
+            }
+            val sourceLabels = all.mapNotNull { card ->
+                val sourceId = card.sourceNotebookId ?: return@mapNotNull null
+                card.id to cardSourceLabel(notebooks[sourceId]?.name, pageIds[sourceId].orEmpty(), card.sourcePageId)
+            }.toMap()
             withContext(Dispatchers.Main) {
                 if (generation == refreshGeneration) {
-                    _state.value = _state.value.copy(cards = filtered, allTags = tags)
+                    _state.value = _state.value.copy(cards = filtered, allTags = tags, sourceLabels = sourceLabels)
                 }
             }
         }

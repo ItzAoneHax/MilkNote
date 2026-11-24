@@ -20,7 +20,7 @@
 - [ ] 命令面板(⌘K 胶囊)「框选讲解」同样落入引导
 
 ## 3. Provider 配置(设置 → Agent)
-- [ ] 「+ 新增 Provider」:12 家预设 + 自定义;选预设自动填 baseUrl/前沿视觉模型;自定义需手填
+- [ ] 「+ 添加模型服务」:12 家预设 + 自定义;选预设自动填 baseUrl/前沿视觉模型;自定义需手填
 - [ ] 填 API Key 保存:卡片**无「缺 Key」红字**;Key 只显示掩码(明文不落盘,Android Keystore 加密)
 - [ ] 「测试连接」:✓ 鉴权可达 · xx ms(仅验鉴权,无视觉探测)
 - [ ] 「拉取模型列表」:尽力而为;OpenRouter 能自动按元数据标视觉
@@ -43,7 +43,7 @@
 ## 4A. Anthropic 原生协议(A2,2026-11-02)
 - [ ] 预设「Anthropic Claude」现为原生 /v1/messages:填 Key → 测试连接 ✓ → 框选讲解全链路
 - [ ] **仅 Anthropic 格式的模型/中转站**(如 Claude 系中转 `https://…/anthropic`、DeepSeek `/anthropic` 端点):
-      新增 Provider → 自定义 → 协议选「**Anthropic 原生**」→ baseUrl 填中转地址(带不带 /v1 均可)→ 填模型
+      添加模型服务 → 自定义 → 协议选「**Anthropic 原生**」→ baseUrl 填中转地址(带不带 /v1 均可)→ 填模型
 - [ ] 流式逐字、usage(`x.xk→x.xk tok`)、停止/重试与 OpenAI 路径一致
 - [ ] 过载(529)与服务端错误提示正确、自动退避
 - [ ] 卡片上可见「· Anthropic 原生」标签

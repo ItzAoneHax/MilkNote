@@ -100,10 +100,7 @@ fun MilkSectionLabel(
 
 // ==================== 芯片 ====================
 
-/**
- * 统一选项芯片(32/38dp 胶囊):未选 = 透明底 + hairline;选中 = 强调色淡底 + 强调色描边 + 强调色字。
- * 命中区按触控最小尺寸外扩到 48dp。
- */
+/** 互斥选项胶囊：选中态使用强调蓝，实际命中区至少 48dp。 */
 @Composable
 fun MilkChip(
     label: String,
@@ -113,6 +110,7 @@ fun MilkChip(
     enabled: Boolean = true,
     small: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
+    role: Role = Role.RadioButton,
 ) {
     val cs = MaterialTheme.colorScheme
     val bg by animateColorAsState(
@@ -132,8 +130,9 @@ fun MilkChip(
             .clip(PillShape)
             .background(bg)
             .border(1.dp, border, PillShape)
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
-            .defaultMinSize(minHeight = if (small) 32.dp else 38.dp)
+            .testTag("milk-chip-$label")
+            .clickable(enabled = enabled, role = role, onClick = onClick)
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .padding(horizontal = if (small) 12.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -150,6 +149,29 @@ fun MilkChip(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** 触发一次动作的胶囊；与互斥选项分开声明读屏角色。 */
+@Composable
+fun MilkActionChip(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    small: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
+    selected: Boolean = false,
+) {
+    MilkChip(
+        label = label,
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        small = small,
+        leading = leading,
+        role = Role.Button,
+    )
 }
 
 /** 芯片流式布局的行间距约定:横向 6dp、纵向 6dp */
@@ -178,7 +200,7 @@ fun MilkColorDot(
     val desc = contentDescription?.let { if (selected) "$it,已选中" else it }
     Box(
         modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics { if (desc != null) this.contentDescription = desc },
@@ -200,7 +222,7 @@ fun MilkColorDot(
 
 // ==================== 分段控件 ====================
 
-/** 分段控件:互斥少量选项(2–4 个),30dp 段;选中段 surface 底上浮 */
+/** 分段控件:互斥少量选项(2–4 个),48dp 命中高度;选中段使用 surface 底色。 */
 @Composable
 fun <T> MilkSegmented(
     options: List<T>,
@@ -228,7 +250,7 @@ fun <T> MilkSegmented(
                 Box(
                     Modifier
                         .weight(1f)
-                        .height(30.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(7.dp))
                         .background(bg)
                         .clickable(enabled = enabled, role = Role.RadioButton, onClick = { onSelect(option) })

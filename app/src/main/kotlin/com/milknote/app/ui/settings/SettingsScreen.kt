@@ -48,7 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.milknote.app.di.ServiceLocator
-import com.milknote.app.ui.common.MilkColorDot
 import com.milknote.app.ui.common.MilkSwitch
 import com.milknote.app.ui.theme.ChromeDark
 import com.milknote.app.ui.theme.ChromeLight
@@ -64,8 +63,6 @@ import com.milknote.device.pen.PenAction
 import com.milknote.device.pen.PenTrigger
 import com.milknote.ink.input.PressureCurve
 import com.milknote.ink.model.PressureGamma
-import com.milknote.notes.model.PAPER_COLORS
-import com.milknote.notes.model.PAPER_KINDS
 import kotlinx.coroutines.launch
 
 /**
@@ -171,21 +168,20 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                             "pen" -> PenPage(mapping = mapping, caps = caps, battery = battery, batterySource = batterySource, permLauncher = permLauncher)
                             "shortcuts" -> ShortcutsPage()
                             "agent" -> {
-                                SettingsPageHeader("模型与隐私", "视觉模型 Provider 与 Key；Key 经 Android Keystore 加密仅存本机，不随笔记本备份")
+                                SettingsPageHeader("模型与隐私", "配置 AI 教师使用的视觉模型，以及内容发送范围")
                                 AgentSettingsSection()
                                 Spacer(Modifier.height(6.dp))
                                 SettingsSectionHeader("隐私")
                                 SettingsCard {
                                     SettingsRow(
                                         title = "API Key 存储",
-                                        subtitle = "Android Keystore 加密 · 仅本机 · 不随备份导出",
+                                        subtitle = "Android Keystore 加密",
                                         trailing = { Text("仅本机", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary) },
                                     )
                                     Hairline()
                                     SettingsRow(
                                         title = "上下文边界",
                                         subtitle = "只上传显式框选的切片或手动附加的页面，不扫描整本笔记",
-                                        trailing = { Text("显式", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     )
                                 }
                             }
@@ -222,47 +218,36 @@ private fun AppearancePage(
     }
     SettingsSectionHeader("默认纸张")
     SettingsCard {
-        // 七种纸纹芯片较宽,放在标题下方独占一行,避免挤压标题列
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text("默认纸纹", fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
-            Spacer(Modifier.height(2.dp))
-            Text("新建笔记本的初始纸纹", fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                PAPER_KINDS.forEach { (id, label) ->
-                    com.milknote.app.ui.common.MilkChip(label = label, selected = appSettings.defaultPaper == id, onClick = { setDefaultPaper(id) }, small = true)
-                }
-            }
+            com.milknote.app.ui.common.PaperKindSelector(
+                selected = appSettings.defaultPaper,
+                onSelect = setDefaultPaper,
+            )
         }
         Hairline()
-        SettingsRow(
-            title = "默认纸色",
-            subtitle = PAPER_COLORS.firstOrNull { it.first.equals(appSettings.defaultPaperColor, ignoreCase = true) }?.second ?: "纯白",
-            trailing = {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PAPER_COLORS.forEach { (hex, label) ->
-                        MilkColorDot(
-                            color = Color(android.graphics.Color.parseColor(hex)),
-                            selected = appSettings.defaultPaperColor.equals(hex, ignoreCase = true),
-                            onClick = { setDefaultPaperColor(hex) },
-                            dotSize = 16.dp,
-                            contentDescription = label,
-                        )
-                    }
-                }
-            },
-        )
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("默认纸色", fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.height(10.dp))
+            com.milknote.app.ui.common.PaperColorSelector(
+                selected = appSettings.defaultPaperColor,
+                onSelect = setDefaultPaperColor,
+            )
+        }
     }
     SettingsSectionHeader("界面")
     SettingsCard {
         SettingsRow(
             title = "书架默认视图",
-            subtitle = "打开书架时使用网格还是列表",
             trailing = {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    com.milknote.app.ui.common.MilkChip(label = "网格", selected = !appSettings.bookshelfListView, onClick = { setBookshelfList(false) }, small = true)
-                    com.milknote.app.ui.common.MilkChip(label = "列表", selected = appSettings.bookshelfListView, onClick = { setBookshelfList(true) }, small = true)
-                }
+                com.milknote.app.ui.common.MilkSegmented(
+                    options = listOf(false, true),
+                    selected = appSettings.bookshelfListView,
+                    label = { if (it) "列表" else "网格" },
+                    onSelect = setBookshelfList,
+                    modifier = Modifier.width(168.dp),
+                )
             },
         )
     }

@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -69,7 +68,6 @@ import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.milkDialogSurface
 import com.milknote.app.ui.common.accentBrush
-import com.milknote.app.ui.common.dashedBorder
 import com.milknote.app.ui.common.innerHighlight
 import com.milknote.app.ui.common.paintedShadow
 import com.milknote.app.ui.common.softClickable
@@ -78,7 +76,7 @@ import com.milknote.app.ui.theme.Mono
 import kotlinx.coroutines.launch
 
 /**
- * 设置 → Agent(A2.4 逻辑 + A2.7 视觉重构,选择列表模式迁移自 deepseek-harness ui-settings-models):
+ * 设置 → AI 教师(A2.4 逻辑 + A2.7 视觉重构,选择列表模式迁移自 deepseek-harness ui-settings-models):
  * - Provider 卡 = 主字段「只写 API Key」+ 折叠自定义区(harness ProviderEditor 同款)
  * - 模型目录 = 行式编辑器:id 行 + 展开区(显示名/输入类型/思考档位声明/容量)(harness ModelRow)
  * - 拉取 = 候选勾选选择器,一次加减多个,默认勾选已配置项(harness fetch picker)
@@ -141,35 +139,19 @@ fun AgentSettingsSection() {
             Spacer(Modifier.height(10.dp))
         }
 
-        // 新增(虚线卡:图标容器 + 标题 + 说明 + 箭头)
         Row(
             Modifier
                 .fillMaxWidth()
-                .dashedBorder(MaterialTheme.colorScheme.outline.copy(alpha = 0.9f), cornerRadius = 18.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .clickable { adding = true }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(role = androidx.compose.ui.semantics.Role.Button) { adding = true }
+                .defaultMinSize(minHeight = 48.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text("新增 Provider", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(2.dp))
-                Text("预设 12 家，或自定义兼容端点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Text("添加模型服务", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
         }
-
-        FooterHint("思考档位按模型声明，每家不同；拉取不覆盖已调过的声明。")
     }
 
     if (adding) {
@@ -748,7 +730,7 @@ private fun capacityLine(m: ModelInfo): String = buildString {
     if (isEmpty()) append("—")
 }
 
-// ==================== 新增 Provider(预设 → 字段 → 协议 → Key) ====================
+// ==================== 添加模型服务(预设 → 字段 → 协议 → Key) ====================
 
 @Composable
 private fun AddProviderDialog(
@@ -762,7 +744,7 @@ private fun AddProviderDialog(
     var anthropic by remember { mutableStateOf(false) }
 
     DialogCard(
-        title = "新增 Provider",
+        title = "添加模型服务",
         subtitle = "先选预设，再填 Key；协议按端点实际情况切换",
         onDismiss = onCancel,
         actions = {
@@ -823,7 +805,7 @@ private fun AddProviderDialog(
     }
 }
 
-/** 标准浮层卡片(新增 Provider 等):统一头 + 可滚动内容 + 右对齐动作行 */
+/** 标准浮层卡片(添加模型服务 等):统一头 + 可滚动内容 + 右对齐动作行 */
 @Composable
 internal fun DialogCard(
     title: String,

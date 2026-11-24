@@ -88,7 +88,7 @@ internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = li
         SettingsNavItem("pen", "触控笔", Icons.Outlined.Gesture),
         SettingsNavItem("shortcuts", "手势与快捷键", Icons.Outlined.Keyboard),
     ),
-    "Agent" to listOf(
+    "AI 教师" to listOf(
         SettingsNavItem("agent", "模型与隐私", Icons.Outlined.SmartToy),
     ),
     "数据" to listOf(

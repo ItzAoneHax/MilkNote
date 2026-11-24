@@ -153,7 +153,7 @@ fun CardsScreen(
                     selected = selected,
                     dotSize = 22.dp,
                     onClick = { vm.filterColor(if (selected) null else hex) },
-                    contentDescription = "按颜色筛选",
+                    contentDescription = "按颜色筛选 ${com.milknote.app.ui.common.coverColorName(hex)}",
                 )
             }
         }
@@ -219,7 +219,7 @@ fun CardsScreen(
                         Spacer(Modifier.height(8.dp))
                         card.imageSrc?.let { CardImage(it) }
                         Text(
-                            card.body.ifBlank { "图片摘取" },
+                            cardPreviewText(card.title, card.body).ifBlank { if (card.imageSrc != null) "图片摘取" else "" },
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, lineHeight = 20.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 6,
@@ -244,7 +244,7 @@ fun CardsScreen(
                         if (card.sourceNotebookId != null) {
                             Spacer(Modifier.height(10.dp))
                             Text(
-                                "来源 ${card.sourceNotebookId} · ${card.sourcePageId ?: "页面"}",
+                                state.sourceLabels[card.id] ?: "来源不可用",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -314,7 +314,7 @@ internal fun CardEditorPanel(
                         color = cardColor(hex),
                         selected = color == hex,
                         onClick = { color = hex },
-                        contentDescription = "卡片颜色",
+                        contentDescription = "卡片颜色 ${com.milknote.app.ui.common.coverColorName(hex)}",
                     )
                 }
             }

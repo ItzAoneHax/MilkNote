@@ -14,6 +14,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -83,15 +84,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -102,6 +100,7 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.cards.CardEditorPanel
 import com.milknote.app.ui.cards.CardImage
 import com.milknote.app.ui.cards.CardsViewModel
+import com.milknote.app.ui.cards.cardPreviewText
 import com.milknote.app.ui.cards.InsertCardPanel
 import com.milknote.app.ui.cards.cardColor
 import com.milknote.app.ui.common.MilkActionPanel
@@ -856,7 +855,7 @@ private fun SideNavRow(
 // ==================== 主区顶栏 ====================
 
 @Composable
-private fun BookshelfHeaderBar(
+internal fun BookshelfHeaderBar(
     title: String,
     railCollapsed: Boolean,
     isCards: Boolean,
@@ -875,13 +874,15 @@ private fun BookshelfHeaderBar(
     onEmptyTrash: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .padding(start = 28.dp, end = 32.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    BoxWithConstraints {
+        val compact = isCards && maxWidth < 560.dp
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(start = if (compact) 16.dp else 28.dp, end = if (compact) 16.dp else 32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         if (railCollapsed) {
             Box(
                 Modifier
@@ -909,7 +910,11 @@ private fun BookshelfHeaderBar(
 
         Spacer(Modifier.weight(1f))
 
-        SearchCommandPill(onClick = onSearch)
+        if (compact) {
+            MilkIconButton(Icons.Outlined.Search, "搜索", onClick = onSearch)
+        } else {
+            SearchCommandPill(onClick = onSearch)
+        }
 
         if (!isCards) {
             Spacer(Modifier.width(6.dp))
@@ -980,7 +985,7 @@ private fun BookshelfHeaderBar(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        if (isCards) "新建卡片" else "新建",
+                        if (isCards && !compact) "新建卡片" else "新建",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = cs.onPrimary,
@@ -1005,6 +1010,7 @@ private fun BookshelfHeaderBar(
                 }
             }
         }
+    }
     }
 }
 
@@ -1075,7 +1081,6 @@ private fun PortraitBookItem(
             } else {
                 PortraitBookPaperArt(
                     meta = meta,
-                    coverColor = cover,
                     sheetBg = sheetBg,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -1194,137 +1199,34 @@ private fun PortraitBookItem(
     }
 }
 
-/** 封面纸面纹理与自然手写笔迹示意（恒亮色纸面） */
+/** 无真实缩略图时，仅呈现实际存在的封面属性。 */
 @Composable
 private fun PortraitBookPaperArt(
     meta: NotebookMeta,
-    coverColor: Color,
     sheetBg: Color,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.background(sheetBg)) {
-        Canvas(Modifier.fillMaxSize().padding(start = 11.dp)) {
-            val inkMuted = Color(0xFF18191B).copy(alpha = 0.14f)
-            when (meta.paper) {
-                "dot" -> {
-                    val step = 18.dp.toPx()
-                    var y = step
-                    while (y < size.height - 12.dp.toPx()) {
-                        var x = step
-                        while (x < size.width - 10.dp.toPx()) {
-                            drawCircle(inkMuted, radius = 1.1f, center = Offset(x, y))
-                            x += step
-                        }
-                        y += step
-                    }
-                }
-                "line", "english" -> {
-                    val step = 20.dp.toPx()
-                    var y = 34.dp.toPx()
-                    while (y < size.height - 16.dp.toPx()) {
-                        drawLine(
-                            Color(0xFF2563EB).copy(alpha = 0.13f),
-                            Offset(12.dp.toPx(), y),
-                            Offset(size.width - 12.dp.toPx(), y),
-                            strokeWidth = 1.dp.toPx(),
-                        )
-                        y += step
-                    }
-                }
-                "grid", "tian" -> {
-                    val step = 20.dp.toPx()
-                    var x = step
-                    while (x < size.width) {
-                        drawLine(inkMuted.copy(alpha = 0.08f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
-                        x += step
-                    }
-                    var y = step
-                    while (y < size.height) {
-                        drawLine(inkMuted.copy(alpha = 0.08f), Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
-                        y += step
-                    }
-                }
-                "cornell" -> {
-                    val headerY = size.height * 0.15f
-                    val cueX = size.width * 0.28f
-                    drawLine(
-                        Color(0xFF2563EB).copy(alpha = 0.32f),
-                        Offset(8.dp.toPx(), headerY),
-                        Offset(size.width - 8.dp.toPx(), headerY),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                    drawLine(
-                        RedPen.copy(alpha = 0.42f),
-                        Offset(cueX, headerY),
-                        Offset(cueX, size.height - 12.dp.toPx()),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                }
-            }
-
-            // 纸面手写曲线与公式高亮示意
-            val startX = 16.dp.toPx()
-            val endX = size.width - 18.dp.toPx()
-            if (endX > startX + 20f) {
-                drawRoundRect(
-                    color = Color(0xFFFDE047).copy(alpha = 0.42f),
-                    topLeft = Offset(startX, size.height * 0.24f),
-                    size = Size((endX - startX) * 0.62f, 14.dp.toPx()),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx()),
-                )
-                val curve1 = Path().apply {
-                    moveTo(startX, size.height * 0.46f)
-                    cubicTo(
-                        startX + (endX - startX) * 0.3f, size.height * 0.42f,
-                        startX + (endX - startX) * 0.6f, size.height * 0.50f,
-                        endX * 0.88f, size.height * 0.45f,
-                    )
-                }
-                drawPath(
-                    curve1,
-                    color = coverColor.copy(alpha = 0.72f),
-                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round),
-                )
-                val curve2 = Path().apply {
-                    moveTo(startX, size.height * 0.60f)
-                    cubicTo(
-                        startX + (endX - startX) * 0.25f, size.height * 0.57f,
-                        startX + (endX - startX) * 0.55f, size.height * 0.63f,
-                        startX + (endX - startX) * 0.72f, size.height * 0.59f,
-                    )
-                }
-                drawPath(
-                    curve2,
-                    color = Color(0xFF18191B).copy(alpha = 0.42f),
-                    style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round),
-                )
-            }
-        }
-
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 24.dp, end = 14.dp, top = 20.dp),
-        ) {
-            Text(
-                meta.name,
-                fontFamily = FontFamily.Serif,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF18191B),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                if (meta.isPdf) "Qᵀ A Q = Λ" else "A x = λ x",
-                fontFamily = FontFamily.Serif,
-                fontStyle = FontStyle.Italic,
-                fontSize = 12.5.sp,
-                color = coverColor,
-                maxLines = 1,
-            )
-        }
+        com.milknote.app.ui.common.NotebookPaperPattern(
+            kind = meta.paper,
+            modifier = Modifier.fillMaxSize().padding(start = 11.dp),
+        )
+        Text(
+            meta.name,
+            fontFamily = FontFamily.Serif,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF18191B),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 14.dp, top = 20.dp),
+        )
+        Text(
+            com.milknote.notes.model.PAPER_KINDS.firstOrNull { it.first == meta.paper }?.second.orEmpty(),
+            style = com.milknote.app.ui.theme.MonoMeta.copy(fontSize = 10.sp),
+            color = Color(0xFF757B84),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 8.dp),
+        )
     }
 }
 
@@ -1473,7 +1375,7 @@ private fun BookshelfCardsContent(
                     selected = selected,
                     dotSize = 20.dp,
                     onClick = { vm.filterColor(if (selected) null else hex) },
-                    contentDescription = "按颜色筛选",
+                    contentDescription = "按颜色筛选 ${com.milknote.app.ui.common.coverColorName(hex)}",
                 )
             }
         }
@@ -1545,7 +1447,7 @@ private fun BookshelfCardsContent(
                         card.imageSrc?.let { CardImage(it) }
                         if (card.body.isNotBlank()) {
                             Text(
-                                card.body,
+                                cardPreviewText(card.title, card.body),
                                 fontSize = 13.sp,
                                 lineHeight = 20.sp,
                                 color = cs.onSurfaceVariant,
@@ -1561,7 +1463,7 @@ private fun BookshelfCardsContent(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = card.sourceNotebookId?.let { "$it · ${card.sourcePageId ?: "p0001"}" } ?: "",
+                                    text = card.sourceNotebookId?.let { state.sourceLabels[card.id] ?: "来源不可用" }.orEmpty(),
                                     fontFamily = Mono,
                                     fontSize = 11.sp,
                                     color = cs.onSurfaceVariant.copy(alpha = 0.8f),
