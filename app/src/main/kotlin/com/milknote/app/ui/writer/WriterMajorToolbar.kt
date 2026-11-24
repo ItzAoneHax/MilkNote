@@ -1,5 +1,6 @@
 package com.milknote.app.ui.writer
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -32,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,8 +45,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkAnchoredMenu
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.PillShape
 
 internal val WriterMajorToolbarHeight = 44.dp
 
@@ -111,12 +116,20 @@ internal fun WriterMajorToolbar(
                     val selected = tab.id == state.notebook?.id
                     val dotColor = runCatching { Color(android.graphics.Color.parseColor(tab.coverColor)) }
                         .getOrDefault(cs.primary)
+                    val tabBg by animateColorAsState(
+                        if (selected) cs.surfaceVariant else Color.Transparent,
+                        MilkMotion.colorSpec(), label = "writerTabBg",
+                    )
+                    val tabFg by animateColorAsState(
+                        if (selected) cs.onBackground else cs.onSurfaceVariant,
+                        MilkMotion.colorSpec(), label = "writerTabFg",
+                    )
                     Row(
                         Modifier
                             .height(30.dp)
                             .widthIn(max = 200.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) cs.surfaceVariant else Color.Transparent)
+                            .clip(RoundedCornerShape(MilkRadius.sm))
+                            .background(tabBg)
                             .clickable { onSelectTab(tab.id) }
                             .padding(start = 10.dp, end = if (state.openTabs.size > 1) 5.dp else 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -125,9 +138,8 @@ internal fun WriterMajorToolbar(
                         Spacer(Modifier.width(7.dp))
                         Text(
                             tab.name,
-                            fontSize = 12.5.sp,
-                            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                            color = if (selected) cs.onBackground else cs.onSurfaceVariant,
+                            style = if (selected) MilkText.label else MilkText.label.copy(fontWeight = FontWeight.Normal),
+                            color = tabFg,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -163,7 +175,7 @@ internal fun WriterMajorToolbar(
             Row(
                 Modifier
                     .height(32.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(PillShape)
                     .background(if (recording) cs.error.copy(alpha = 0.12f) else Color.Transparent)
                     .clickable(onClick = onRecord)
                     .testTag("writer-record")
@@ -179,7 +191,7 @@ internal fun WriterMajorToolbar(
                 )
                 if (recording) {
                     Spacer(Modifier.width(5.dp))
-                    Text("录音中", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = cs.error)
+                    Text("录音中", style = MilkText.micro, color = cs.error)
                 }
             }
             BarIcon(Icons.Outlined.CropFree, "专注模式", false, onEnterFocus, "writer-focus")
@@ -210,10 +222,19 @@ private fun BarIcon(
     tag: String,
     badge: Boolean = false,
 ) {
+    val cs = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        if (active) cs.primary.copy(alpha = 0.12f) else Color.Transparent,
+        MilkMotion.colorSpec(), label = "writerBarIconBg",
+    )
+    val tint by animateColorAsState(
+        if (active) cs.primary else cs.onSurfaceVariant,
+        MilkMotion.colorSpec(), label = "writerBarIconTint",
+    )
     Box(
         Modifier
             .size(36.dp, WriterMajorToolbarHeight)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .clickable(onClick = onClick)
             .testTag(tag)
             .semantics { contentDescription = label },
@@ -222,15 +243,15 @@ private fun BarIcon(
         Box(
             Modifier
                 .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent),
+                .clip(RoundedCornerShape(MilkRadius.sm))
+                .background(container),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
-                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = tint,
             )
         }
         if (badge) {

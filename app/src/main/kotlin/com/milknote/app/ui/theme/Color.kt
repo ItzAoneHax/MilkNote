@@ -31,6 +31,25 @@ val GreenOkDark = Color(0xFF5CC498)
 val WarnAmberDark = Color(0xFFE8A838)
 val DotDark = Color(0xFF282A30)
 
+// ---- 语义表面 / 浮层(第二代统一 token) ----
+/** 暗色模式下的抬升表面:分段滑块 / 悬浮胶囊底,比 SurfaceDark 再亮一阶 */
+val SurfaceElevatedDark = Color(0xFF282B32)
+/** hairline 分隔线(比 outline 更克制,仅用于层次暗示) */
+val DividerLight = Color(0xFFE8EAEE)
+val DividerDark = Color(0xFF2A2D34)
+/** 深色浮层(toast / 悬浮提示):亮暗主题共用一套前景,底与描边按主题微调 */
+val OverlaySurfaceLight = Color(0xF21C1D20)
+val OverlaySurfaceDark = Color(0xF22A2D34)
+val OverlayBorderDark = Color(0x2EFFFFFF)
+val OverlayText = Color(0xFFF4F5F7)
+val OverlayMuted = Color(0xFFB4BAC5)
+/** 框选遮罩:压暗画布但保留纸面可辨 */
+val ScrimCanvas = Color(0x8C0E0F14)
+/** 纸面固有边界与墨色(封面/纸样恒亮,不随主题反转) */
+val PaperBorder = Color(0x1818191B)
+val PaperInk = Color(0xFF18191B)
+val PaperMeta = Color(0xFF6B7280)
+
 // ---- 诊断终端(不随主题反转的固定深色;A-01) ----
 val ConsoleBg = Color(0xFF14161B)       // 终端底:两主题恒深
 val ConsoleText = Color(0xFFE8E6E0)     // 正文(14.5:1)

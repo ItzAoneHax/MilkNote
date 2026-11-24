@@ -5,7 +5,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -83,24 +85,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.milknote.app.di.ServiceLocator
 import kotlinx.coroutines.flow.map
@@ -109,14 +111,24 @@ import com.milknote.app.ui.agent.AgentDrawerHost
 import com.milknote.app.ui.agent.SnipOverlay
 import com.milknote.app.ui.cards.CardsViewModel
 import com.milknote.app.ui.common.MilkActionPanel
-import com.milknote.app.ui.common.MilkButton
-import com.milknote.app.ui.common.MilkButtonVariant
-import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkPanelAction
-import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.MilkToast
+import com.milknote.app.ui.common.milkEdgeHairline
+import com.milknote.app.ui.common.milkGlassRim
 import com.milknote.app.ui.common.softClickable
 import com.milknote.app.ui.common.softShadow
-import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.AccentBlueDark
+import com.milknote.app.ui.theme.LocalMilkDark
+import com.milknote.app.ui.theme.LocalMilkMotion
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.OverlayBorderDark
+import com.milknote.app.ui.theme.OverlayMuted
+import com.milknote.app.ui.theme.OverlaySurfaceDark
+import com.milknote.app.ui.theme.OverlaySurfaceLight
+import com.milknote.app.ui.theme.OverlayText
 import com.milknote.app.ui.theme.PillShape
 import com.milknote.device.pen.PenAction
 import com.milknote.ink.input.InkAction
@@ -397,15 +409,14 @@ fun WriterScreen(
                             ) {
                                 Text(
                                     state.notebook?.name ?: "",
-                                    fontSize = 11.5.sp,
+                                    style = MilkText.caption,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
                                     "${state.currentPageIndex + 1} / ${state.pages.size.coerceAtLeast(1)}",
-                                    fontFamily = Mono,
-                                    fontSize = 11.5.sp,
+                                    style = MilkText.monoMeta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -421,30 +432,31 @@ fun WriterScreen(
                             ) {
                                 Text(
                                     splitNb.name,
-                                    fontSize = 11.5.sp,
+                                    style = MilkText.caption,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "‹",
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.clickable { vm.stepSplitPage(-1) }.padding(horizontal = 6.dp),
+                                    SplitPageStep(
+                                        icon = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                                        label = "上一页",
+                                        enabled = state.splitPageIndex > 0,
+                                        onClick = { vm.stepSplitPage(-1) },
                                     )
                                     Text(
                                         "${(state.splitPageIndex + 1).coerceAtLeast(1)} / ${state.splitPages.size.coerceAtLeast(1)}",
-                                        fontFamily = Mono,
-                                        fontSize = 11.5.sp,
+                                        style = MilkText.monoMeta,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 2.dp),
                                     )
-                                    Text(
-                                        "›",
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.clickable { vm.stepSplitPage(1) }.padding(horizontal = 6.dp),
+                                    SplitPageStep(
+                                        icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        label = "下一页",
+                                        enabled = state.splitPageIndex >= 0 &&
+                                            state.splitPageIndex < state.splitPages.lastIndex,
+                                        onClick = { vm.stepSplitPage(1) },
                                     )
                                 }
                             }
@@ -456,8 +468,6 @@ fun WriterScreen(
                 } else {
                     PaperCanvas(vm, state, dark, penConnected, surfaceRef, selectedMajorTool == WriterMajorTool.READING, swipeNewPage = appSettings.swipeNewPage)
                 }
-                // 纸面暗角(纯显示层,不参与导出)
-                Box(Modifier.matchParentSize().paperVignette(dark))
                 shapeConfig?.let { config ->
                     if (state.snip.phase == SnipPhase.IDLE) {
                         ShapeOverlay(
@@ -525,7 +535,7 @@ fun WriterScreen(
                     onMoveDown = { vm.reorderSelection(false) },
                     onSend = vm::sendSelectionToAgent,
                     onEdit = if (state.selectionCount == 1 && vm.selectedTextCard() != null) {
-                        { vm.selectedTextCard()?.let { editingText = it } }
+                        { vm.selectedTextCard()?.let { openTextPanel(it) } }
                     } else null,
                     onDelete = vm::deleteSelection,
                     onClear = vm::clearSelection,
@@ -541,7 +551,7 @@ fun WriterScreen(
                 // 轻提示 toast:底部滑入
                 var lastToast by remember { mutableStateOf("") }
                 toast?.let { lastToast = it }
-                ToastBar(
+                MilkToast(
                     visible = toast != null,
                     text = lastToast,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
@@ -549,40 +559,53 @@ fun WriterScreen(
             }
 
         if (!focusMode) {
+            val reduced = LocalMilkMotion.current
             val railWidth = if (railMode == null) 0.dp else WriterExpandedRailWidth
             val minorVisible = !minorCollapsed && selectedMajorTool != WriterMajorTool.READING
-            when (railMode) {
-                WriterRailMode.PAGES -> WriterPageRail(
-                    state = state,
-                    thumbs = thumbs,
-                    onSwitch = vm::switchPage,
-                    onNewPage = openNewPage,
-                    onDuplicatePage = vm::duplicatePage,
-                    onClearPage = vm::clearPage,
-                    onDeletePage = vm::deletePage,
-                    onMovePage = vm::movePage,
-                    onPrevious = vm::previousPage,
-                    onNext = vm::nextPage,
-                    onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
-                    onShowOutline = { railMode = WriterRailMode.OUTLINE },
-                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
-                )
-                WriterRailMode.SNIPPETS -> WriterSnippetRail(
-                    vm = cardsVm,
-                    currentNotebookId = state.notebook?.id,
-                    currentPageId = state.currentPageId,
-                    onInsert = { vm.insertLibraryCard(it, state.currentPageId) },
-                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
-                )
-                WriterRailMode.OUTLINE -> WriterOutlineRail(
-                    state = state,
-                    entries = remember(state.currentPageId, state.pages, state.pageMarkdown) { vm.outlineEntries() },
-                    onSwitch = vm::switchPage,
-                    onShowPages = { railMode = WriterRailMode.PAGES },
-                    onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
-                    modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
-                )
-                null -> Unit
+            // 记住最近非空页签:退出动画期间继续渲染旧内容,不做空切
+            var lastRailMode by remember { mutableStateOf(WriterRailMode.PAGES) }
+            LaunchedEffect(railMode) { railMode?.let { lastRailMode = it } }
+            AnimatedVisibility(
+                visible = railMode != null,
+                modifier = Modifier.align(Alignment.TopStart).padding(top = chromeHeight),
+                enter = if (reduced) fadeIn(tween(MilkMotion.reduced))
+                else slideInHorizontally(tween(MilkMotion.drawerEnter, easing = MilkMotion.EaseDrawer)) { -it } +
+                    fadeIn(tween(MilkMotion.enter, easing = MilkMotion.EaseOut)),
+                exit = if (reduced) fadeOut(tween(MilkMotion.reduced))
+                else slideOutHorizontally(tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer)) { -it } +
+                    fadeOut(tween(MilkMotion.exit, easing = MilkMotion.EaseOut)),
+            ) {
+                when (railMode ?: lastRailMode) {
+                    WriterRailMode.PAGES -> WriterPageRail(
+                        state = state,
+                        thumbs = thumbs,
+                        onSwitch = vm::switchPage,
+                        onNewPage = openNewPage,
+                        onDuplicatePage = vm::duplicatePage,
+                        onClearPage = vm::clearPage,
+                        onDeletePage = vm::deletePage,
+                        onMovePage = vm::movePage,
+                        onPrevious = vm::previousPage,
+                        onNext = vm::nextPage,
+                        onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
+                        onShowOutline = { railMode = WriterRailMode.OUTLINE },
+                    )
+                    WriterRailMode.SNIPPETS -> WriterSnippetRail(
+                        vm = cardsVm,
+                        currentNotebookId = state.notebook?.id,
+                        currentPageId = state.currentPageId,
+                        onInsert = { vm.insertLibraryCard(it, state.currentPageId) },
+                        onShowPages = { railMode = WriterRailMode.PAGES },
+                        onShowOutline = { railMode = WriterRailMode.OUTLINE },
+                    )
+                    WriterRailMode.OUTLINE -> WriterOutlineRail(
+                        state = state,
+                        entries = remember(state.currentPageId, state.pages, state.pageMarkdown) { vm.outlineEntries() },
+                        onSwitch = vm::switchPage,
+                        onShowPages = { railMode = WriterRailMode.PAGES },
+                        onShowSnippets = { railMode = WriterRailMode.SNIPPETS },
+                    )
+                }
             }
             // 笔匣四边停靠(拖拽柄):松手按最近边吸附;拖动中显示落位预览条
             val windowSize = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
@@ -592,11 +615,21 @@ fun WriterScreen(
                 MinorDock.LEFT to x,
                 MinorDock.RIGHT to windowSize.width - x,
             ).minByOrNull { it.second }?.first ?: MinorDock.TOP
+            val haptic = LocalHapticFeedback.current
             val onDockDrag: (Offset, Offset) -> Unit = { dragged, handleCenter ->
-                dockPreview = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
+                val target = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
+                // 预览切换停靠边时给一次轻触感,提示"会停到哪"
+                if (dockPreview != null && target != dockPreview) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                dockPreview = target
             }
             val onDockDrop: (Offset, Offset) -> Unit = { dragged, handleCenter ->
-                minorDock = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
+                val target = nearestDock(handleCenter.x + dragged.x, handleCenter.y + dragged.y)
+                if (target != minorDock) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    minorDock = target
+                }
                 dockPreview = null
             }
             val onDockCancel: () -> Unit = { dockPreview = null }
@@ -657,7 +690,12 @@ fun WriterScreen(
             val moreContent: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit = {
                 val cs = MaterialTheme.colorScheme
                 val spec = state.notebook?.pageSpec(state.currentPageId)
-                Text("纸纹", fontSize = 11.5.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp))
+                Text(
+                    "纸纹",
+                    style = MilkText.eyebrow,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
+                )
                 androidx.compose.foundation.layout.FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -670,14 +708,19 @@ fun WriterScreen(
                         )
                     }
                 }
-                Text("纸色", fontSize = 11.5.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 6.dp))
-                Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    com.milknote.notes.model.PAPER_COLORS.take(4).forEach { (hex, label) ->
+                Text(
+                    "纸色",
+                    style = MilkText.eyebrow,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 6.dp),
+                )
+                Row(Modifier.widthIn(max = 288.dp).padding(horizontal = 8.dp)) {
+                    com.milknote.notes.model.PAPER_COLORS.forEach { (hex, label) ->
                         com.milknote.app.ui.common.MilkColorDot(
                             color = Color(android.graphics.Color.parseColor(hex)),
                             selected = (spec?.paperColor ?: "#FFFFFF").equals(hex, ignoreCase = true),
                             dotSize = 16.dp,
-                            contentDescription = label,
+                            contentDescription = "纸色$label",
                             onClick = { vm.setPagePaperColor(hex); moreExpanded = false },
                         )
                     }
@@ -745,13 +788,13 @@ fun WriterScreen(
                 val previewModifier = when (preview) {
                     MinorDock.TOP -> Modifier
                         .align(Alignment.TopCenter)
-                        .offset(x = railWidthNow / 2)
+                        .offset(x = railWidthNow / 2 - studioInset / 2)
                         .padding(top = chromeHeight + 10.dp)
                         .width(320.dp)
                         .height(WriterMinorToolbarHeight + 8.dp)
                     MinorDock.BOTTOM -> Modifier
                         .align(Alignment.BottomCenter)
-                        .offset(x = railWidthNow / 2)
+                        .offset(x = railWidthNow / 2 - studioInset / 2)
                         .padding(bottom = 14.dp)
                         .width(320.dp)
                         .height(WriterMinorToolbarHeight + 8.dp)
@@ -825,15 +868,14 @@ fun WriterScreen(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 8.dp, end = 12.dp)
-                    .defaultMinSize(minHeight = 48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .milkGlassRim(PillShape, dark = dark, elevation = 8.dp)
                     .clickable { focusMode = false }
-                    .padding(horizontal = 16.dp),
+                    .defaultMinSize(minHeight = 44.dp)
+                    .padding(horizontal = 18.dp)
+                    .testTag("writer-exit-focus"),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("退出专注", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                Text("退出专注", style = MilkText.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
             }
             androidx.activity.compose.BackHandler(enabled = true) { focusMode = false }
         }
@@ -981,7 +1023,8 @@ private fun SelectionBar(
     onDelete: () -> Unit,
     onClear: () -> Unit,
 ) {
-    val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
+    val reduced = LocalMilkMotion.current
+    val dark = LocalMilkDark.current
     val density = LocalDensity.current
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
     var position by remember { mutableStateOf(IntOffset.Zero) }
@@ -1005,20 +1048,24 @@ private fun SelectionBar(
         modifier = Modifier
             .offset { position }
             .onSizeChanged { menuSize = it },
-        enter = if (reduced) fadeIn(tween(60))
-        else fadeIn(tween(160)) + slideInVertically(tween(180)) { -it / 3 },
-        exit = if (reduced) fadeOut(tween(60)) else fadeOut(tween(140)),
+        enter = if (reduced) fadeIn(tween(MilkMotion.reduced))
+        else fadeIn(tween(MilkMotion.enter, easing = MilkMotion.EaseOut)) +
+            slideInVertically(tween(MilkMotion.enter, easing = MilkMotion.EaseOut)) { -it / 3 },
+        exit = if (reduced) fadeOut(tween(MilkMotion.reduced))
+        else fadeOut(tween(MilkMotion.exit, easing = MilkMotion.EaseOut)) +
+            slideOutVertically(tween(MilkMotion.exit, easing = MilkMotion.EaseOut)) { -it / 3 },
     ) {
         Row(
             Modifier
+                .softShadow(10.dp, PillShape)
                 .clip(PillShape)
-                .softShadow(8.dp, PillShape)
-                .background(Color(0xF023221E))
-                .paintedShadow(PillShape, edge = 6.dp)
-                .padding(horizontal = 4.dp),
+                .background(if (dark) OverlaySurfaceDark else OverlaySurfaceLight)
+                .border(1.dp, OverlayBorderDark, PillShape)
+                .padding(horizontal = 4.dp)
+                .testTag("writer-selection-bar"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val tint = Color(0xFFE8E6E0)
+            val tint = OverlayText
             IconToggleButton(
                 icon = { Icon(Icons.Outlined.KeyboardArrowUp, "上移一层", tint = tint) },
                 enabled = canMoveUp, onClick = onMoveUp,
@@ -1032,7 +1079,7 @@ private fun SelectionBar(
                     Icon(
                         Icons.Outlined.MyLocation,
                         if (snapEnabled) "关闭吸附" else "开启吸附",
-                        tint = if (snapEnabled) Color(0xFF9DAFFF) else Color(0xFF9B978D),
+                        tint = if (snapEnabled) AccentBlueDark else OverlayMuted,
                     )
                 },
                 enabled = true, active = snapEnabled, onClick = onToggleSnap,
@@ -1045,16 +1092,16 @@ private fun SelectionBar(
             }
             if (onPlay != null) {
                 IconToggleButton(
-                    icon = { Icon(Icons.Outlined.PlayArrow, "播放媒体", tint = Color(0xFF9DAFFF)) },
+                    icon = { Icon(Icons.Outlined.PlayArrow, "播放媒体", tint = AccentBlueDark) },
                     enabled = true, onClick = onPlay,
                 )
             }
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.AutoAwesome, "发送给 Agent", tint = Color(0xFF9DAFFF)) },
+                icon = { Icon(Icons.Outlined.AutoAwesome, "发送给 Agent", tint = AccentBlueDark) },
                 enabled = true, onClick = onSend,
             )
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.Delete, "删除选中元素", tint = Color(0xFFE06558)) },
+                icon = { Icon(Icons.Outlined.Delete, "删除选中元素", tint = MaterialTheme.colorScheme.error) },
                 enabled = true, onClick = onDelete,
             )
             IconToggleButton(
@@ -1065,56 +1112,14 @@ private fun SelectionBar(
     }
 }
 
-/** 轻提示 toast:底部滑入 + 软阴影;减弱动效=纯淡化 */
-@Composable
-private fun ToastBar(visible: Boolean, text: String, modifier: Modifier = Modifier) {
-    val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
-    AnimatedVisibility(
-        visible = visible,
-        modifier = modifier,
-        enter = if (reduced) fadeIn(tween(60))
-        else fadeIn(tween(200)) + slideInVertically(tween(220)) { it / 2 },
-        exit = if (reduced) fadeOut(tween(60))
-        else fadeOut(tween(160)) + slideOutVertically(tween(180)) { it / 2 },
-    ) {
-        Box(
-            Modifier
-                .clip(PillShape)
-                .softShadow(8.dp, PillShape)
-                .background(Color(0xE623221E))
-                .paintedShadow(PillShape, edge = 6.dp)
-                .padding(horizontal = 18.dp, vertical = 9.dp),
-        ) {
-            Text(text, color = Color(0xFFFAF9F5), fontSize = 13.sp)
-        }
-    }
-}
-
-/** 纸面四周暗角(§5.1「柔和的皮」):极淡 radial 渐变向边缘压暗(亮 5.5%/暗 6% 黑);
- *  半径 0.42×长边(亮色纸角 4-7% 量级),纯显示层不参与导出 */
-@Composable
-private fun Modifier.paperVignette(dark: Boolean): Modifier {
-    val edge = if (dark) Color.Black.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.05f)
-    return drawBehind {
-        val r = maxOf(size.width, size.height) * 0.42f
-        drawRect(
-            brush = Brush.radialGradient(
-                colorStops = arrayOf(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to edge),
-                center = Offset(size.width / 2f, size.height / 2f),
-                radius = r,
-            ),
-        )
-    }
-}
-
-/** chrome 带边缘 hairline(1px,随主题;§5.1 顶栏/状态条/侧栏分界) */
-internal fun Modifier.edgeHairline(color: Color, left: Boolean = false, top: Boolean = false, right: Boolean = false, bottom: Boolean = false): Modifier = drawBehind {
-    val t = 1.dp.toPx()
-    if (left) drawRect(color, topLeft = Offset(0f, 0f), size = Size(t, size.height))
-    if (top) drawRect(color, topLeft = Offset(0f, 0f), size = Size(size.width, t))
-    if (right) drawRect(color, topLeft = Offset(size.width - t, 0f), size = Size(t, size.height))
-    if (bottom) drawRect(color, topLeft = Offset(0f, size.height - t), size = Size(size.width, t))
-}
+/** chrome 带边缘 hairline(1px,随主题;§5.1 顶栏/状态条/侧栏分界) —— 委托共享实现 */
+internal fun Modifier.edgeHairline(
+    color: Color,
+    left: Boolean = false,
+    top: Boolean = false,
+    right: Boolean = false,
+    bottom: Boolean = false,
+): Modifier = milkEdgeHairline(color, left = left, top = top, right = right, bottom = bottom)
 
 /** 顶栏图标钮:48dp 命中(A-09),图标保持 18dp;单击语义——不注册空双击/长按(A-34) */
 @Composable
@@ -1129,7 +1134,7 @@ internal fun IconToggleButton(
     Box(
         modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
             .alpha(if (enabled) 1f else 0.38f)
             .softClickable(enabled = enabled, onClick = onClick),
@@ -1193,42 +1198,50 @@ internal fun ConfirmPagePanel(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    MilkCenterPanel(title = title, onDismiss = onDismiss, maxWidth = 440.dp) {
-        Text(
-            message,
-            modifier = Modifier.padding(top = 12.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(top = 20.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MilkButton(
-                label = "取消",
-                onClick = onDismiss,
-                variant = MilkButtonVariant.SECONDARY,
-            )
-            Spacer(Modifier.width(8.dp))
-            MilkButton(label = confirmLabel, onClick = onConfirm)
-        }
-    }
+    MilkConfirmDialog(
+        title = title,
+        body = message,
+        confirmLabel = confirmLabel,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        destructive = true,
+    )
 }
 
 /** 当前笔记本纸张摘要(新建页面板副标题;不逐页改纸张)。 */
 private fun paperDescription(state: WriterUiState): String {
     val nb = state.notebook
-    val paper = when (nb?.paper) {
-        "line" -> "横线"
-        "grid" -> "方格"
-        "blank" -> "空白"
-        "english" -> "英文"
-        "tian" -> "田字格"
-        else -> "点阵"
-    }
+    val paper = com.milknote.notes.model.PAPER_KINDS
+        .firstOrNull { it.first == (nb?.paper ?: "dot") }
+        ?.second ?: "点阵"
     val orientation = if (nb?.orientation == "landscape") "横向" else "竖向"
     return "沿用本书纸张:$paper · ${nb?.pageSize ?: "A4"} $orientation"
+}
+
+/** 双开分屏页码步进:32dp 点击区、禁用态明确,替代裸字符 */
+@Composable
+private fun SplitPageStep(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(MilkRadius.xs))
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = cs.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f),
+        )
+    }
 }
 
 /** 纸面画布:InkSurfaceView(device-mi 拦截器 + 按住修饰接线在此) */
@@ -1274,7 +1287,7 @@ private fun PaperCanvas(
             view.darkTheme = dark
             if (!dark && spec != null) {
                 view.paperColor = runCatching { android.graphics.Color.parseColor(spec.paperColor) }
-                    .getOrDefault(0xFFFAF9F5.toInt())
+                    .getOrDefault(0xFFFFFFFF.toInt())
             }
             view.penConnected = penConnected
             view.canTurnPrevious = state.canPreviousPage

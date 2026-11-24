@@ -1,40 +1,52 @@
 package com.milknote.app.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Gesture
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,28 +62,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.milknote.app.ui.common.MilkCenterPanel
-import com.milknote.app.ui.common.MilkChoicePanel
 import com.milknote.app.ui.common.MilkChip
-import com.milknote.app.ui.common.MilkSwitch
+import com.milknote.app.ui.common.MilkChoicePanel
+import com.milknote.app.ui.common.MilkFilterChip
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkKeyCap
+import com.milknote.app.ui.common.MilkRadioRow
 import com.milknote.app.ui.common.MilkTextField
+import com.milknote.app.ui.common.milkEdgeHairline
 import com.milknote.app.ui.common.softClickable
-import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.theme.LocalMilkMotion
+import com.milknote.app.ui.theme.LocalMilkSuccess
 import com.milknote.app.ui.theme.LocalMilkWarning
-import com.milknote.app.ui.theme.MilkEyebrow
-import com.milknote.app.ui.theme.Mono
-import com.milknote.app.ui.theme.MonoValue
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.PillShape
 
 /**
  * 设置组件套件(第二代 · DESIGN-V2):
- * - 左导航 224dp 平齐侧栏(眉标分组 + 38dp 图标行,选中 = 强调色淡底 + 强调色字)+ 顶部搜索框
- * - 内容列 ≤580dp 居中:18sp 标题 + 13sp 说明;分区 = 12sp 灰标签;列表 = 12dp 圆角 hairline 平涂面
- * - 行 ≥52dp:标题 14sp / 副题 12sp;值列 = 灰值 + 细箭头;仅浮层带阴影
+ * - 左导航 224dp 通栏侧栏(眉标分组 + 40dp 图标行,选中 = 强调色淡底 + 强调色字)+ 顶部搜索框;
+ *   侧栏底色铺满全高并延伸进系统栏,只有内容吃 insets(消除上下白条)
+ * - 窄屏:紧凑顶部栏(返回 + 标题 + 当前分组 + 横向胶囊条),内容列全宽
+ * - 内容列 ≤640dp 居中:页面标题 + 说明;分区 = 眉标 + 12dp 圆角 hairline 平涂面
+ * - 行 ≥52dp:标题 / 副题;值列 = 灰值 + 细箭头;仅浮层带阴影
  */
 
 // ==================== 导航栏 ====================
@@ -96,7 +115,15 @@ internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = li
     ),
 )
 
-/** 左侧导航栏:224dp 平齐侧栏;顶部返回 + 标题 + 搜索框;分组眉标 + 38dp 图标行;底部 mono 版本号 */
+/** 当前页所属分组名(紧凑顶栏用位置提示;宽屏由侧栏分组眉标承担) */
+internal fun settingsGroupOf(key: String): String =
+    SETTINGS_NAV_GROUPS.firstOrNull { (_, items) -> items.any { it.key == key } }?.first ?: "设置"
+
+/**
+ * 左侧导航栏:224dp 通栏侧栏。
+ * 根 Column 用 surfaceVariant 铺满全高(延伸进状态栏/导航栏),内层再加安全区 padding,
+ * 这样侧栏底色不会在系统栏处断层。
+ */
 @Composable
 internal fun SettingsNavRail(
     selected: String,
@@ -105,100 +132,277 @@ internal fun SettingsNavRail(
     onBack: () -> Unit,
     searchQuery: String = "",
     onSearchChange: (String) -> Unit = {},
+    searchNoMatch: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
     Column(
-        Modifier
+        modifier
             .width(224.dp)
             .fillMaxHeight()
-            .background(cs.surfaceVariant),
+            .background(cs.surfaceVariant)
+            .milkEdgeHairline(cs.outline, right = true)
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
+            ),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 8.dp, end = 12.dp),
+                .heightIn(min = 56.dp)
+                .padding(start = MilkSpace.xxs, end = MilkSpace.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.ArrowBack, "返回",
-                    tint = cs.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Text("设置", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onBackground)
-        }
-        Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-            MilkTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                placeholder = "搜索设置…",
-                mono = false,
-                leading = {
-                    Icon(Icons.Outlined.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(17.dp))
-                },
+            MilkIconButton(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "返回",
+                onClick = onBack,
             )
+            Spacer(Modifier.width(MilkSpace.xxs))
+            Text("设置", style = MilkText.panelTitle, color = cs.onBackground)
         }
+
+        SettingsSearchField(
+            query = searchQuery,
+            onQueryChange = onSearchChange,
+            noMatch = searchNoMatch,
+            modifier = Modifier.padding(horizontal = MilkSpace.sm),
+        )
+
         Column(
             Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = MilkSpace.sm),
         ) {
             SETTINGS_NAV_GROUPS.forEach { (group, items) ->
                 Text(
                     group,
-                    style = MilkEyebrow,
+                    style = MilkText.eyebrow,
                     color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 10.dp, top = 16.dp, bottom = 6.dp),
+                    modifier = Modifier.padding(start = 10.dp, top = MilkSpace.lg, bottom = MilkSpace.xs),
                 )
                 items.forEach { item ->
-                    val active = item.key == selected
-                    val itemBg by animateColorAsState(
-                        targetValue = if (active) cs.primary.copy(alpha = 0.10f) else Color.Transparent,
-                        animationSpec = tween(180),
-                        label = "navItemBg",
+                    SettingsNavRow(item = item, active = item.key == selected) { onSelect(item.key) }
+                }
+            }
+            Spacer(Modifier.height(MilkSpace.md))
+        }
+
+        Box(Modifier.padding(horizontal = MilkSpace.lg, vertical = MilkSpace.md)) {
+            // 大字体下版本号只占一行:超出省略,底脚永远清爽
+            Text(
+                versionLine,
+                style = MilkText.monoMeta,
+                color = cs.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 侧栏一项:40dp 行 + 18dp 线性图标 + 行标题;选中 = 强调色淡底 + 强调色字 */
+@Composable
+private fun SettingsNavRow(item: SettingsNavItem, active: Boolean, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val bg by animateColorAsState(
+        targetValue = if (active) cs.primary.copy(alpha = 0.10f) else Color.Transparent,
+        animationSpec = MilkMotion.colorSpec(),
+        label = "settingsNavBg",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 1.dp)
+            .clip(RoundedCornerShape(MilkRadius.sm))
+            .background(bg)
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            item.icon,
+            contentDescription = null,
+            tint = if (active) cs.primary else cs.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            item.label,
+            style = MilkText.rowTitle.copy(
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            ),
+            color = if (active) cs.primary else cs.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * 窄屏紧凑顶栏(<680dp):返回钮 + 「设置」+ 当前分组徽标 + 横向可滚动分组胶囊条,
+ * 搜索按需展开(有查询词时保持展开),避免把内容列挤成窄条。
+ *
+ * 顶栏与内容之间没有固定硬线:停在顶部时底边干净,内容向下滚动后 hairline 才淡入,
+ * 让「还有内容」这一事实由滚动本身说话(Apple: 分隔线只在需要时出现)。
+ */
+@Composable
+internal fun SettingsCompactBar(
+    selected: String,
+    onSelect: (String) -> Unit,
+    onBack: () -> Unit,
+    searchQuery: String = "",
+    onSearchChange: (String) -> Unit = {},
+    searchNoMatch: Boolean = false,
+    scrolled: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    val reduced = LocalMilkMotion.current
+    var searchOpen by remember { mutableStateOf(false) }
+    val showSearch = searchOpen || searchQuery.isNotBlank()
+
+    // 颜色类过渡不受「减弱动效」影响:150ms 强 ease-out 淡入/淡出
+    val edgeAlpha by animateFloatAsState(
+        targetValue = if (scrolled) 1f else 0f,
+        animationSpec = tween(MilkMotion.color, easing = MilkMotion.EaseOut),
+        label = "compactBarEdge",
+    )
+
+    Column(
+        modifier
+            .fillMaxWidth()
+            .background(cs.surfaceVariant)
+            .milkEdgeHairline(cs.outline.copy(alpha = edgeAlpha), bottom = true)
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            ),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .padding(start = MilkSpace.xxs, end = MilkSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MilkIconButton(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "返回",
+                onClick = onBack,
+            )
+            Spacer(Modifier.width(MilkSpace.xxs))
+            Text("设置", style = MilkText.panelTitle, color = cs.onBackground, maxLines = 1)
+            Spacer(Modifier.width(MilkSpace.sm))
+            GroupBadge(settingsGroupOf(selected))
+            Spacer(Modifier.weight(1f))
+            MilkIconButton(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = "搜索设置",
+                onClick = { searchOpen = !searchOpen },
+                selected = showSearch,
+            )
+        }
+
+        // 展开慢、收起快:搜索框高度与淡出一体完成,不做位移
+        AnimatedVisibility(
+            visible = showSearch,
+            enter = if (reduced) {
+                fadeIn(tween(MilkMotion.reduced))
+            } else {
+                expandVertically(
+                    animationSpec = tween(MilkMotion.enter, easing = MilkMotion.EaseOut),
+                    expandFrom = Alignment.Top,
+                ) + fadeIn(tween(160, easing = MilkMotion.EaseOut))
+            },
+            exit = if (reduced) {
+                fadeOut(tween(MilkMotion.reduced))
+            } else {
+                shrinkVertically(
+                    animationSpec = tween(140, easing = MilkMotion.EaseOut),
+                    shrinkTowards = Alignment.Top,
+                ) + fadeOut(tween(100, easing = MilkMotion.EaseOut))
+            },
+        ) {
+            SettingsSearchField(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
+                noMatch = searchNoMatch,
+                modifier = Modifier.padding(horizontal = MilkSpace.md),
+            )
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = MilkSpace.md),
+            horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SETTINGS_NAV_GROUPS.forEach { (_, items) ->
+                items.forEach { item ->
+                    MilkChip(
+                        label = item.label,
+                        selected = item.key == selected,
+                        onClick = { onSelect(item.key) },
+                        small = true,
                     )
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 1.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(itemBg)
-                            .clickable { onSelect(item.key) }
-                            .heightIn(min = 38.dp)
-                            .padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            item.icon, null,
-                            tint = if (active) cs.primary else cs.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            item.label,
-                            fontSize = 13.5.sp,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (active) cs.primary else cs.onSurfaceVariant,
-                        )
-                    }
                 }
             }
         }
-        Box(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Spacer(Modifier.height(MilkSpace.sm))
+    }
+}
+
+/** 当前分组徽标:强调色 10% 淡底胶囊 + 微型字 */
+@Composable
+private fun GroupBadge(text: String) {
+    val cs = MaterialTheme.colorScheme
+    Text(
+        text = text,
+        style = MilkText.micro,
+        color = cs.primary,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(PillShape)
+            .background(cs.primary.copy(alpha = 0.10f))
+            .padding(horizontal = MilkSpace.sm, vertical = 2.dp),
+    )
+}
+
+/** 设置搜索框:共享 MilkTextField + 搜索图标 + 一键清空;无匹配时就地给极简提示 */
+@Composable
+private fun SettingsSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    noMatch: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(modifier.fillMaxWidth().padding(vertical = MilkSpace.xs)) {
+        MilkTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = "搜索设置…",
+            leading = {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(17.dp),
+                )
+            },
+            onClear = { onQueryChange("") },
+        )
+        if (query.isNotBlank() && noMatch) {
+            Spacer(Modifier.height(MilkSpace.xs))
             Text(
-                versionLine,
-                style = com.milknote.app.ui.theme.MonoMeta,
+                text = "未找到匹配设置",
+                style = MilkText.caption,
                 color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp),
             )
         }
     }
@@ -206,31 +410,49 @@ internal fun SettingsNavRail(
 
 // ==================== 页面与分区 ====================
 
-/** 页头:18sp 标题 + 13sp 灰说明 */
+/** 页头:页面标题 + 灰说明 */
 @Composable
 internal fun SettingsPageHeader(title: String, subtitle: String) {
-    Column(Modifier.padding(bottom = 4.dp)) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(5.dp))
-        Text(
-            subtitle,
-            fontSize = 13.sp,
-            lineHeight = 19.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Column(Modifier.fillMaxWidth().padding(bottom = MilkSpace.xxs)) {
+        Text(title, style = MilkText.pageTitle, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(Modifier.height(MilkSpace.xs))
+        Text(subtitle, style = MilkText.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-/** 分区标签:12sp 灰字 + 可选说明;卡外、小节之上 */
+/**
+ * 分区标签:眉标字 + 可选说明。
+ * 上留白略大于下留白(6/8),让标题清晰归属于下方卡片,而不是浮在两个分区之间。
+ */
 @Composable
 internal fun SettingsSectionHeader(title: String, description: String? = null) {
-    Column(Modifier.padding(top = 6.dp, bottom = 8.dp)) {
-        Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp)) {
+        Text(title, style = MilkText.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
         description?.let {
             Spacer(Modifier.height(2.dp))
-            Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f))
+            Text(
+                it,
+                style = MilkText.caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+            )
         }
     }
+}
+
+/**
+ * 分区组:一个分区标题 + 其卡片。
+ * 组内不再额外加间距——8dp 的「标题→卡片」距离由 [SettingsSectionHeader] 的底部留白承担,
+ * 组与组之间由页面级 22dp 拉开,避免 8+8 叠成松散的 16dp。
+ */
+@Composable
+internal fun SettingsGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier.fillMaxWidth(),
+        content = content,
+    )
 }
 
 /** 设置列表面(第二代):12dp 圆角 + hairline + 平涂 surface,无投影无高光;卡内零 padding,由行自带 */
@@ -244,10 +466,11 @@ internal fun SettingsCard(
     Column(
         modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
+            .clip(RoundedCornerShape(MilkRadius.lg))
             .background(containerColor)
-            .border(1.dp, borderColor, MaterialTheme.shapes.large),
-    ) { content() }
+            .border(1.dp, borderColor, RoundedCornerShape(MilkRadius.lg)),
+        content = content,
+    )
 }
 
 /** 行间 hairline(start 对齐行文字缩进) */
@@ -261,7 +484,7 @@ internal fun Hairline() {
 
 // ==================== 行与控件 ====================
 
-/** 设置行模板:左(14sp 标题 + 12sp 灰副题)/右(trailing 控件),min 高 52dp */
+/** 设置行模板:左(标题 + 灰副题)/右(trailing 控件),min 高 52dp */
 @Composable
 internal fun SettingsRow(
     title: String,
@@ -283,18 +506,16 @@ internal fun SettingsRow(
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
+                style = MilkText.rowTitle,
                 color = if (enabled) cs.onBackground else cs.onSurfaceVariant.copy(alpha = 0.5f),
             )
             if (subtitle != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(subtitle, fontSize = 12.sp, lineHeight = 17.sp, color = cs.onSurfaceVariant)
+                Text(subtitle, style = MilkText.caption, color = cs.onSurfaceVariant)
             }
         }
         if (trailing != null) {
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(MilkSpace.lg))
             trailing(this)
         }
     }
@@ -305,7 +526,7 @@ internal fun SettingsRow(
 internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     Text(
         value,
-        style = if (mono) MonoValue else MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+        style = if (mono) MilkText.monoBody else MilkText.body,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -349,7 +570,7 @@ internal fun <T> SelectRow(
     }
 }
 
-/** 原地展开的候选列表(inset 面板;单选圆点 = 当前项,当前项加粗) */
+/** 原地展开的候选列表(inset 面板;单选行复用共享 MilkRadioRow) */
 @Composable
 internal fun <T> InlineSelectionList(
     items: List<T>,
@@ -357,14 +578,13 @@ internal fun <T> InlineSelectionList(
     label: (T) -> String,
     onPick: (T) -> Unit,
 ) {
-    val cs = MaterialTheme.colorScheme
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(cs.surfaceVariant.copy(alpha = 0.45f))
-            .padding(4.dp),
+            .padding(horizontal = MilkSpace.sm, vertical = MilkSpace.sm)
+            .clip(RoundedCornerShape(MilkRadius.md))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(MilkSpace.xxs),
     ) {
         Column(
             Modifier
@@ -372,40 +592,17 @@ internal fun <T> InlineSelectionList(
                 .verticalScroll(rememberScrollState()),
         ) {
             items.forEach { item ->
-                val isSel = item == selected
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSel) cs.primary.copy(alpha = 0.09f) else Color.Transparent)
-                        .clickable { onPick(item) }
-                        .heightIn(min = 44.dp)
-                        .padding(horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, if (isSel) cs.primary else cs.outline, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isSel) Box(Modifier.size(8.dp).clip(CircleShape).background(cs.primary))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        label(item),
-                        fontSize = 13.sp,
-                        fontWeight = if (isSel) FontWeight.Medium else FontWeight.Normal,
-                        color = if (isSel) cs.primary else cs.onBackground,
-                    )
-                }
+                MilkRadioRow(
+                    selected = item == selected,
+                    label = label(item),
+                    onClick = { onPick(item) },
+                )
             }
         }
     }
 }
 
-/** 文字操作钮(13sp Medium;primary=强调色字,danger=红字;38dp 高命中) */
+/** 文字操作钮(控件标签字;primary=强调色字,danger=红字;38dp 高命中) */
 @Composable
 internal fun TextAction(
     label: String,
@@ -422,24 +619,23 @@ internal fun TextAction(
             primary -> cs.primary
             else -> cs.onBackground
         },
-        animationSpec = tween(160),
+        animationSpec = MilkMotion.colorSpec(),
         label = "textActionFg",
     )
     Text(
         label,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
+        style = MilkText.label,
         color = fg,
         maxLines = 1,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .softClickable(enabled = enabled, onClick = onClick)
             .heightIn(min = 38.dp)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = MilkSpace.md, vertical = MilkSpace.sm),
     )
 }
 
-/** 状态行:16dp 语义图标 + 13sp 单色文字 */
+/** 状态行:语义图标 + 单色文字(OK 走成功色,亮暗主题下都清晰) */
 internal enum class StatusTone { NEUTRAL, OK, WARN, ERROR }
 
 @Composable
@@ -451,7 +647,7 @@ internal fun StatusLine(
 ) {
     val cs = MaterialTheme.colorScheme
     val color = when (tone) {
-        StatusTone.OK -> cs.primary
+        StatusTone.OK -> LocalMilkSuccess.current
         StatusTone.WARN -> LocalMilkWarning.current
         StatusTone.ERROR -> cs.error
         StatusTone.NEUTRAL -> cs.onSurfaceVariant
@@ -459,7 +655,7 @@ internal fun StatusLine(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = MilkSpace.md),
         verticalAlignment = Alignment.Top,
     ) {
         if (tone != StatusTone.NEUTRAL) {
@@ -483,9 +679,7 @@ internal fun StatusLine(
         }
         Text(
             text,
-            fontSize = 13.sp,
-            lineHeight = 19.sp,
-            fontFamily = if (mono) Mono else null,
+            style = if (mono) MilkText.monoMeta else MilkText.caption,
             color = if (tone == StatusTone.NEUTRAL) cs.onSurfaceVariant else color,
         )
     }
@@ -509,7 +703,10 @@ internal fun SettingsInputField(
     Column(
         modifier
             .fillMaxWidth()
-            .then(if (compact) Modifier.padding(vertical = 4.dp) else Modifier.padding(horizontal = 16.dp, vertical = 10.dp)),
+            .then(
+                if (compact) Modifier.padding(vertical = MilkSpace.xxs)
+                else Modifier.padding(horizontal = MilkSpace.lg, vertical = 10.dp),
+            ),
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
             MilkTextField(
@@ -525,7 +722,7 @@ internal fun SettingsInputField(
                 onDone = { if (dirty && onSave != null) onSave() },
             )
             if (dirty && onSave != null) {
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(MilkSpace.xxs))
                 TextAction("保存", primary = true, onClick = onSave)
                 if (onCancel != null) TextAction("取消", onClick = onCancel)
             }
@@ -538,38 +735,25 @@ internal fun SettingsInputField(
 internal fun FooterHint(text: String, mono: Boolean = false) {
     Text(
         text,
-        fontSize = if (mono) 11.5.sp else 12.5.sp,
-        lineHeight = if (mono) 16.sp else 18.sp,
-        fontFamily = if (mono) Mono else null,
+        style = if (mono) MilkText.monoMeta else MilkText.caption,
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
         modifier = Modifier.padding(top = 10.dp),
     )
 }
 
-/** 多选胶囊(思考档位/输入类型声明等):复用共享 MilkChip(small) */
+/** 多选胶囊(思考档位/输入类型声明等):读屏语义为 Checkbox,复用共享 MilkFilterChip */
 @Composable
 internal fun ToggleChip(label: String, on: Boolean, onClick: () -> Unit) {
-    MilkChip(label = label, selected = on, onClick = onClick, small = true)
+    MilkFilterChip(label = label, selected = on, onClick = onClick, small = true)
 }
 
-/** 键盘快捷键展示行:mono 键帽 + 说明 */
+/** 键盘快捷键展示行:共享键帽 + 说明 */
 @Composable
 internal fun ShortcutRow(title: String, keys: String, subtitle: String? = null) {
-    val cs = MaterialTheme.colorScheme
     SettingsRow(
         title = title,
         subtitle = subtitle,
-        trailing = {
-            Text(
-                keys,
-                fontFamily = Mono,
-                fontSize = 11.5.sp,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier
-                    .border(1.dp, cs.outline, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            )
-        },
+        trailing = { MilkKeyCap(keys) },
     )
 }
 
@@ -587,9 +771,14 @@ internal fun <T> ChipChoiceRow(
         title = title,
         subtitle = subtitle,
         trailing = {
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs)) {
                 options.forEach { option ->
-                    MilkChip(label = label(option), selected = option == selected, onClick = { onPick(option) }, small = true)
+                    MilkChip(
+                        label = label(option),
+                        selected = option == selected,
+                        onClick = { onPick(option) },
+                        small = true,
+                    )
                 }
             }
         },

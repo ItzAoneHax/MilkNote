@@ -7,30 +7,30 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ImageSearch
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Icon
@@ -48,10 +48,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.LibraryBottomNav
 import com.milknote.app.ui.common.MilkButton
@@ -60,12 +59,18 @@ import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkColorDot
 import com.milknote.app.ui.common.MilkConfirmDialog
+import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkIconButton
-import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkRadioRow
 import com.milknote.app.ui.common.MilkSectionLabel
+import com.milknote.app.ui.common.MilkStatusBadge
 import com.milknote.app.ui.common.MilkTextField
-import com.milknote.app.ui.common.softCard
+import com.milknote.app.ui.common.MonoText
+import com.milknote.app.ui.common.coverColorName
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.PillShape
 import com.milknote.notes.model.COVER_COLORS
 import com.milknote.notes.model.NoteCard
 import com.milknote.notes.storage.CardTagFilter
@@ -81,34 +86,27 @@ fun CardsScreen(
     var creating by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<NoteCard?>(null) }
     var inserting by remember { mutableStateOf<NoteCard?>(null) }
+    val filtered = state.query.isNotBlank() || state.tag != CardTagFilter.All || state.color != null
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing),
     ) {
-        // ---- 顶栏:标题 + 搜索(≤560dp,与书架顶栏同高 76dp)+ 新建 ----
+        // ---- 顶栏:标题 + 计数 + 搜索 + 新建 ----
         Row(
             Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("卡片", style = MaterialTheme.typography.titleLarge)
+                    Text("卡片", style = MilkText.pageTitle, color = MaterialTheme.colorScheme.onBackground)
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        "${state.cards.size} 张",
-                        style = com.milknote.app.ui.theme.MonoMeta,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
+                    MilkStatusBadge("${state.cards.size} 张", mono = true)
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
                     "摘取即保存 · 可反复插入任意笔记",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MilkText.caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -119,11 +117,12 @@ fun CardsScreen(
                 placeholder = "搜索卡片标题和内容",
                 modifier = Modifier.weight(1f).widthIn(max = 560.dp),
                 mono = false,
+                onClear = { vm.search("") },
                 leading = {
                     Icon(
                         Icons.Outlined.Search, null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 },
             )
@@ -131,125 +130,62 @@ fun CardsScreen(
             MilkButton(
                 label = "新建卡片",
                 onClick = { creating = true },
-                leading = { Icon(Icons.Outlined.Add, null, tint = Color.White, modifier = Modifier.size(18.dp)) },
+                leading = {
+                    Icon(
+                        Icons.Outlined.Add, null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
             )
         }
         // ---- 筛选:标签芯片 + 色点 ----
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("cards-filters").padding(horizontal = 28.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MilkChip("全部标签", state.tag == CardTagFilter.All, onClick = { vm.filterTag(CardTagFilter.All) }, small = true)
-            MilkChip("无标签", state.tag == CardTagFilter.Untagged, onClick = { vm.filterTag(CardTagFilter.Untagged) }, small = true)
-            state.allTags.forEach { tag ->
-                MilkChip(tag, state.tag == CardTagFilter.Tag(tag), onClick = { vm.filterTag(CardTagFilter.Tag(tag)) }, small = true)
-            }
-            Spacer(Modifier.width(8.dp))
-            COVER_COLORS.forEach { hex ->
-                val selected = state.color.equals(hex, ignoreCase = true)
-                MilkColorDot(
-                    color = cardColor(hex),
-                    selected = selected,
-                    dotSize = 22.dp,
-                    onClick = { vm.filterColor(if (selected) null else hex) },
-                    contentDescription = "按颜色筛选 ${com.milknote.app.ui.common.coverColorName(hex)}",
-                )
-            }
-        }
+        CardFilterRow(
+            state = state,
+            onTag = vm::filterTag,
+            onColor = { hex -> vm.filterColor(if (state.color.equals(hex, ignoreCase = true)) null else hex) },
+            modifier = Modifier.testTag("cards-filters").padding(horizontal = 28.dp),
+        )
         if (state.cards.isEmpty()) {
-            Column(
-                Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Outlined.Style, null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(30.dp),
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                if (filtered) {
+                    MilkEmptyState(
+                        title = "没有匹配的卡片",
+                        description = "换一个关键词，或清除标签与颜色筛选",
+                        icon = Icons.Outlined.Search,
+                        actionLabel = "清除筛选",
+                        onAction = {
+                            vm.search("")
+                            vm.filterTag(CardTagFilter.All)
+                            vm.filterColor(null)
+                        },
+                    )
+                } else {
+                    MilkEmptyState(
+                        title = "暂无卡片",
+                        description = "新建一张，或在书写页把摘取保存为卡片",
+                        icon = Icons.Outlined.Style,
+                        actionLabel = "新建卡片",
+                        onAction = { creating = true },
                     )
                 }
-                Spacer(Modifier.height(16.dp))
-                Text("还没有匹配的卡片", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "新建一张，或在书写页把摘取保存为卡片",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(20.dp))
-                MilkButton(label = "新建卡片", onClick = { creating = true })
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(280.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("cards-grid"),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 28.dp, vertical = 20.dp),
+                contentPadding = PaddingValues(horizontal = 28.dp, vertical = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(state.cards, key = { it.id }) { card ->
-                    Column(
-                        Modifier.softCard().clip(MaterialTheme.shapes.large)
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.large)
-                            .clickable { editing = card }.padding(18.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(cardColor(card.color)))
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                card.title.ifBlank { "无标题卡片" },
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            MilkIconButton(Icons.Outlined.Add, "插入到笔记", onClick = { inserting = card }, iconSize = 20.dp)
-                            MilkIconButton(Icons.Outlined.Delete, "删除卡片", onClick = { deleting = card }, iconSize = 20.dp, tint = MaterialTheme.colorScheme.error)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        card.imageSrc?.let { CardImage(it) }
-                        Text(
-                            cardPreviewText(card.title, card.body).ifBlank { if (card.imageSrc != null) "图片摘取" else "" },
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, lineHeight = 20.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 6,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (card.tags.isNotEmpty()) {
-                            Spacer(Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                card.tags.take(4).forEach { tag ->
-                                    Text(
-                                        "#$tag",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                                    )
-                                }
-                            }
-                        }
-                        if (card.sourceNotebookId != null) {
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                state.sourceLabels[card.id] ?: "来源不可用",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                    MilkNoteCard(
+                        card = card,
+                        onClick = { editing = card },
+                        onInsert = { inserting = card },
+                        onDelete = { deleting = card },
+                        sourceLabel = state.sourceLabels[card.id],
+                    )
                 }
             }
         }
@@ -282,6 +218,135 @@ fun CardsScreen(
     }
 }
 
+/**
+ * 标签芯片 + 色点筛选行(CardsScreen 与书架卡片页共用):
+ * 外层横向滚动,窄屏不换行溢出;色点用于跨笔记本按颜色收拢。
+ */
+@Composable
+internal fun CardFilterRow(
+    state: CardsUiState,
+    onTag: (CardTagFilter) -> Unit,
+    onColor: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MilkChip("全部标签", state.tag == CardTagFilter.All, onClick = { onTag(CardTagFilter.All) }, small = true)
+        MilkChip("无标签", state.tag == CardTagFilter.Untagged, onClick = { onTag(CardTagFilter.Untagged) }, small = true)
+        state.allTags.forEach { tag ->
+            MilkChip(tag, state.tag == CardTagFilter.Tag(tag), onClick = { onTag(CardTagFilter.Tag(tag)) }, small = true)
+        }
+        Spacer(Modifier.width(MilkSpace.sm))
+        COVER_COLORS.forEach { hex ->
+            val selected = state.color.equals(hex, ignoreCase = true)
+            MilkColorDot(
+                color = cardColor(hex),
+                selected = selected,
+                dotSize = 20.dp,
+                onClick = { onColor(hex) },
+                contentDescription = "按颜色筛选 ${coverColorName(hex)}",
+            )
+        }
+    }
+}
+
+/**
+ * 图书卡片(CardsScreen 与书架卡片页共用的唯一卡片视觉):
+ * 12dp 圆角 + 单条 1dp hairline + surface 底;标题前一枚 8dp 主题色圆点,
+ * 摘要只取首段,标签与来源克制地落在页脚。右上角操作保持 48dp 舒适命中。
+ */
+@Composable
+internal fun MilkNoteCard(
+    card: NoteCard,
+    onClick: () -> Unit,
+    onInsert: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    sourceLabel: String? = null,
+) {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(MilkRadius.lg)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(cs.surface)
+            .border(1.dp, cs.outline, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = MilkSpace.lg, end = MilkSpace.xs, top = MilkSpace.md, bottom = MilkSpace.md),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(cardColor(card.color)))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                card.title.ifBlank { "无标题卡片" },
+                style = MilkText.cardTitle,
+                color = cs.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            MilkIconButton(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = "插入到笔记",
+                onClick = onInsert,
+                tint = cs.primary,
+                iconSize = 18.dp,
+                visualSize = 32.dp,
+            )
+            MilkIconButton(
+                imageVector = Icons.Outlined.DeleteOutline,
+                contentDescription = "删除卡片",
+                onClick = onDelete,
+                iconSize = 17.dp,
+                visualSize = 32.dp,
+            )
+        }
+        Column(Modifier.padding(start = 18.dp, top = MilkSpace.sm, end = MilkSpace.md)) {
+            card.imageSrc?.let { CardImage(it) }
+            val preview = cardPreviewText(card.title, card.body).ifBlank {
+                if (card.imageSrc != null) "图片摘取" else ""
+            }
+            if (preview.isNotBlank()) {
+                Text(
+                    preview,
+                    style = MilkText.body,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (card.tags.isNotEmpty() || !sourceLabel.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+                    ) {
+                        card.tags.take(3).forEach { tag ->
+                            Text(
+                                "#$tag",
+                                style = MilkText.micro,
+                                color = cs.primary,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .clip(PillShape)
+                                    .background(cs.primary.copy(alpha = 0.10f))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (!sourceLabel.isNullOrBlank()) MonoText(sourceLabel)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun CardEditorPanel(
     existing: NoteCard?,
@@ -297,9 +362,21 @@ internal fun CardEditorPanel(
         subtitle = if (existing == null) "卡片可反复插入任意笔记" else "修改只影响卡片库中的这一张",
         onDismiss = onDismiss,
         maxWidth = 540.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton("取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton(
+                label = "保存",
+                enabled = title.isNotBlank() || body.isNotBlank() || existing?.imageSrc != null,
+                onClick = {
+                    onSave(title, body, tags.split(',', '，').map { it.trim() }.filter { it.isNotEmpty() }, color)
+                },
+            )
+        },
     ) {
         Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MilkSpace.md))
             MilkTextField(title, { title = it }, placeholder = "标题", label = "标题", mono = false, imeAction = androidx.compose.ui.text.input.ImeAction.Next)
             Spacer(Modifier.height(14.dp))
             MilkTextField(body, { body = it }, placeholder = "正文", label = "正文", mono = false, singleLine = false, minLines = 4)
@@ -307,25 +384,19 @@ internal fun CardEditorPanel(
             MilkTextField(tags, { tags = it }, placeholder = "用逗号分隔", label = "标签", mono = false)
             Spacer(Modifier.height(18.dp))
             MilkSectionLabel("颜色")
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Spacer(Modifier.height(MilkSpace.xs))
+            // 色点命中框 48dp、视觉圆点 16dp:整体左移 16dp,让首枚色点左缘与上方标题齐平
+            Row(Modifier.offset(x = (-16).dp), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                 COVER_COLORS.forEach { hex ->
                     MilkColorDot(
                         color = cardColor(hex),
                         selected = color == hex,
                         onClick = { color = hex },
-                        contentDescription = "卡片颜色 ${com.milknote.app.ui.common.coverColorName(hex)}",
+                        contentDescription = "卡片颜色 ${coverColorName(hex)}",
                     )
                 }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            MilkButton("取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(10.dp))
-            MilkButton("保存", enabled = title.isNotBlank() || body.isNotBlank() || existing?.imageSrc != null, onClick = {
-                onSave(title, body, tags.split(',', '，').map { it.trim() }.filter { it.isNotEmpty() }, color)
-            })
+            Spacer(Modifier.height(MilkSpace.md))
         }
     }
 }
@@ -357,36 +428,42 @@ internal fun InsertCardPanel(card: NoteCard, onDismiss: () -> Unit, onInsert: (S
             Box(
                 Modifier
                     .size(44.dp)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(MilkRadius.md))
                     .background(cardColor(card.color).copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Outlined.Style, null, tint = cardColor(card.color), modifier = Modifier.size(22.dp))
             }
         },
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton("取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton("插入", enabled = notebookId != null && pageId != null, onClick = { onInsert(notebookId!!, pageId!!) })
+        },
     ) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MilkSpace.md))
             MilkSectionLabel("笔记本")
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(MilkSpace.xs))
             notebooks.forEach { nb ->
                 MilkRadioRow(selected = nb.id == notebookId, label = nb.name, onClick = { notebookId = nb.id })
             }
             Spacer(Modifier.height(18.dp))
             MilkSectionLabel("页面")
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(MilkSpace.xs))
             if (pages.isEmpty()) {
-                Text("该笔记本还没有页面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 10.dp))
+                Text(
+                    "该笔记本还没有页面",
+                    style = MilkText.caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
             }
             pages.forEachIndexed { index, page ->
                 MilkRadioRow(selected = page.pageId == pageId, label = "第 ${index + 1} 页", onClick = { pageId = page.pageId })
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            MilkButton("取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(10.dp))
-            MilkButton("插入", enabled = notebookId != null && pageId != null, onClick = { onInsert(notebookId!!, pageId!!) })
+            Spacer(Modifier.height(MilkSpace.md))
         }
     }
 }

@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,17 +40,27 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.agent.Intents
 import com.milknote.agent.Rect4
-import com.milknote.app.ui.common.accentBrush
+import com.milknote.app.ui.theme.AccentBlue
+import com.milknote.app.ui.theme.AccentBlueDark
 import com.milknote.app.ui.theme.LocalMilkMotion
-import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.OverlayBorderDark
+import com.milknote.app.ui.theme.OverlayMuted
+import com.milknote.app.ui.theme.OverlaySurfaceLight
+import com.milknote.app.ui.theme.OverlayText
+import com.milknote.app.ui.theme.PillShape
+import com.milknote.app.ui.theme.ScrimCanvas
 import com.milknote.app.ui.writer.SnipPhase
 import com.milknote.app.ui.writer.SnipUiState
 import com.milknote.ink.render.InkSurfaceView
@@ -80,7 +88,7 @@ fun SnipOverlay(
     onSend: ((Float, Float) -> Pair<Float, Float>) -> Unit,
     onSaveCard: ((Float, Float) -> Pair<Float, Float>) -> Unit,
 ) {
-    val dim = Color(0x8C0E0F14)
+    val dim = ScrimCanvas
     val current by rememberUpdatedState(state)
     val onResetDragLatest by rememberUpdatedState(onResetDrag)
     val onRectChangedLatest by rememberUpdatedState(onRectChanged)
@@ -155,44 +163,44 @@ fun SnipOverlay(
         if (state.phase == SnipPhase.FROZEN && r == null) {
             Text(
                 "拖动框选要提问的区域",
-                fontSize = 13.sp,
-                color = Color(0xFFF4F5F7),
+                style = MilkText.label,
+                color = OverlayText,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xF218191B))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .clip(RoundedCornerShape(MilkRadius.sm))
+                    .background(OverlaySurfaceLight)
+                    .padding(horizontal = MilkSpace.lg - 2.dp, vertical = MilkSpace.sm),
             )
         }
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xDB18191B))
-                .border(1.dp, Color(0x38FFFFFF), RoundedCornerShape(999.dp))
+                .padding(top = MilkSpace.lg, end = MilkSpace.lg)
+                .clip(PillShape)
+                .background(OverlaySurfaceLight)
+                .border(1.dp, OverlayBorderDark, PillShape)
                 .clickable(onClick = onCancel)
                 .defaultMinSize(minHeight = 36.dp)
-                .padding(horizontal = 14.dp),
+                .padding(horizontal = MilkSpace.lg - 2.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("取消", fontSize = 12.5.sp, color = Color.White)
+            Text("取消", style = MilkText.label, color = OverlayText)
         }
 
         // 选框 + 四角手柄 + 尺寸标注
         if (r != null && r.width > 0 && r.height > 0) {
             Canvas(Modifier.fillMaxSize()) {
                 drawRoundRect(
-                    color = Color.White,
+                    color = OverlayText,
                     topLeft = Offset(r.l, r.t),
                     size = Size(r.width, r.height),
                     cornerRadius = CornerRadius(4f, 4f),
                     style = Stroke(width = 1.5.dp.toPx()),
                 )
-                // 角手柄(白底蓝边圆点;视觉 12dp,命中 24dp)
+                // 角手柄(亮面圆点 + 亮蓝描边;视觉 12dp,命中 24dp)
                 for (c in listOf(Offset(r.l, r.t), Offset(r.r, r.t), Offset(r.l, r.b), Offset(r.r, r.b))) {
-                    drawCircle(Color.White, radius = 6.dp.toPx(), center = c)
-                    drawCircle(Color(0xFF2563EB), radius = 6.dp.toPx(), center = c, style = Stroke(2.dp.toPx()))
+                    drawCircle(OverlayText, radius = 6.dp.toPx(), center = c)
+                    drawCircle(AccentBlueDark, radius = 6.dp.toPx(), center = c, style = Stroke(2.dp.toPx()))
                 }
             }
             // 尺寸标注:默认选区上方;靠顶时放选区内、距顶 26dp(避开角柄命中区),横向避让角柄
@@ -209,14 +217,15 @@ fun SnipOverlay(
             else ((r.l + r.width / 2) - labelSize.width / 2).coerceIn(xMinInside, xMaxInside)
             Text(
                 label,
-                fontFamily = Mono, fontSize = 11.sp, color = Color(0xFFF4F5F7),
+                style = MilkText.monoMeta,
+                color = OverlayText,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
                     .onSizeChanged { labelSize = it }
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xF218191B))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .clip(RoundedCornerShape(MilkRadius.xs))
+                    .background(OverlaySurfaceLight)
+                    .padding(horizontal = MilkSpace.sm, vertical = 3.dp),
             )
         }
 
@@ -226,10 +235,10 @@ fun SnipOverlay(
             Row(
                 Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color(0xF218191B))
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(top = MilkSpace.lg)
+                    .clip(PillShape)
+                    .background(OverlaySurfaceLight)
+                    .padding(horizontal = MilkSpace.xxs, vertical = MilkSpace.xxs),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -243,16 +252,16 @@ fun SnipOverlay(
             AnimatedVisibility(
                 visible = state.phase == SnipPhase.CONFIRMED,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-                enter = fadeIn(tween(if (reduced) 60 else 160)) +
-                    slideInVertically(tween(if (reduced) 0 else 160)) { it / 2 },
-                exit = fadeOut(tween(if (reduced) 60 else 120)) +
-                    slideOutVertically(tween(if (reduced) 0 else 120)) { it / 2 },
+                enter = fadeIn(tween(if (reduced) MilkMotion.reduced else 180, easing = MilkMotion.EaseOut)) +
+                    slideInVertically(tween(if (reduced) 0 else 180, easing = MilkMotion.EaseOut)) { it / 2 },
+                exit = fadeOut(tween(if (reduced) MilkMotion.reduced else 120, easing = MilkMotion.EaseOut)) +
+                    slideOutVertically(tween(if (reduced) 0 else 120, easing = MilkMotion.EaseOut)) { it / 2 },
             ) {
                 // 意图条:底部深色胶囊(DESIGN-V2 snip-bar);当前意图 = 蓝 22% 淡底 + 浅蓝字
                 Row(
                     Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xF218191B))
+                        .clip(PillShape)
+                        .background(OverlaySurfaceLight)
                         .padding(5.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -261,43 +270,46 @@ fun SnipOverlay(
                         val active = state.intent == spec.id
                         Box(
                             Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(if (active) Color(0x385B92FF) else Color.Transparent)
+                                .clip(PillShape)
+                                .background(if (active) AccentBlueDark.copy(alpha = 0.22f) else Color.Transparent)
                                 .clickable { onIntent(spec.id) }
                                 .defaultMinSize(minHeight = 36.dp)
-                                .padding(horizontal = 12.dp),
+                                .padding(horizontal = MilkSpace.md),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 spec.label,
-                                fontSize = 12.5.sp,
-                                fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
-                                color = if (active) Color(0xFF8AB4FF) else Color(0xFFD4D7DC),
+                                style = if (active) MilkText.label.copy(fontWeight = FontWeight.SemiBold) else MilkText.label,
+                                color = if (active) AccentBlueDark else OverlayMuted,
                             )
                         }
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(MilkSpace.xxs))
                     Box(
                         Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(PillShape)
                             .clickable { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
                             .defaultMinSize(minHeight = 36.dp)
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = MilkSpace.md),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("存卡片", fontSize = 12.5.sp, color = Color(0xFFD4D7DC))
+                        Text("存卡片", style = MilkText.label, color = OverlayMuted)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(MilkSpace.xxs))
                     Box(
                         Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFF2563EB))
+                            .clip(PillShape)
+                            .background(AccentBlue)
                             .clickable { onSend { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
                             .defaultMinSize(minHeight = 34.dp)
-                            .padding(horizontal = 14.dp),
+                            .padding(horizontal = MilkSpace.lg - 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("发送 ↵", color = Color.White, fontSize = 12.5.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                        Text(
+                            "发送 ↵",
+                            style = MilkText.label.copy(fontWeight = FontWeight.Medium),
+                            color = Color.White,
+                        )
                     }
                 }
             }
@@ -309,13 +321,13 @@ fun SnipOverlay(
 private fun SnipAction(label: String, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(PillShape)
             .clickable(onClick = onClick)
             .defaultMinSize(minHeight = 36.dp)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = MilkSpace.md),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, fontSize = 12.5.sp, color = Color(0xFFD4D7DC))
+        Text(label, style = MilkText.label, color = OverlayMuted)
     }
 }
 

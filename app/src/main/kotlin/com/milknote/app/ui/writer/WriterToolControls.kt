@@ -2,11 +2,11 @@ package com.milknote.app.ui.writer
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,12 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.milknote.app.R
+import com.milknote.app.ui.theme.LocalMilkMotion
+import com.milknote.app.ui.theme.MilkMotion
 import com.milknote.ink.model.InkTool
 
 @Composable
@@ -49,21 +53,30 @@ internal fun InkColorDot(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    // 触屏只认按压:不再监听 hover(触屏点击会触发幽灵悬停)
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    LaunchedEffect(hovered, enabled) { onHoverChanged(hovered && enabled) }
+    val pressed by interaction.collectIsPressedAsState()
+    LaunchedEffect(pressed, enabled) { onHoverChanged(pressed && enabled) }
+    val reduced = LocalMilkMotion.current
+    val haptic = LocalHapticFeedback.current
     val scale by animateFloatAsState(
-        when {
-            hovered && enabled -> 1.08f
+        targetValue = when {
+            reduced -> 1f
+            pressed && enabled -> 0.92f
             active && enabled -> 1.04f
             squeezed -> 0.94f
             else -> 1f
         },
-        tween(160), label = "inkScale",
+        animationSpec = when {
+            reduced -> snap()
+            pressed -> tween(MilkMotion.press, easing = MilkMotion.EaseOut)
+            else -> MilkMotion.uiSpring()
+        },
+        label = "inkScale",
     )
     val ring by animateColorAsState(
-        if ((active || hovered) && enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
-        tween(200), label = "inkRing",
+        if (active && enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline,
+        MilkMotion.colorSpec(), label = "inkRing",
     )
     val cs = MaterialTheme.colorScheme
     val dotColor = Color(color.toInt())
@@ -73,13 +86,16 @@ internal fun InkColorDot(
         modifier
             .size(44.dp)
             .clip(CircleShape)
-            .hoverable(interaction)
             .clickable(
                 interactionSource = interaction,
                 indication = androidx.compose.foundation.LocalIndication.current,
                 enabled = enabled,
                 role = androidx.compose.ui.semantics.Role.RadioButton,
-                onClick = onClick,
+                onClick = {
+                    // 切到新色:轻触感确认(再次点当前色=打开调色,不重复触发)
+                    if (!active) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
             )
             .semantics { contentDescription = if (active) "$label，当前颜色，再次点击详细设定" else label },
         contentAlignment = Alignment.Center,
@@ -94,7 +110,7 @@ internal fun InkColorDot(
                 .size(26.dp)
                 .clip(CircleShape)
                 .background(dotColor)
-                .border(if (active || hovered) 2.dp else 1.dp, ring, CircleShape),
+                .border(if (active) 2.dp else 1.dp, ring, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             if (active) {

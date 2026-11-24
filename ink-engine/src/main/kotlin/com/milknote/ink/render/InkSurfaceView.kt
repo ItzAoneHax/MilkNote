@@ -110,12 +110,12 @@ class InkSurfaceView @JvmOverloads constructor(
             invalidate()
         }
 
-    /** 颜色由界面主题注入(奶白纸 + #D8D4C8 点) */
-    var paperColor: Int = 0xFFFAF9F5.toInt()
+    /** 颜色由界面主题注入(第二代自然纸墨:纯白纸 + #D5D7DD 点,桌面底 #EFEFF2) */
+    var paperColor: Int = 0xFFFFFFFF.toInt()
         set(value) { field = value; committedKey = Long.MIN_VALUE; invalidate() }
-    var dotColor: Int = 0xFFD8D4C8.toInt()
-    var backdropColor: Int = 0xFFEFEDE5.toInt()   // 纸外(视口)底色
-    var paperFrameColor: Int = 0x1423221E          // 纸面细边
+    var dotColor: Int = 0xFFD5D7DD.toInt()
+    var backdropColor: Int = 0xFFEFEFF2.toInt()   // 纸外(视口)底色
+    var paperFrameColor: Int = 0x1A18191B          // 纸面细边
 
     /**
      * 暗色纸面:显示层整体换色(纸/点阵/视口/光标/套索)。
@@ -908,43 +908,46 @@ class InkSurfaceView @JvmOverloads constructor(
     private val backdropPaint = Paint()
 
     private val paperPaint = Paint()
+    private val paperShadowPaint = Paint().apply { color = 0x0D000000; style = Paint.Style.FILL }
     private val framePaint = Paint().apply { color = paperFrameColor; style = Paint.Style.STROKE; strokeWidth = 1f }
     private val cursorPaint = Paint().apply {
-        color = 0x6623221E.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true
+        color = 0x6618191B.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true
     }
 
-    /** 主题应用到纸面层(亮=奶白纸,暗=深纸 + 浅墨光标 + 亮蓝套索) */
+    /** 主题应用到纸面层(亮=纯白纸,暗=石墨纸 + 浅墨光标 + 亮蓝套索) */
     private fun applyPaperTheme() {
         if (darkTheme) {
-            paperColor = 0xFF1B1C20.toInt()
-            dotColor = 0xFF2C2D33.toInt()
-            backdropColor = 0xFF15161A.toInt()
-            paperFrameColor = 0x33E8E6E0
-            cursorPaint.color = 0x66E8E6E0.toInt()
-            lassoPaint.color = 0xFF7D92FF.toInt()
-            selectionBoxPaint.color = 0xA67D92FF.toInt()
-            selectionHaloPaint.color = 0x247D92FF
-            selectionGuidePaint.color = 0xC27D92FF.toInt()
-            selectionUnderlayPaint.color = 0x8A1B1C20.toInt()
-            handleFillPaint.color = 0xFF26272D.toInt()
-            handleStrokePaint.color = 0xFF7D92FF.toInt()
-            handleHaloPaint.color = 0x187D92FF
-            handleDetailPaint.color = 0xB37D92FF.toInt()
+            paperColor = 0xFF16171A.toInt()
+            dotColor = 0xFF282A30.toInt()
+            backdropColor = 0xFF0D0E10.toInt()
+            paperFrameColor = 0x2EECEEF0
+            framePaint.color = paperFrameColor
+            cursorPaint.color = 0x66ECEEF0.toInt()
+            lassoPaint.color = 0xFF5B92FF.toInt()
+            selectionBoxPaint.color = 0xA65B92FF.toInt()
+            selectionHaloPaint.color = 0x245B92FF
+            selectionGuidePaint.color = 0xC25B92FF.toInt()
+            selectionUnderlayPaint.color = 0x8A16171A.toInt()
+            handleFillPaint.color = 0xFF1F2126.toInt()
+            handleStrokePaint.color = 0xFF5B92FF.toInt()
+            handleHaloPaint.color = 0x185B92FF
+            handleDetailPaint.color = 0xB35B92FF.toInt()
         } else {
-            paperColor = 0xFFFAF9F5.toInt()
-            dotColor = 0xFFD8D4C8.toInt()
-            backdropColor = 0xFFEFEDE5.toInt()
-            paperFrameColor = 0x1423221E
-            cursorPaint.color = 0x6623221E.toInt()
-            lassoPaint.color = 0xFF3B5BEC.toInt()
-            selectionBoxPaint.color = 0xA63B5BEC.toInt()
-            selectionHaloPaint.color = 0x243B5BEC
-            selectionGuidePaint.color = 0xB83B5BEC.toInt()
-            selectionUnderlayPaint.color = 0xB8FAF9F5.toInt()
-            handleFillPaint.color = 0xFFFFFCF7.toInt()
-            handleStrokePaint.color = 0xFF3B5BEC.toInt()
-            handleHaloPaint.color = 0x103B5BEC
-            handleDetailPaint.color = 0x993B5BEC.toInt().toInt()
+            paperColor = 0xFFFFFFFF.toInt()
+            dotColor = 0xFFD5D7DD.toInt()
+            backdropColor = 0xFFEFEFF2.toInt()
+            paperFrameColor = 0x1A18191B
+            framePaint.color = paperFrameColor
+            cursorPaint.color = 0x6618191B.toInt()
+            lassoPaint.color = 0xFF2563EB.toInt()
+            selectionBoxPaint.color = 0xA62563EB.toInt()
+            selectionHaloPaint.color = 0x242563EB
+            selectionGuidePaint.color = 0xC22563EB.toInt()
+            selectionUnderlayPaint.color = 0xB8FFFFFF.toInt()
+            handleFillPaint.color = 0xFFFFFFFF.toInt()
+            handleStrokePaint.color = 0xFF2563EB.toInt()
+            handleHaloPaint.color = 0x102563EB
+            handleDetailPaint.color = 0x992563EB.toInt()
         }
     }
 
@@ -953,8 +956,10 @@ class InkSurfaceView @JvmOverloads constructor(
         if (!darkTheme) return c
         when (c) {
             0xFF23221E -> return 0xFFE8E6E0
+            0xFF18191B -> return 0xFFECEEF0
             0xFFD2483C -> return 0xFFE06558
-            0xFF3B5BEC -> return 0xFF7D92FF
+            0xFF3B5BEC -> return 0xFF5B92FF
+            0xFF2563EB -> return 0xFF5B92FF
         }
         val r = ((c shr 16) and 0xFF) / 255f
         val g = ((c shr 8) and 0xFF) / 255f
@@ -966,35 +971,35 @@ class InkSurfaceView @JvmOverloads constructor(
         return (c and 0xFF000000) or (channel(r) shl 16) or (channel(g) shl 8) or channel(b)
     }
     private val lassoPaint = Paint().apply {
-        color = 0xFF3B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        color = 0xFF2563EB.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
     }
     private val selectionBoxPaint = Paint().apply {
-        color = 0x803B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        color = 0x802563EB.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
     }
     private val selectionHaloPaint = Paint().apply {
-        color = 0x243B5BEC; style = Paint.Style.FILL; isAntiAlias = true
+        color = 0x242563EB; style = Paint.Style.FILL; isAntiAlias = true
     }
     private val selectionUnderlayPaint = Paint().apply {
-        color = 0xB8FAF9F5.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        color = 0xB8FFFFFF.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
     }
     private val handleFillPaint = Paint().apply {
-        color = 0xFFFFFCF7.toInt(); style = Paint.Style.FILL; isAntiAlias = true
+        color = 0xFFFFFFFF.toInt(); style = Paint.Style.FILL; isAntiAlias = true
     }
     private val handleStrokePaint = Paint().apply {
-        color = 0xFF3B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        color = 0xFF2563EB.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
         strokeCap = Paint.Cap.ROUND
     }
     private val handleShadowPaint = Paint().apply {
-        color = 0x1423221E; style = Paint.Style.FILL; isAntiAlias = true
+        color = 0x1418191B; style = Paint.Style.FILL; isAntiAlias = true
     }
     private val handleHaloPaint = Paint().apply {
-        color = 0x103B5BEC; style = Paint.Style.FILL; isAntiAlias = true
+        color = 0x102563EB; style = Paint.Style.FILL; isAntiAlias = true
     }
     private val handleDetailPaint = Paint().apply {
-        color = 0x993B5BEC.toInt(); style = Paint.Style.FILL; isAntiAlias = true
+        color = 0x992563EB.toInt(); style = Paint.Style.FILL; isAntiAlias = true
     }
     private val selectionGuidePaint = Paint().apply {
-        color = 0xB83B5BEC.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
+        color = 0xB82563EB.toInt(); style = Paint.Style.STROKE; isAntiAlias = true
         strokeCap = Paint.Cap.ROUND
     }
 
@@ -1010,6 +1015,14 @@ class InkSurfaceView @JvmOverloads constructor(
         backdropPaint.color = backdropColor
         backdropPaint.style = Paint.Style.FILL
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backdropPaint)
+
+        // 纸页悬浮:极轻的 2px 偏移底影先落在桌面上,随后纸面填充盖住内叠部分,
+        // 只在纸沿外侧留下一层柔和层次,让纯白纸从 #EFEFF2 桌面自然浮起(仅亮色)。
+        if (!darkTheme) {
+            val sx = panX + 2f
+            val sy = panY + 2f
+            canvas.drawRect(sx, sy, sx + pageWidthPx * zoom, sy + pageHeightPx * zoom, paperShadowPaint)
+        }
 
         canvas.save()
         canvas.translate(panX, panY)

@@ -1,6 +1,5 @@
 package com.milknote.app.ui.settings
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -9,29 +8,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,12 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.milknote.agent.ModelInfo
 import com.milknote.agent.Protocol
 import com.milknote.agent.ProviderProfile
@@ -61,18 +58,18 @@ import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkConfirmDialog
+import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkIconButton
-import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkSegmented
-import com.milknote.app.ui.common.milkDialogSurface
-import com.milknote.app.ui.common.accentBrush
-import com.milknote.app.ui.common.innerHighlight
-import com.milknote.app.ui.common.paintedShadow
-import com.milknote.app.ui.common.softClickable
-import com.milknote.app.ui.common.softShadow
-import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.common.MilkStatusBadge
+import com.milknote.app.ui.common.MilkStatusTone
+import com.milknote.app.ui.common.MilkTextField
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import kotlinx.coroutines.launch
 
 /**
@@ -80,7 +77,8 @@ import kotlinx.coroutines.launch
  * - Provider 卡 = 主字段「只写 API Key」+ 折叠自定义区(harness ProviderEditor 同款)
  * - 模型目录 = 行式编辑器:id 行 + 展开区(显示名/输入类型/思考档位声明/容量)(harness ModelRow)
  * - 拉取 = 候选勾选选择器,一次加减多个,默认勾选已配置项(harness fetch picker)
- * 视觉走 SettingsKit:hairline 行 / 值列 › / ✓ 当前 / 文字操作钮 / mono 只用于值。
+ * 视觉走 SettingsKit:hairline 行 / 值列 › / ✓ 当前 / 文字操作钮 / mono 只用于值;
+ * 表单一律用共享 MilkTextField(自带光标色,暗色下不会隐形)。
  */
 @Composable
 fun AgentSettingsSection() {
@@ -92,65 +90,88 @@ fun AgentSettingsSection() {
     var expandedProvider by remember { mutableStateOf<String?>(null) }
     var expandedModel by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var testingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     // A-27:删除需确认(Provider 含端点/模型声明/调档结果;模型 ✕ 误触即丢)
     data class DeleteReq(val providerId: String, val providerTitle: String, val modelId: String? = null)
     var deleteReq by remember { mutableStateOf<DeleteReq?>(null) }
 
     Column {
-        state.profiles.forEach { profile ->
-            val active = profile.id == state.activeProfileId
-            ProviderCard(
-                profile = profile,
-                active = active,
-                hasKey = agent.hasKey(profile),
-                expanded = expandedProvider == profile.id,
-                expandedModelId = expandedModel,
-                testLine = testResult[profile.id],
-                onToggleExpand = { expandedProvider = if (expandedProvider == profile.id) null else profile.id },
-                onToggleModel = { id -> expandedModel = if (expandedModel == id) null else id },
-                onBaseUrlChange = { url ->
-                    // baseUrl 就地保存(整 profile 重写)
-                    val book = com.milknote.agent.AgentStore.ProfileBook(
-                        state.profiles.map { if (it.id == profile.id) it.copy(baseUrl = url) else it },
-                        state.activeProfileId,
-                    )
-                    agent.replaceProfiles(book)
-                },
-                onTest = {
-                    scope.launch {
-                        agent.testConnection(profile.id).onSuccess { ms ->
-                            testResult = testResult + (profile.id to "鉴权可达 · ${ms}ms")
-                        }.onFailure { e -> testResult = testResult + (profile.id to (e.message?.take(110) ?: "连接失败")) }
-                    }
-                },
-                onSetActive = { agent.setActiveProfile(profile.id) },
-                onDelete = { deleteReq = DeleteReq(profile.id, profile.title) },
-                onSelectModel = { agent.selectModel(profile.id, it) },
-                onAddModel = { agent.addModel(profile.id, it, declaredVision = true) },
-                onRemoveModel = { deleteReq = DeleteReq(profile.id, profile.title, it) },
-                onUpdateModel = { id, dn, vis, lv, ctx, out ->
-                    agent.updateModel(profile.id, id, dn, vis, lv, ctx, out)
-                },
-                onFetch = { onDone ->
-                    scope.launch { agent.fetchModels(profile.id).let(onDone) }
-                },
-                onApplyFetched = { models -> agent.setModels(profile.id, models) },
-            )
-            Spacer(Modifier.height(10.dp))
-        }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MilkSpace.sm)) {
+            state.profiles.forEach { profile ->
+                val active = profile.id == state.activeProfileId
+                ProviderCard(
+                    profile = profile,
+                    active = active,
+                    hasKey = agent.hasKey(profile),
+                    expanded = expandedProvider == profile.id,
+                    expandedModelId = expandedModel,
+                    testLine = testResult[profile.id],
+                    testing = profile.id in testingIds,
+                    onToggleExpand = { expandedProvider = if (expandedProvider == profile.id) null else profile.id },
+                    onToggleModel = { id -> expandedModel = if (expandedModel == id) null else id },
+                    onBaseUrlChange = { url ->
+                        // baseUrl 就地保存(整 profile 重写)
+                        val book = com.milknote.agent.AgentStore.ProfileBook(
+                            state.profiles.map { if (it.id == profile.id) it.copy(baseUrl = url) else it },
+                            state.activeProfileId,
+                        )
+                        agent.replaceProfiles(book)
+                    },
+                    onTest = {
+                        if (profile.id !in testingIds) {
+                            testingIds = testingIds + profile.id
+                            scope.launch {
+                                agent.testConnection(profile.id)
+                                    .onSuccess { ms -> testResult = testResult + (profile.id to "鉴权可达 · ${ms}ms") }
+                                    .onFailure { e ->
+                                        testResult = testResult + (profile.id to (e.message?.take(110) ?: "连接失败"))
+                                    }
+                                testingIds = testingIds - profile.id
+                            }
+                        }
+                    },
+                    onSetActive = { agent.setActiveProfile(profile.id) },
+                    onDelete = { deleteReq = DeleteReq(profile.id, profile.title) },
+                    onSelectModel = { agent.selectModel(profile.id, it) },
+                    onAddModel = { agent.addModel(profile.id, it, declaredVision = true) },
+                    onRemoveModel = { deleteReq = DeleteReq(profile.id, profile.title, it) },
+                    onUpdateModel = { id, dn, vis, lv, ctx, out ->
+                        agent.updateModel(profile.id, id, dn, vis, lv, ctx, out)
+                    },
+                    onFetch = { onDone ->
+                        scope.launch { agent.fetchModels(profile.id).let(onDone) }
+                    },
+                    onApplyFetched = { models -> agent.setModels(profile.id, models) },
+                )
+            }
 
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .clickable(role = androidx.compose.ui.semantics.Role.Button) { adding = true }
-                .defaultMinSize(minHeight = 48.dp)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text("添加模型服务", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+            // 新增入口:单行 hairline 卡,沉稳不漂浮
+            SettingsCard {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button) { adding = true }
+                        .heightIn(min = 52.dp)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(MilkSpace.sm))
+                    Text("添加模型服务", style = MilkText.rowTitle, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
 
@@ -193,6 +214,7 @@ private fun ProviderCard(
     expanded: Boolean,
     expandedModelId: String?,
     testLine: String?,
+    testing: Boolean,
     onToggleExpand: () -> Unit,
     onToggleModel: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
@@ -206,36 +228,51 @@ private fun ProviderCard(
     onFetch: ((Result<List<ModelInfo>>) -> Unit) -> Unit,
     onApplyFetched: (List<ModelInfo>) -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     SettingsCard(
         modifier = Modifier.animateContentSize(tween(200)),
-        borderColor = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outline,
-        containerColor = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
+        borderColor = if (active) cs.primary.copy(alpha = 0.3f) else cs.outline,
+        containerColor = if (active) cs.primary.copy(alpha = 0.05f) else cs.surface,
     ) {
-        // ---- 标题行:激活点 | 名称 | 协议标签 | 缺 Key | 模型数 | ▸/▾ ----
+        // ---- 标题行:激活点 | 名称 | 协议徽标 | 缺 Key | 模型数 | ▸/▾ ----
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onToggleExpand).padding(horizontal = 16.dp, vertical = 4.dp),
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggleExpand)
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
                     .size(9.dp)
                     .clip(CircleShape)
-                    .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                    .background(if (active) cs.primary else Color.Transparent)
+                    .border(1.dp, if (active) cs.primary else cs.outline, CircleShape),
             )
             Spacer(Modifier.width(10.dp))
-            Text(profile.title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
-            Spacer(Modifier.width(8.dp))
-            ProtocolTag(profile.protocol)
-            if (!hasKey) {
-                Spacer(Modifier.width(6.dp))
-                Text("缺 Key", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+            // 名称 + 徽标成组:名称最多占满剩余宽度,长标题省略号收缩,徽标不会被挤飞
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    profile.title,
+                    style = MilkText.rowTitle,
+                    color = cs.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(MilkSpace.sm))
+                MilkStatusBadge(text = protocolLabel(profile.protocol), tone = MilkStatusTone.NEUTRAL, mono = true)
+                if (!hasKey) {
+                    Spacer(Modifier.width(MilkSpace.xs))
+                    MilkStatusBadge(text = "缺 Key", tone = MilkStatusTone.DANGER)
+                }
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(MilkSpace.sm))
             MonoMetaLine("${profile.models.size} 模型")
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(MilkSpace.sm))
             MilkIconButton(
-                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.KeyboardArrowRight,
+                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                 contentDescription = if (expanded) "收起 Provider" else "展开 Provider",
                 onClick = onToggleExpand,
             )
@@ -267,16 +304,21 @@ private fun ProviderCard(
             }
             Hairline()
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = MilkSpace.sm),
+                horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextAction(
                     if (active) "✓ 当前 Provider" else "设为当前",
                     primary = active,
-                    onClick = { if (!active) onSetActive() },
+                    enabled = !active,
+                    onClick = onSetActive,
                 )
-                TextAction("测试连接", onClick = onTest)
+                TextAction(
+                    label = if (testing) "测试中…" else "测试连接",
+                    enabled = !testing,
+                    onClick = onTest,
+                )
                 Spacer(Modifier.weight(1f))
                 TextAction("删除 Provider", danger = true, onClick = onDelete)
             }
@@ -285,20 +327,9 @@ private fun ProviderCard(
 }
 
 /** 协议产品名(harness protocol-label:显示产品名而非 schema id) */
-@Composable
-private fun ProtocolTag(protocol: Protocol) {
-    Text(
-        when (protocol) {
-            Protocol.OPENAI_COMPATIBLE -> "OpenAI 兼容"
-            Protocol.ANTHROPIC -> "Anthropic"
-        },
-        fontFamily = Mono, fontSize = 10.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .clip(CircleShape)
-            .border(0.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-    )
+private fun protocolLabel(protocol: Protocol): String = when (protocol) {
+    Protocol.OPENAI_COMPATIBLE -> "OpenAI 兼容"
+    Protocol.ANTHROPIC -> "Anthropic"
 }
 
 @Composable
@@ -307,13 +338,17 @@ private fun ApiKeyBlock(hasKey: Boolean, onSave: (String) -> Unit) {
     var key by remember { mutableStateOf("") }
     if (!editing) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = MilkSpace.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("API Key", fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
+            Text("API Key", style = MilkText.body, color = MaterialTheme.colorScheme.onBackground)
             Spacer(Modifier.weight(1f))
-            Text("•••• 已保存(仅本机)", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(8.dp))
+            Text(
+                "•••• 已保存",
+                style = MilkText.monoMeta,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(MilkSpace.sm))
             TextAction("更换") { editing = true }
         }
     } else {
@@ -371,8 +406,8 @@ private fun ModelCatalogSection(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("模型", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
-            Spacer(Modifier.width(6.dp))
+            Text("模型", style = MilkText.rowTitle, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.width(MilkSpace.xs))
             MonoMetaLine(
                 "${profile.models.size}" + if (profile.presetId != null) " · 预设可编辑" else " · 自定义",
             )
@@ -444,16 +479,9 @@ private fun ModelCatalogSection(
         if (profile.models.isEmpty()) {
             StatusLine("暂无模型:从端点拉取,或手填 modelId(勾选「图片」输入类型后方可用于框选)", tone = StatusTone.NEUTRAL)
         }
-        // ---- 模型行列表(inset 面板,hairline 分行) ----
+        // ---- 模型行列表:hairline 分行,不再套灰底容器(避免多层卡片套娃) ----
         if (profile.models.isNotEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                    .padding(4.dp),
-            ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = MilkSpace.sm, vertical = MilkSpace.xs)) {
                 profile.models.forEachIndexed { idx, model ->
                     if (idx > 0) Hairline()
                     ModelRow(
@@ -492,73 +520,99 @@ private fun FetchPicker(
     var picked by remember(candidates) {
         mutableStateOf(candidates.filter { it.id in configured }.map { it.id }.toSet())
     }
+    val cs = MaterialTheme.colorScheme
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .padding(8.dp),
+            .padding(horizontal = MilkSpace.sm, vertical = MilkSpace.sm)
+            .clip(RoundedCornerShape(MilkRadius.md))
+            .border(1.dp, cs.outline, RoundedCornerShape(MilkRadius.md))
+            .padding(MilkSpace.md),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("端点返回 ${candidates.size} 个模型", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "端点返回 ${candidates.size} 个模型",
+                style = MilkText.caption,
+                color = cs.onSurfaceVariant,
+            )
             Spacer(Modifier.weight(1f))
-            Text("已选 ${picked.size}", fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-        }
-        Spacer(Modifier.height(8.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            if (query.isEmpty()) Text("搜索…", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-            BasicTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground),
-                modifier = Modifier.fillMaxWidth(),
+            Text(
+                "已选 ${picked.size}",
+                style = MilkText.monoMeta,
+                color = cs.primary,
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(MilkSpace.sm))
+        MilkTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "搜索模型 id…",
+            leading = {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(17.dp),
+                )
+            },
+            onClear = { query = "" },
+        )
+        Spacer(Modifier.height(MilkSpace.sm))
+
         val filtered = remember(candidates, query) {
             candidates.filter { query.isBlank() || it.id.contains(query, true) }
         }
-        Column(Modifier.height(240.dp)) {
-            LazyColumn {
-                items(filtered.size) { idx ->
-                    val c = filtered[idx]
-                    val checked = c.id in picked
-                    Row(
+        LazyColumn(Modifier.fillMaxWidth().height(240.dp)) {
+            items(filtered, key = { it.id }) { c ->
+                val checked = c.id in picked
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { picked = if (checked) picked - c.id else picked + c.id }
+                        .heightIn(min = 40.dp)
+                        .padding(horizontal = MilkSpace.xxs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
                         Modifier
-                            .fillMaxWidth()
-                            .clickable { picked = if (checked) picked - c.id else picked + c.id }
-                            .padding(horizontal = 4.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .size(16.dp)
+                            .clip(RoundedCornerShape(MilkRadius.xs - 1.dp))
+                            .background(if (checked) cs.primary else Color.Transparent)
+                            .border(
+                                1.dp,
+                                if (checked) cs.primary else cs.outline,
+                                RoundedCornerShape(MilkRadius.xs - 1.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            Modifier
-                                .size(16.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(if (checked) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) { if (checked) Text("✓", color = MaterialTheme.colorScheme.onPrimary, fontSize = 11.sp) }
-                        Spacer(Modifier.width(10.dp))
-                        Text(c.id, fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
-                        Spacer(Modifier.weight(1f))
-                        if (c.vision) {
-                            Text("视觉", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            Text("需勾图片", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (checked) {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = cs.onPrimary,
+                                modifier = Modifier.size(12.dp),
+                            )
                         }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        c.id,
+                        style = MilkText.monoBody,
+                        color = cs.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(MilkSpace.sm))
+                    if (c.vision) {
+                        MilkStatusBadge(text = "视觉", tone = MilkStatusTone.ACCENT)
+                    } else {
+                        Text("需勾图片", style = MilkText.micro, color = cs.onSurfaceVariant, maxLines = 1)
                     }
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(MilkSpace.xxs))
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextAction("应用所选", primary = true) {
                 // 已配置行保留原声明(用户调过的档位不被拉取覆盖);勾选的新行按候选进表
@@ -573,6 +627,7 @@ private fun FetchPicker(
 
 // ==================== 模型行(harness ModelRow:折叠行 + 展开高级区) ====================
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModelRow(
     model: ModelInfo,
@@ -583,6 +638,7 @@ private fun ModelRow(
     onRemove: () -> Unit,
     onUpdate: (String?, Boolean?, List<ReasoningEffort>?, Int?, Int?) -> Unit,
 ) {
+    val cs = MaterialTheme.colorScheme
     var name by remember(model.displayName) { mutableStateOf(model.displayName) }
     var ctx by remember(model.contextWindowK) { mutableStateOf(if (model.contextWindowK > 0) model.contextWindowK.toString() else "") }
     var out by remember(model.maxTokensK) { mutableStateOf(if (model.maxTokensK > 0) model.maxTokensK.toString() else "") }
@@ -591,7 +647,12 @@ private fun ModelRow(
     Column(Modifier.fillMaxWidth().animateContentSize(tween(200))) {
         // ---- 折叠行:默认点 | id(mono)+ 徽章 | 容量 | ▸ | 删 ----
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle).defaultMinSize(minHeight = 56.dp).padding(horizontal = 4.dp),
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(MilkRadius.sm))
+                .clickable(onClick = onToggle)
+                .heightIn(min = 56.dp)
+                .padding(horizontal = MilkSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -602,31 +663,44 @@ private fun ModelRow(
                     Modifier
                         .size(16.dp)
                         .clip(CircleShape)
-                        .background(if (isDefault) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                        .border(1.dp, if (isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
+                        .background(if (isDefault) cs.primary else Color.Transparent, CircleShape)
+                        .border(1.dp, if (isDefault) cs.primary else cs.outline, CircleShape),
                 )
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(model.id, fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
-                    Spacer(Modifier.width(6.dp))
-                    if (!model.vision) Text("纯文本", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        model.id,
+                        style = MilkText.monoBody,
+                        color = cs.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (!model.vision) {
+                        Spacer(Modifier.width(MilkSpace.xs))
+                        MilkStatusBadge(text = "纯文本", tone = MilkStatusTone.DANGER)
+                    }
                     if (model.visionSource == VisionSource.DECLARED.name) {
-                        Spacer(Modifier.width(4.dp))
-                        Text("已声明", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(MilkSpace.xxs))
+                        MilkStatusBadge(text = "已声明", tone = MilkStatusTone.NEUTRAL)
                     }
                 }
                 if (levels.isNotEmpty()) {
                     Text(
                         "思考 " + levels.joinToString("/") { ThinkingDispatchUI.label(it) },
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MilkText.micro,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+            Spacer(Modifier.width(MilkSpace.xs))
             MonoMetaLine(capacityLine(model))
             MilkIconButton(
-                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.KeyboardArrowRight,
+                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                 contentDescription = if (expanded) "收起模型设置" else "展开模型设置",
                 onClick = onToggle,
             )
@@ -639,48 +713,59 @@ private fun ModelRow(
 
         // ---- 展开区:显示名 / 输入类型 / 思考档位声明 / 容量(harness ModelRow 高级区) ----
         if (expanded) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp)) {
-                Spacer(Modifier.height(4.dp))
-                Text("显示名", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    BasicTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground),
-                        modifier = Modifier.fillMaxWidth(),
+            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = MilkSpace.sm)) {
+                Spacer(Modifier.height(MilkSpace.xxs))
+                MilkTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "显示名",
+                    placeholder = "如 GLM-5.4V",
+                    onClear = { name = "" },
+                )
+                Spacer(Modifier.height(10.dp))
+
+                // 输入类型(harness ModelInputTypes:文本恒选且锁定,图片 = 视觉声明)
+                Text("输入类型", style = MilkText.micro, color = cs.onSurfaceVariant)
+                Spacer(Modifier.height(MilkSpace.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs)) {
+                    MilkFilterChip(
+                        label = "文本",
+                        selected = true,
+                        enabled = false,
+                        onClick = {},
+                        small = true,
+                    )
+                    MilkFilterChip(
+                        label = "图片",
+                        selected = model.vision,
+                        onClick = { onUpdate(null, !model.vision, null, null, null) },
+                        small = true,
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                // 输入类型(harness ModelInputTypes:文本/图片复选 = 视觉声明)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("输入类型", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(10.dp))
-                    ToggleChip("图片", on = model.vision) { onUpdate(null, !model.vision, null, null, null) }
-                    Spacer(Modifier.width(6.dp))
-                    ToggleChip("文本", on = true) {}
-                }
-                Spacer(Modifier.height(10.dp))
-                // 思考档位声明(harness ModelReasoningEfforts:多选声明,空=不可调)
-                Text("思考档位声明(空 = 该模型不可调)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                // 思考档位声明(harness ModelReasoningEfforts:多选声明,空=不可调;流式换行防裁切)
+                Text(
+                    "思考档位声明（空 = 该模型不可调）",
+                    style = MilkText.micro,
+                    color = cs.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(MilkSpace.xs))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+                    verticalArrangement = Arrangement.spacedBy(MilkSpace.xxs),
+                ) {
                     ThinkingDispatchUI.editable.forEach { level ->
                         val on = levels.contains(level)
-                        ToggleChip(
-                            ThinkingDispatchUI.label(level),
-                            on = on,
-                        ) {
-                            val next = if (on) levels - level else levels + level
-                            onUpdate(null, null, next, null, null)
-                        }
+                        MilkFilterChip(
+                            label = ThinkingDispatchUI.label(level),
+                            selected = on,
+                            onClick = {
+                                val next = if (on) levels - level else levels + level
+                                onUpdate(null, null, next, null, null)
+                            },
+                            small = true,
+                        )
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -688,9 +773,11 @@ private fun ModelRow(
                     CapacityField("上下文 k tok", ctx) { ctx = it }
                     CapacityField("最大输出 k tok", out) { out = it }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(MilkSpace.xs))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextAction("保存", primary = true) { onUpdate(name.ifBlank { null }, null, null, ctx.toIntOrNull(), out.toIntOrNull()) }
+                    TextAction("保存", primary = true) {
+                        onUpdate(name.ifBlank { null }, null, null, ctx.toIntOrNull(), out.toIntOrNull())
+                    }
                 }
             }
         }
@@ -698,27 +785,16 @@ private fun ModelRow(
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.CapacityField(label: String, value: String, onChange: (String) -> Unit) {
-    Column(Modifier.weight(1f)) {
-        Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(3.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-        ) {
-            if (value.isEmpty()) Text("—", fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-            BasicTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
+private fun RowScope.CapacityField(label: String, value: String, onChange: (String) -> Unit) {
+    MilkTextField(
+        value = value,
+        onValueChange = { raw -> onChange(raw.filter { it.isDigit() }.take(4)) },
+        modifier = Modifier.weight(1f),
+        label = label,
+        placeholder = "—",
+        mono = true,
+        filled = true,
+    )
 }
 
 private fun capacityLine(m: ModelInfo): String = buildString {
@@ -732,6 +808,7 @@ private fun capacityLine(m: ModelInfo): String = buildString {
 
 // ==================== 添加模型服务(预设 → 字段 → 协议 → Key) ====================
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AddProviderDialog(
     onCancel: () -> Unit,
@@ -743,11 +820,14 @@ private fun AddProviderDialog(
     var key by remember { mutableStateOf("") }
     var anthropic by remember { mutableStateOf(false) }
 
-    DialogCard(
+    MilkCenterPanel(
         title = "添加模型服务",
         subtitle = "先选预设，再填 Key；协议按端点实际情况切换",
         onDismiss = onCancel,
-        actions = {
+        maxWidth = 600.dp,
+        maxHeight = 640.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
             MilkButton(
                 label = "取消",
                 onClick = onCancel,
@@ -767,26 +847,31 @@ private fun AddProviderDialog(
             )
         },
     ) {
-        Column {
-            androidx.compose.foundation.layout.FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+                verticalArrangement = Arrangement.spacedBy(MilkSpace.xxs),
             ) {
                 ProviderRegistry.presets.forEach { preset ->
-                    val sel = preset.id == presetId
                     MilkChip(
                         label = preset.title,
-                        selected = sel,
+                        selected = preset.id == presetId,
                         onClick = {
                             presetId = preset.id
-                            if (preset.id == "custom") { title = ""; baseUrl = "" }
-                            else { title = preset.title; baseUrl = preset.baseUrl; anthropic = preset.protocol == Protocol.ANTHROPIC }
+                            if (preset.id == "custom") {
+                                title = ""
+                                baseUrl = ""
+                            } else {
+                                title = preset.title
+                                baseUrl = preset.baseUrl
+                                anthropic = preset.protocol == Protocol.ANTHROPIC
+                            }
                         },
                         small = true,
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(MilkSpace.lg))
             MilkSegmented(
                 options = listOf(false, true),
                 selected = anthropic,
@@ -794,65 +879,61 @@ private fun AddProviderDialog(
                 onSelect = { anthropic = it },
             )
             if (anthropic) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(MilkSpace.xs))
                 MonoMetaLine("POST {base}/v1/messages")
             }
+            Spacer(Modifier.height(MilkSpace.md))
+            MilkTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = "名称",
+                placeholder = "如 智谱 GLM",
+                onClear = { title = "" },
+            )
             Spacer(Modifier.height(10.dp))
-            SettingsInputField(value = title, onValueChange = { title = it }, label = "名称", mono = false, compact = true)
-            SettingsInputField(value = baseUrl, onValueChange = { baseUrl = it }, label = "baseUrl", mono = true, compact = true)
-            SettingsInputField(value = key, onValueChange = { key = it }, label = "API Key（仅存本机）", mono = true, mask = true, compact = true)
-        }
-    }
-}
-
-/** 标准浮层卡片(添加模型服务 等):统一头 + 可滚动内容 + 右对齐动作行 */
-@Composable
-internal fun DialogCard(
-    title: String,
-    onDismiss: () -> Unit,
-    subtitle: String? = null,
-    actions: @Composable RowScope.() -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(
-            Modifier
-                .widthIn(max = 600.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .imePadding()
-                .heightIn(max = 640.dp)
-                .milkDialogSurface(),
-        ) {
-            MilkPanelHeader(title = title, subtitle = subtitle, onDismiss = onDismiss)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp),
-            ) {
-                content()
-                Spacer(Modifier.height(16.dp))
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                actions()
-            }
+            MilkTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = "baseUrl",
+                placeholder = "https://api.example.com/v1",
+                mono = true,
+                onClear = { baseUrl = "" },
+            )
+            Spacer(Modifier.height(10.dp))
+            MilkTextField(
+                value = key,
+                onValueChange = { key = it },
+                label = "API Key",
+                placeholder = "sk-…",
+                mono = true,
+                mask = true,
+            )
+            Spacer(Modifier.height(MilkSpace.sm))
+            Text(
+                "Key 只写入本机 Keystore，不在界面回显，也不会随笔记同步。",
+                style = MilkText.caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
 @Composable
 private fun MonoMetaLine(text: String) {
-    Text(text, fontFamily = Mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(text, style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 }
 
 /** 档位标签/解析(UI 侧) */
 private object ThinkingDispatchUI {
-    val editable = listOf(ReasoningEffort.OFF, ReasoningEffort.MINIMAL, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX)
+    val editable = listOf(
+        ReasoningEffort.OFF,
+        ReasoningEffort.MINIMAL,
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    )
 
     fun label(e: ReasoningEffort): String = when (e) {
         ReasoningEffort.AUTO -> "自动"
@@ -868,4 +949,3 @@ private object ThinkingDispatchUI {
     fun parse(raw: List<String>): List<ReasoningEffort> =
         raw.mapNotNull { runCatching { ReasoningEffort.valueOf(it) }.getOrNull() }
 }
-

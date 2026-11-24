@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -65,26 +64,15 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.milknote.app.ui.common.MilkButton
-import com.milknote.app.ui.common.MilkButtonVariant
-import com.milknote.app.ui.common.MilkIconButton
-import com.milknote.app.ui.common.MilkPanelHeader
-import com.milknote.app.ui.common.milkDialogSurface
-import com.milknote.app.ui.common.accentBrush
-import com.milknote.app.ui.common.innerHighlight
-import com.milknote.app.ui.common.paintedShadow
+import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.softClickable
-import com.milknote.app.ui.common.softShadow
-import com.milknote.app.ui.theme.Mono
-import com.milknote.app.ui.theme.MonoMeta
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -139,79 +127,61 @@ internal fun RecentImagesDialog(
     // 永久拒绝判定:本轮被拒过 + 系统不再显示 rationale → 只能去设置里手动开
     val permanentlyDenied = deniedOnce && !granted && !shouldShowRationale(context, permission)
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        // 横竖屏都不溢出:宽 ≤ min(560dp, 屏宽 92%),高 ≤ 屏高 88%;网格占剩余空间、内部滚动
-        val configuration = LocalConfiguration.current
-        val maxWidth = minOf(560.dp, (configuration.screenWidthDp * 0.92f).dp)
-        val maxHeight = (configuration.screenHeightDp * 0.88f).dp
-        // 缩略图解码目标边长(比最小格 92dp 略大,留清晰度余量)
-        val thumbTargetPx = with(LocalDensity.current) { 112.dp.roundToPx() }
+    // 横竖屏都不溢出:宽 ≤ min(560dp, 屏宽 92%),高 ≤ 屏高 88%
+    val configuration = LocalConfiguration.current
+    val maxWidth = minOf(560.dp, (configuration.screenWidthDp * 0.92f).dp)
+    val maxHeight = (configuration.screenHeightDp * 0.88f).dp
+    // 缩略图解码目标边长(比最小格 92dp 略大,留清晰度余量)
+    val thumbTargetPx = with(LocalDensity.current) { 112.dp.roundToPx() }
 
-        Column(
-            Modifier
-                .widthIn(max = maxWidth)
-                .fillMaxWidth()
-                .heightIn(max = maxHeight)
-                .milkDialogSurface(),
-        ) {
-            MilkPanelHeader(
-                title = "最近图片",
-                subtitle = items?.size?.let { "$it 张 · 点击图片即插入，插入时会先复制到笔记" } ?: "点击图片即插入 · 插入时会先复制到笔记",
-                onDismiss = onDismiss,
-                icon = {
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Outlined.Collections,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                },
-            )
-            Column(
+    MilkCenterPanel(
+        title = "最近图片",
+        subtitle = items?.size?.let { "$it 张 · 点击图片即插入，插入时会先复制到笔记" }
+            ?: "点击图片即插入 · 插入时会先复制到笔记",
+        onDismiss = onDismiss,
+        maxWidth = maxWidth,
+        maxHeight = maxHeight,
+        icon = {
+            Box(
                 Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 18.dp),
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(MilkRadius.md))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center,
             ) {
-                when {
-                    !granted -> PermissionRationaleBody(
-                        permanentlyDenied = permanentlyDenied,
-                        onRetry = { launcher.launch(permission) },
-                        onOpenSettings = { openAppSettings(context) },
-                        onDismiss = onDismiss,
+                Icon(
+                    Icons.Outlined.Collections,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        },
+    ) {
+        when {
+            !granted -> PermissionRationaleBody(
+                permanentlyDenied = permanentlyDenied,
+                onRetry = { launcher.launch(permission) },
+                onOpenSettings = { openAppSettings(context) },
+            )
+            items == null -> LoadingBody()
+            items!!.isEmpty() -> EmptyBody()
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 92.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).testTag("writer-panel-scroll"),
+                horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm + 2.dp),
+                verticalArrangement = Arrangement.spacedBy(MilkSpace.sm + 2.dp),
+                contentPadding = PaddingValues(top = MilkSpace.xs, bottom = 2.dp),
+            ) {
+                items(items!!, key = { it.id }) { item ->
+                    RecentImageCell(
+                        item = item,
+                        targetPx = thumbTargetPx,
+                        onClick = {
+                            onSelect(item.uri)
+                            onDismiss()
+                        },
                     )
-                    items == null -> LoadingBody()
-                    items!!.isEmpty() -> EmptyBody()
-                    else -> LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 92.dp),
-                        modifier = Modifier.weight(1f, fill = false).testTag("writer-panel-scroll"),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(top = 6.dp, bottom = 2.dp),
-                    ) {
-                        items(items!!, key = { it.id }) { item ->
-                            RecentImageCell(
-                                item = item,
-                                targetPx = thumbTargetPx,
-                                onClick = {
-                                    onSelect(item.uri)
-                                    onDismiss()
-                                },
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -225,48 +195,18 @@ private fun PermissionRationaleBody(
     permanentlyDenied: Boolean,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.height(6.dp))
-        Icon(
-            Icons.Outlined.Collections,
-            contentDescription = null,
-            modifier = Modifier.size(40.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            if (permanentlyDenied) "相册权限已被拒绝" else "需要访问相册",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            if (permanentlyDenied) {
-                "请在系统设置 → 应用 → MilkNote → 权限中手动允许「照片和视频」,再回来重试。"
-            } else {
-                "为了挑选最近的图片插入笔记,MilkNote 需要读取设备上的照片。\n照片只在本地使用,不会被上传。"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MilkButton(
-                label = if (permanentlyDenied) "去系统设置" else "重新授权",
-                onClick = if (permanentlyDenied) onOpenSettings else onRetry,
-            )
-            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-        }
-        Spacer(Modifier.height(6.dp))
-    }
+    MilkEmptyState(
+        title = if (permanentlyDenied) "相册权限已被拒绝" else "需要访问相册",
+        description = if (permanentlyDenied) {
+            "请在系统设置 → 应用 → MilkNote → 权限中手动允许「照片和视频」,再回来重试。"
+        } else {
+            "为了挑选最近的图片插入笔记,MilkNote 需要读取设备上的照片。照片只在本地使用,不会被上传。"
+        },
+        icon = Icons.Outlined.Collections,
+        actionLabel = if (permanentlyDenied) "去系统设置" else "重新授权",
+        onAction = if (permanentlyDenied) onOpenSettings else onRetry,
+    )
 }
 
 // ---------------- 加载 / 空态 ----------------
@@ -287,9 +227,7 @@ private fun LoadingBody() {
         Spacer(Modifier.height(10.dp))
         Text(
             "正在读取相册…",
-            style = MonoMeta,
-            fontFamily = Mono,
-            fontSize = 11.sp,
+            style = MilkText.monoMeta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -297,27 +235,11 @@ private fun LoadingBody() {
 
 @Composable
 private fun EmptyBody() {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.Outlined.Collections,
-            contentDescription = null,
-            modifier = Modifier.size(40.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text("相册里还没有图片", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "拍几张照片或截几张图,再回到这里挑选",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    MilkEmptyState(
+        title = "相册里还没有图片",
+        description = "拍几张照片或截几张图,再回到这里挑选",
+        icon = Icons.Outlined.Collections,
+    )
 }
 
 // ---------------- 网格单元:缩略图 + 日期角标 ----------------
@@ -334,9 +256,9 @@ private fun RecentImageCell(item: RecentImage, targetPx: Int, onClick: () -> Uni
     Box(
         Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(10.dp)) // Milk:缩略图 ~10(§5.1)
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(MilkRadius.sm))
             .softClickable(onClick = onClick),
     ) {
         val bmp = bitmap
@@ -373,9 +295,7 @@ private fun RecentImageCell(item: RecentImage, targetPx: Int, onClick: () -> Uni
         ) {
             Text(
                 item.dateLabel(),
-                style = MonoMeta,
-                fontFamily = Mono,
-                fontSize = 10.sp,
+                style = MilkText.monoMicro,
                 color = Color.White,
                 maxLines = 1,
             )

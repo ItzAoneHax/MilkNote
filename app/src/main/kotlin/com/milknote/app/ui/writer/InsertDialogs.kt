@@ -1,5 +1,6 @@
 package com.milknote.app.ui.writer
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +9,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -20,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -41,7 +42,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -49,13 +49,19 @@ import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkIconButton
-import com.milknote.app.ui.common.MilkKeyCap
 import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSlider
+import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.PillShape
 import com.milknote.ink.model.CardTextAlign
 import com.milknote.ink.model.CardTextStyle
 import com.milknote.ink.model.InkTool
@@ -75,6 +81,16 @@ internal fun TextBoxDialog(
         subtitle = "输入内容并选择样式；插入后可在纸上拖动、缩放",
         onDismiss = onDismiss,
         maxWidth = 540.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton(
+                label = if (existing == null) "插入" else "保存",
+                enabled = text.isNotBlank(),
+                onClick = { onCreate(text.trim(), style) },
+            )
+        },
     ) {
         Column(
             Modifier
@@ -83,39 +99,29 @@ internal fun TextBoxDialog(
                 .verticalScroll(rememberScrollState())
                 .testTag("writer-panel-scroll"),
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MilkSpace.md))
             MilkSectionLabel("内容")
-            Spacer(Modifier.height(8.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 136.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f), MaterialTheme.shapes.medium)
-                    .padding(14.dp),
-            ) {
-                if (text.isEmpty()) {
-                    Text("输入文字…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                }
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(MilkSpace.sm))
+            MilkTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = "输入文字…",
+                singleLine = false,
+                minLines = 5,
+                mono = false,
+                textStyle = MilkText.body,
+            )
+            Spacer(Modifier.height(MilkSpace.xl))
             MilkSectionLabel("字号")
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Spacer(Modifier.height(MilkSpace.sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs)) {
                 listOf(16f, 24f, 36f, 48f).forEach { size ->
                     MilkChip(label = "${size.toInt()}", selected = style.fontSizePx == size, onClick = { style = style.copy(fontSizePx = size) })
                 }
                 Spacer(Modifier.weight(1f))
-                Text("px", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
+                Text("px", style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = MilkSpace.xxs))
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(MilkSpace.lg + 2.dp))
             MilkSectionLabel("对齐")
             Spacer(Modifier.height(8.dp))
             MilkSegmented(
@@ -130,20 +136,23 @@ internal fun TextBoxDialog(
                 },
                 onSelect = { style = style.copy(align = it) },
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(MilkSpace.lg + 2.dp))
             MilkSectionLabel("样式")
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                MilkChip("粗体", style.bold, { style = style.copy(bold = !style.bold) })
-                MilkChip("斜体", style.italic, { style = style.copy(italic = !style.italic) })
-                MilkChip("下划线", style.underline, { style = style.copy(underline = !style.underline) })
-                MilkChip("删除线", style.strikethrough, { style = style.copy(strikethrough = !style.strikethrough) })
+            Spacer(Modifier.height(MilkSpace.sm))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+                verticalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+            ) {
+                MilkFilterChip("粗体", style.bold, { style = style.copy(bold = !style.bold) })
+                MilkFilterChip("斜体", style.italic, { style = style.copy(italic = !style.italic) })
+                MilkFilterChip("下划线", style.underline, { style = style.copy(underline = !style.underline) })
+                MilkFilterChip("删除线", style.strikethrough, { style = style.copy(strikethrough = !style.strikethrough) })
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(MilkSpace.lg + 2.dp))
             MilkSectionLabel("颜色")
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(MilkSpace.sm))
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { color ->
+                listOf(0xFF18191B, 0xFF2563EB, 0xFFD94436, 0xFF23865F).forEach { color ->
                     InkColorDot(
                         color = color,
                         label = "文字颜色",
@@ -152,12 +161,6 @@ internal fun TextBoxDialog(
                     )
                 }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(10.dp))
-            MilkButton(label = if (existing == null) "插入" else "保存", enabled = text.isNotBlank(), onClick = { onCreate(text.trim(), style) })
         }
     }
 }
@@ -188,63 +191,71 @@ internal fun ShapeSettingsDialog(
                     .testTag("writer-panel-scroll")
                     .padding(horizontal = 24.dp),
             ) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(MilkSpace.sm + 2.dp))
                 MilkSectionLabel("图形")
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(MilkSpace.sm + 2.dp))
                 writerShapeToolOrder.chunked(4).forEach { group ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm)) {
                         group.forEach { (candidate, label) ->
                             val active = tool == candidate
+                            val container by animateColorAsState(
+                                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                MilkMotion.colorSpec(), label = "shapeCardBg",
+                            )
+                            val borderColor by animateColorAsState(
+                                if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                MilkMotion.colorSpec(), label = "shapeCardBorder",
+                            )
+                            val fg by animateColorAsState(
+                                if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                MilkMotion.colorSpec(), label = "shapeCardFg",
+                            )
                             Box(
                                 Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                                    .border(1.dp, if (active) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(MilkRadius.md))
+                                    .background(container)
+                                    .border(1.dp, borderColor, RoundedCornerShape(MilkRadius.md))
                                     .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { tool = candidate })
                                     .height(48.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (active) FontWeight.Medium else null,
-                                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    style = if (active) MilkText.bodyMedium else MilkText.body,
+                                    color = fg,
                                 )
                             }
                         }
                         // 不足 4 个时补空位,保持列宽一致
                         repeat(4 - group.size) { Spacer(Modifier.weight(1f)) }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(MilkSpace.sm))
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(MilkSpace.md))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("轮廓粗细", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text("轮廓粗细", style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.weight(1f))
-                    Text("%.2f mm".format(width), style = MaterialTheme.typography.labelMedium.copy(fontFamily = com.milknote.app.ui.theme.Mono), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("%.2f mm".format(width), style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MilkSpace.sm))
                 MilkSlider(value = width, onValueChange = { width = it }, valueRange = 0.2f..3f)
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(MilkSpace.xl))
                 MilkSectionLabel("颜色")
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MilkSpace.sm))
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    listOf(0xFF23221E, 0xFF3B5BEC, 0xFFD2483C, 0xFF2E9E6B).forEach { candidate ->
+                    listOf(0xFF18191B, 0xFF2563EB, 0xFFD94436, 0xFF2E9E6B).forEach { candidate ->
                         InkColorDot(color = candidate, label = "图形颜色", active = color == candidate, onClick = { color = candidate })
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(MilkSpace.xxl))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    MilkKeyCap("Esc")
-                    Spacer(Modifier.width(6.dp))
-                    Text("关闭", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.weight(1f))
                     MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(MilkSpace.sm + 2.dp))
                     MilkButton(label = "开始绘制", onClick = { onStart(ShapeConfig(tool, color, width)) })
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(MilkSpace.xl))
             }
         }
     }
@@ -292,12 +303,12 @@ internal fun ShapeOverlay(config: ShapeConfig, onComplete: (Offset, Offset) -> U
         Row(
             Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 14.dp)
-                .softShadow(6.dp, RoundedCornerShape(999.dp))
-                .clip(RoundedCornerShape(999.dp))
+                .padding(top = MilkSpace.md + 2.dp)
+                .softShadow(8.dp, PillShape)
+                .clip(PillShape)
                 .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(999.dp))
-                .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                .border(1.dp, MaterialTheme.colorScheme.outline, PillShape)
+                .padding(start = MilkSpace.lg, end = MilkSpace.xs, top = MilkSpace.xxs, bottom = MilkSpace.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -307,9 +318,9 @@ internal fun ShapeOverlay(config: ShapeConfig, onComplete: (Offset, Offset) -> U
                     InkTool.POLYGON -> "六边形"; else -> "直线"
                 }}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
+                style = MilkText.caption,
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(MilkSpace.xs))
             MilkIconButton(Icons.Outlined.Close, "退出图形", onClick = onCancel, iconSize = 18.dp)
         }
     }

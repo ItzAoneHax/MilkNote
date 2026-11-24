@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
@@ -44,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -58,12 +58,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkActionPanel
+import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkPanelAction
+import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.dashedBorder
+import com.milknote.app.ui.common.milkGlassRim
 import com.milknote.app.ui.common.softShadow
-import com.milknote.app.ui.theme.Mono
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.app.ui.theme.PillShape
 import kotlin.math.roundToInt
 
@@ -158,7 +162,7 @@ internal fun WriterPageRail(
                         Column(
                             Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(MilkRadius.sm))
                                 .border(
                                     width = when {
                                         hoverTarget -> 2.dp
@@ -170,7 +174,7 @@ internal fun WriterPageRail(
                                         active -> MaterialTheme.colorScheme.primary
                                         else -> MaterialTheme.colorScheme.outline
                                     },
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(MilkRadius.sm),
                                 )
                                 .onGloballyPositioned { thumbOrigin = it.positionInRoot() }
                                 .pointerInput(page.pageId) {
@@ -228,18 +232,26 @@ internal fun WriterPageRail(
                                         .testTag("writer-page-more-${page.pageId}"),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(
-                                        Icons.Outlined.MoreHoriz,
-                                        "第 ${index + 1} 页操作",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Box(
+                                        Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                                            .border(0.5.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.MoreHoriz,
+                                            "第 ${index + 1} 页操作",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             }
                             Text(
                                 if (index == 0) "1-封面" else "${index + 1}",
-                                fontFamily = Mono,
-                                fontSize = 12.sp,
+                                style = MilkText.monoMeta,
                                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -255,8 +267,8 @@ internal fun WriterPageRail(
                     Modifier
                         .fillMaxWidth()
                         .height(56.dp)
-                        .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = 14.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .dashedBorder(MaterialTheme.colorScheme.outline, 1.5.dp, cornerRadius = MilkRadius.md)
+                        .clip(RoundedCornerShape(MilkRadius.md))
                         .clickable { onNewPage(state.currentPageId) }
                         .testTag("writer-rail-new-page")
                         .padding(horizontal = 14.dp),
@@ -288,9 +300,10 @@ internal fun WriterPageRail(
                         )
                     }
                     .width(ghostWidth)
-                    .shadow(8.dp, RoundedCornerShape(4.dp))
+                    .softShadow(10.dp, RoundedCornerShape(MilkRadius.sm))
+                    .clip(RoundedCornerShape(MilkRadius.sm))
                     .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)),
+                    .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(MilkRadius.sm)),
             ) {
                 thumbs[pid]?.let {
                     Image(
@@ -353,10 +366,7 @@ internal fun WriterPagePill(
     Row(
         modifier
             .height(48.dp)
-            .softShadow(6.dp, PillShape)
-            .clip(PillShape)
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), PillShape)
+            .milkGlassRim(PillShape, elevation = 8.dp)
             .padding(horizontal = 4.dp)
             .testTag("writer-page-status"),
         verticalAlignment = Alignment.CenterVertically,
@@ -369,9 +379,8 @@ internal fun WriterPagePill(
         )
         Text(
             "${state.currentPageIndex + 1}/${state.pages.size}",
-            modifier = Modifier.padding(horizontal = 6.dp),
-            fontFamily = Mono,
-            fontSize = 13.sp,
+            style = MilkText.monoBody,
+            modifier = Modifier.padding(horizontal = MilkSpace.xs),
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -391,43 +400,34 @@ internal fun WriterRailSegmentBar(
     onSnippets: () -> Unit,
     onOutline: () -> Unit,
 ) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(cs.surfaceVariant)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        val tabs = listOf(
-            Triple(WriterRailMode.PAGES, "页面", "writer-page-grid-mode") to onPages,
-            Triple(WriterRailMode.SNIPPETS, "卡片", "writer-page-show-snippets") to onSnippets,
-            Triple(WriterRailMode.OUTLINE, "大纲", "writer-page-show-outline") to onOutline,
-        )
-        tabs.forEach { (info, action) ->
-            val (mode, label, tag) = info
-            val selected = activeMode == mode
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (selected) cs.surface else androidx.compose.ui.graphics.Color.Transparent)
-                    .clickable(onClick = action)
-                    .testTag(tag),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    fontSize = 12.sp,
-                    fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
-                    color = if (selected) cs.onSurface else cs.onSurfaceVariant,
-                )
+    val modes = listOf(WriterRailMode.PAGES, WriterRailMode.SNIPPETS, WriterRailMode.OUTLINE)
+    MilkSegmented(
+        options = modes,
+        selected = activeMode,
+        label = { mode ->
+            when (mode) {
+                WriterRailMode.PAGES -> "页面"
+                WriterRailMode.SNIPPETS -> "卡片"
+                WriterRailMode.OUTLINE -> "大纲"
             }
-        }
-    }
+        },
+        onSelect = { mode ->
+            when (mode) {
+                WriterRailMode.PAGES -> onPages()
+                WriterRailMode.SNIPPETS -> onSnippets()
+                WriterRailMode.OUTLINE -> onOutline()
+            }
+        },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = MilkSpace.sm + 2.dp, vertical = MilkSpace.sm),
+        testTagFor = { mode ->
+            when (mode) {
+                WriterRailMode.PAGES -> "writer-page-grid-mode"
+                WriterRailMode.SNIPPETS -> "writer-page-show-snippets"
+                WriterRailMode.OUTLINE -> "writer-page-show-outline"
+            }
+        },
+        compact = true,
+    )
 }
 
 /** 第二代左侧抽屉「大纲」分栏：提取每页伴随 Markdown 标题与批注首行，一键跳页 */
@@ -455,74 +455,45 @@ internal fun WriterOutlineRail(
             onSnippets = onShowSnippets,
             onOutline = {},
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            items(entries.size, key = { entries[it].first }) { index ->
-                val (pageId, title) = entries[index]
-                val active = pageId == state.currentPageId
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(if (active) cs.primary.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable { onSwitch(pageId) }
-                        .defaultMinSize(minHeight = 40.dp)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        title,
-                        fontSize = 13.sp,
-                        fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
-                        color = if (active) cs.primary else cs.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "${index + 1}",
-                        fontFamily = Mono,
-                        fontSize = 12.sp,
-                        color = if (active) cs.primary else cs.onSurfaceVariant,
-                    )
+        if (entries.isEmpty()) {
+            MilkEmptyState(
+                title = "暂无大纲",
+                description = "在伴随笔记添加标题或批注后显示",
+                modifier = Modifier.testTag("writer-outline-empty"),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(horizontal = MilkSpace.sm, vertical = MilkSpace.xs),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(entries.size, key = { entries[it].first }) { index ->
+                    val (pageId, title) = entries[index]
+                    val active = pageId == state.currentPageId
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(MilkRadius.sm))
+                            .background(if (active) cs.primary.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable { onSwitch(pageId) }
+                            .defaultMinSize(minHeight = 40.dp)
+                            .padding(horizontal = MilkSpace.md, vertical = MilkSpace.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            title,
+                            style = if (active) MilkText.bodyMedium else MilkText.body,
+                            color = if (active) cs.primary else cs.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "${index + 1}",
+                            style = MilkText.monoMeta,
+                            color = if (active) cs.primary else cs.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun WriterPageNavigation(
-    state: WriterUiState,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier.fillMaxWidth().height(56.dp).testTag("writer-page-status"),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
-            enabled = state.canPreviousPage,
-            onClick = onPrevious,
-            modifier = Modifier.testTag("writer-previous-page"),
-        )
-        Text(
-            "${state.currentPageIndex + 1}/${state.pages.size}",
-            modifier = Modifier.width(64.dp),
-            fontFamily = Mono,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
-            enabled = state.canNextPage,
-            onClick = onNext,
-            modifier = Modifier.testTag("writer-next-page"),
-        )
     }
 }

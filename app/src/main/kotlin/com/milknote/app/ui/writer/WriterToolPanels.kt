@@ -38,8 +38,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkCenterPanel
-import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkSectionLabel
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.PageImageKind
 import java.io.File
@@ -60,11 +64,11 @@ internal fun LassoFilterPanel(
                 .testTag("writer-panel-scroll").padding(top = 12.dp),
         ) {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
+                verticalArrangement = Arrangement.spacedBy(MilkSpace.sm),
             ) {
                 LassoContent.entries.forEach { filter ->
-                    MilkChip(label = filter.label, selected = filter in selected, onClick = { onToggle(filter) })
+                    MilkFilterChip(label = filter.label, selected = filter in selected, onClick = { onToggle(filter) })
                 }
             }
         }
@@ -92,32 +96,30 @@ internal fun MaterialLibraryPanel(
     val cs = MaterialTheme.colorScheme
     MilkCenterPanel(title = "本地素材", subtitle = "图片、图案笔、胶带与贴纸；无商店或云端下载", onDismiss = onDismiss, maxWidth = 520.dp) {
         Column(Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(MilkSpace.md))
+            Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm)) {
                 MaterialAction("导入图片", Icons.Outlined.Image, onImportImage)
                 MaterialAction("图案笔", Icons.Outlined.Brush, onDoodle)
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(MilkSpace.xl))
             MilkSectionLabel("胶带")
             Spacer(Modifier.height(8.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-tapes"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 (0..3).forEach { MaterialAction("胶带 ${it + 1}", null) { onBuiltin(PageImageKind.TAPE, it) } }
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(MilkSpace.lg + 2.dp))
             MilkSectionLabel("贴纸")
             Spacer(Modifier.height(8.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()).testTag("writer-material-stickers"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 (0..3).forEach { MaterialAction("星形贴纸 ${it + 1}", null) { onBuiltin(PageImageKind.STICKER, it) } }
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(MilkSpace.lg + 2.dp))
             MilkSectionLabel("我的素材")
             Spacer(Modifier.height(6.dp))
             if (materials.isEmpty()) {
-                Text(
-                    "导入图片或插入胶带 / 贴纸后，会保留在这里。",
-                    Modifier.padding(vertical = 14.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = cs.onSurfaceVariant,
+                MilkEmptyState(
+                    title = "还没有素材",
+                    description = "导入图片或插入胶带 / 贴纸后，会保留在这里",
                 )
             }
             materials.forEach { item ->
@@ -131,11 +133,11 @@ internal fun MaterialLibraryPanel(
                             }
                             onMaterial(item.file, kind)
                         }
-                        .heightIn(min = 48.dp).padding(horizontal = 10.dp),
+                        .heightIn(min = 48.dp).padding(horizontal = MilkSpace.sm + 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(item.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("插入", style = MaterialTheme.typography.labelLarge, color = cs.primary, modifier = Modifier.padding(start = 12.dp))
+                    Text(item.label, style = MilkText.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text("插入", style = MilkText.label, color = cs.primary, modifier = Modifier.padding(start = MilkSpace.md))
                 }
             }
         }
@@ -148,18 +150,18 @@ private fun MaterialAction(label: String, icon: ImageVector?, onClick: () -> Uni
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(MilkRadius.lg))
             .background(cs.surfaceVariant.copy(alpha = 0.6f))
-            .border(1.dp, cs.outline.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+            .border(1.dp, cs.outline.copy(alpha = 0.8f), RoundedCornerShape(MilkRadius.lg))
             .clickable(onClick = onClick)
             .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = MilkSpace.lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(MilkSpace.sm))
         }
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
+        Text(label, style = MilkText.body, color = cs.onSurface)
     }
 }

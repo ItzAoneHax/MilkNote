@@ -3,8 +3,8 @@ package com.milknote.app.ui.bookshelf
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,8 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
@@ -25,7 +25,7 @@ import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.NotebookAdvancedOptions
 import com.milknote.app.ui.common.PaperKindSelector
 import com.milknote.app.ui.common.coverColorName
-import com.milknote.app.ui.settings.TextAction
+import com.milknote.app.ui.theme.MilkSpace
 import com.milknote.notes.model.COVER_COLORS
 import com.milknote.notes.model.NotebookMeta
 
@@ -52,27 +52,61 @@ internal fun NotebookManagePanel(
         onDismiss = onDismiss,
         maxWidth = 560.dp,
         maxHeight = 720.dp,
+        footer = {
+            MilkButton(
+                label = if (meta.trashed) "已在回收站" else "移入回收站",
+                onClick = onDelete,
+                variant = MilkButtonVariant.TEXT,
+                destructive = true,
+                enabled = !meta.trashed,
+            )
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton(
+                label = "保存",
+                enabled = name.isNotBlank(),
+                onClick = {
+                    onSave(
+                        meta.copy(
+                            name = name.trim(),
+                            folder = folder.trim(),
+                            // 换色要同时落到书脊(coverColor)与标签(tagColor),否则书架上的封面不变色
+                            coverColor = tagColor,
+                            tagColor = tagColor,
+                            paper = paper,
+                            paperColor = paperColor,
+                            pageSize = pageSize,
+                            orientation = orientation,
+                            purpose = purpose,
+                        ),
+                    )
+                },
+            )
+        },
     ) {
         Column(
             Modifier
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Spacer(Modifier.height(MilkSpace.md))
             MilkTextField(value = name, onValueChange = { name = it }, placeholder = "名称", mono = false)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MilkSpace.md))
             MilkTextField(
                 value = folder,
                 onValueChange = { folder = it },
                 placeholder = "文件夹（留空为未分组）",
                 mono = false,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(MilkSpace.lg))
             MilkSectionLabel("标签颜色", description = coverColorName(tagColor))
-            Spacer(Modifier.height(6.dp))
-            Row {
+            Spacer(Modifier.height(MilkSpace.xs))
+            // 色点命中框 48dp、视觉圆点 16dp:整行左移 16dp,首枚色点左缘与上方输入框齐平
+            Row(Modifier.offset(x = (-16).dp)) {
                 COVER_COLORS.forEach { hex ->
                     MilkColorDot(
-                        color = androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex)),
+                        color = Color(android.graphics.Color.parseColor(hex)),
                         selected = tagColor.equals(hex, ignoreCase = true),
                         onClick = { tagColor = hex },
                         contentDescription = "标签颜色 ${coverColorName(hex)}",
@@ -81,7 +115,7 @@ internal fun NotebookManagePanel(
             }
             Spacer(Modifier.height(14.dp))
             MilkSectionLabel("纸纹")
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(MilkSpace.sm))
             PaperKindSelector(selected = paper, onSelect = { paper = it })
             Spacer(Modifier.height(18.dp))
             NotebookAdvancedOptions(
@@ -94,36 +128,7 @@ internal fun NotebookManagePanel(
                 purpose = purpose,
                 onPurpose = { purpose = it },
             )
-        }
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextAction(
-                label = if (meta.trashed) "已在回收站" else "移入回收站",
-                danger = true,
-                enabled = !meta.trashed,
-                onClick = onDelete,
-            )
-            Spacer(Modifier.weight(1f))
-            MilkButton(label = "取消", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
-            Spacer(Modifier.width(8.dp))
-            MilkButton(
-                label = "保存",
-                enabled = name.isNotBlank(),
-                onClick = {
-                    onSave(
-                        meta.copy(
-                            name = name.trim(),
-                            folder = folder.trim(),
-                            tagColor = tagColor,
-                            paper = paper,
-                            paperColor = paperColor,
-                            pageSize = pageSize,
-                            orientation = orientation,
-                            purpose = purpose,
-                        ),
-                    )
-                },
-            )
+            Spacer(Modifier.height(MilkSpace.md))
         }
     }
 }

@@ -109,7 +109,7 @@ object AnnotationCardRenderer {
                 }
                 line.startsWith("#") && line.matches(Regex("(#[\\w\\u4e00-\\u9fff-]+\\s*)+")) -> {
                     sb.append(line)
-                    sb.setSpan(ForegroundColorSpan(0xFF3B5BEC.toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(0xFF2563EB.toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 else -> {
                     val bullet = Regex("^[-*•]\\s+").find(line)
@@ -171,13 +171,13 @@ object AnnotationCardRenderer {
         val y = cy - baseH / 2f
 
         if (dark) {
-            bgPaint.color = 0xFF26272D.toInt()
-            borderPaint.color = 0xFF33343B.toInt()
-            accentPaint.color = 0xFF7D92FF.toInt()
+            bgPaint.color = 0xFF1F2126.toInt()
+            borderPaint.color = 0xFF2A2D34.toInt()
+            accentPaint.color = 0xFF5B92FF.toInt()
         } else {
             bgPaint.color = 0xFFFFFFFF.toInt()
-            borderPaint.color = 0xFFE5E1D6.toInt()
-            accentPaint.color = 0xFF3B5BEC.toInt()
+            borderPaint.color = 0xFFE2E4E9.toInt()
+            accentPaint.color = 0xFF2563EB.toInt()
         }
 
         canvas.save()
@@ -193,7 +193,8 @@ object AnnotationCardRenderer {
 
         val l = layout(card, expanded)
         (l.paint as TextPaint).color = when {
-            dark && card.textStyle.colorArgb == 0xFF23221EL -> 0xFFE8E6E0.toInt()
+            dark && (card.textStyle.colorArgb == 0xFF23221EL || card.textStyle.colorArgb == 0xFF18191BL) ->
+                0xFFECEEF0.toInt()
             else -> card.textStyle.colorArgb.toInt()
         }
         canvas.translate(x + PAD_H_PX + ACCENT_W_PX, y + PAD_V_PX)

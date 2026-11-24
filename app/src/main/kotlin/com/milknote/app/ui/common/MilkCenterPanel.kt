@@ -1,7 +1,6 @@
 package com.milknote.app.ui.common
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,8 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,7 +37,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -45,17 +47,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.milknote.app.ui.theme.MonoValue
+import com.milknote.app.ui.theme.LocalMilkDark
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.app.ui.theme.milkPanelEnter
+import com.milknote.app.ui.theme.milkPopoverEnter
 
 /**
  * 所有「居中浮层」的统一骨架(第二代 · DESIGN-V2 modal):
- * 18dp 圆角 hairline 面 + 标题 16sp/副题 12sp + 36dp 关闭钮 + 20dp 内边距内容区。
+ * 18dp 圆角 hairline 面 + 面板标题/副题 + 36dp 关闭钮 + 20dp 内边距内容区,
+ * 可选底部动作条(hairline 分隔 + 统一内边距)。
  */
 @Composable
 fun MilkCenterPanel(
@@ -67,6 +74,7 @@ fun MilkCenterPanel(
     subtitle: String? = null,
     closable: Boolean = true,
     icon: (@Composable () -> Unit)? = null,
+    footer: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Dialog(
@@ -81,7 +89,7 @@ fun MilkCenterPanel(
             Modifier
                 .fillMaxSize()
                 .imePadding()
-                .padding(24.dp),
+                .padding(MilkSpace.xxl),
             contentAlignment = Alignment.Center,
         ) {
             Column(
@@ -96,15 +104,30 @@ fun MilkCenterPanel(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+                        .then(if (footer != null) Modifier.weight(1f, fill = false) else Modifier)
+                        .padding(
+                            start = MilkSpace.xl,
+                            end = MilkSpace.xl,
+                            bottom = if (footer == null) MilkSpace.xl else MilkSpace.md,
+                        ),
                     content = content,
                 )
+                if (footer != null) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = MilkSpace.xl, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = footer,
+                    )
+                }
             }
         }
     }
 }
 
-/** 浮层标题区:可选前置图标 + 标题 16sp + 灰副题 + hairline 分隔 + 36dp 关闭钮 */
+/** 浮层标题区:可选前置图标 + 面板标题 + 灰副题 + hairline 分隔 + 36dp 关闭钮 */
 @Composable
 fun MilkPanelHeader(
     title: String,
@@ -114,46 +137,45 @@ fun MilkPanelHeader(
     closable: Boolean = true,
     onDismiss: () -> Unit = {},
 ) {
+    val cs = MaterialTheme.colorScheme
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, top = 14.dp, end = 12.dp, bottom = 10.dp),
+            .padding(start = MilkSpace.xl, top = 14.dp, end = MilkSpace.md, bottom = MilkSpace.xs + 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let {
             Box(Modifier) { it() }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(MilkSpace.md))
         }
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MilkText.panelTitle,
+                color = cs.onSurface,
             )
             if (subtitle != null) {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     subtitle,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MilkText.caption,
+                    color = cs.onSurfaceVariant,
                 )
             }
         }
         if (closable) {
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(MilkSpace.sm))
             Box(
                 Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .clip(RoundedCornerShape(MilkRadius.sm))
                     .clickable(role = Role.Button, onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Outlined.Close,
                     contentDescription = "关闭$title",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = cs.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -194,8 +216,8 @@ fun MilkActionPanel(
 }
 
 /**
- * 锚定弹出菜单(DESIGN-V2 popover):挂在触发按钮所在的 Box 内,向下展开、右缘对齐;
- * 13dp 圆角 hairline 面 + 柔和投影,点外部/返回键关闭。
+ * 锚定弹出菜单(DESIGN-V2 popover · 材质受光):挂在触发按钮所在的 Box 内,向下展开、右缘对齐;
+ * 从触发角 [origin] 以 0.94→1 长出 + 上移 4dp→0,玻璃受光边线保证暗色也干净利落。
  */
 @Composable
 fun MilkAnchoredMenu(
@@ -204,13 +226,14 @@ fun MilkAnchoredMenu(
     modifier: Modifier = Modifier,
     anchorHeight: Dp = 36.dp,
     minWidth: Dp = 200.dp,
+    origin: TransformOrigin = TransformOrigin(1f, 0f),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (!expanded) return
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val offsetY = with(density) { anchorHeight.roundToPx() }
-    val cs = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(13.dp)
+    val dark = LocalMilkDark.current
+    val shape = RoundedCornerShape(MilkRadius.lg)
     Popup(
         alignment = Alignment.TopEnd,
         offset = IntOffset(0, offsetY),
@@ -221,10 +244,8 @@ fun MilkAnchoredMenu(
             modifier
                 .width(IntrinsicSize.Max)
                 .widthIn(min = minWidth)
-                .clip(shape)
-                .background(cs.surface)
-                .border(1.dp, cs.outline, shape)
-                .softShadow(12.dp, shape)
+                .milkPopoverEnter(origin)
+                .milkGlassRim(shape, dark, 12.dp)
                 .padding(6.dp)
                 .testTag("milk-anchored-menu"),
             content = content,
@@ -232,7 +253,7 @@ fun MilkAnchoredMenu(
     }
 }
 
-/** 弹出菜单行:38dp 高、18dp 图标、13sp 文案、右侧 mono 提示;危险项红字 */
+/** 弹出菜单行:38dp 高、18dp 图标、正文文案、右侧 mono 提示;危险项红字 */
 @Composable
 fun MilkMenuRow(action: MilkPanelAction) {
     val cs = MaterialTheme.colorScheme
@@ -244,7 +265,7 @@ fun MilkMenuRow(action: MilkPanelAction) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .clickable(enabled = action.enabled, role = Role.Button, onClick = action.onClick)
             .heightIn(min = 38.dp)
             .padding(horizontal = 10.dp),
@@ -256,15 +277,15 @@ fun MilkMenuRow(action: MilkPanelAction) {
         }
         Text(
             action.label,
+            style = MilkText.body,
             color = fg,
-            fontSize = 13.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         if (action.trailingText != null) {
-            Spacer(Modifier.width(8.dp))
-            Text(action.trailingText, style = MonoValue.copy(fontSize = 12.sp), color = cs.onSurfaceVariant)
+            Spacer(Modifier.width(MilkSpace.sm))
+            Text(action.trailingText, style = MilkText.monoMeta, color = cs.onSurfaceVariant)
         }
     }
 }
@@ -310,12 +331,12 @@ fun MilkRadioRow(
     val cs = MaterialTheme.colorScheme
     val bg by animateColorAsState(
         if (selected) cs.primary.copy(alpha = 0.09f) else Color.Transparent,
-        tween(160), label = "radioRowBg",
+        MilkMotion.colorSpec(), label = "radioRowBg",
     )
     Row(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .background(bg)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .heightIn(min = 40.dp)
@@ -333,11 +354,10 @@ fun MilkRadioRow(
                 Box(Modifier.size(8.dp).clip(CircleShape).background(cs.primary))
             }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(MilkSpace.md))
         Text(
             label,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            style = MilkText.body.copy(fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal),
             color = if (selected) cs.primary else cs.onBackground,
         )
     }

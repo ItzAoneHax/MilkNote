@@ -1,7 +1,10 @@
 package com.milknote.app.ui.writer
 
+import android.os.SystemClock
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,8 +80,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
@@ -85,11 +91,17 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkAnchoredMenu
 import com.milknote.app.ui.common.MilkMenuRow
 import com.milknote.app.ui.common.MilkPanelAction
-import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.common.milkGlassRim
+import com.milknote.app.ui.theme.LocalMilkDark
+import com.milknote.app.ui.theme.LocalMilkMotion
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
+import com.milknote.app.ui.theme.PillShape
 import com.milknote.app.ui.writer.WriterMajorTool.BRUSH
 import com.milknote.app.ui.writer.WriterMajorTool.ERASER
 import com.milknote.app.ui.writer.WriterMajorTool.HIGHLIGHTER
@@ -102,6 +114,7 @@ import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.LassoMode
 import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 /** 笔匣内容高度(横向);竖排停靠时为厚度 */
 internal val WriterMinorToolbarHeight = 40.dp
@@ -208,26 +221,102 @@ internal fun WriterMinorToolbar(
     val listState = rememberLazyListState()
     LaunchedEffect(selectedTool) { listState.scrollToItem(0) }
     val vertical = dock == MinorDock.LEFT || dock == MinorDock.RIGHT
+    val reduced = LocalMilkMotion.current
+    val dark = LocalMilkDark.current
+    val scope = rememberCoroutineScope()
     var handleCenter by remember { mutableStateOf(Offset.Zero) }
+    // 拖拽起点中心:随手指移动的偏移只进 graphicsLayer,不参与布局
+    var dragStartCenter by remember { mutableStateOf(Offset.Zero) }
     var dragTotal by remember { mutableStateOf(Offset.Zero) }
+    // 以 dock 为 key:停靠边变化时偏移实例同步重建为 0,形态切换不会残留旧位移
+    val dragOffsetX = remember(dock) { Animatable(0f) }
+    val dragOffsetY = remember(dock) { Animatable(0f) }
+    val liftScale = remember { Animatable(1f) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    fun settleBack(velocityX: Float = 0f, velocityY: Float = 0f) {
+        scope.launch {
+            if (!reduced) liftScale.animateTo(1f, tween(MilkMotion.press, easing = MilkMotion.EaseOut))
+            if (reduced) {
+                liftScale.snapTo(1f)
+                dragOffsetX.snapTo(0f)
+                dragOffsetY.snapTo(0f)
+            } else {
+                launch {
+                    dragOffsetX.animateTo(
+                        0f,
+                        MilkMotion.momentumSpring(),
+                        initialVelocity = velocityX,
+                    )
+                }
+                launch {
+                    dragOffsetY.animateTo(
+                        0f,
+                        MilkMotion.momentumSpring(),
+                        initialVelocity = velocityY,
+                    )
+                }
+            }
+        }
+    }
+
     val dragModifier = if (onDockDrop != null) {
         Modifier.pointerInput(Unit) {
+            val velocityTracker = VelocityTracker()
             detectDragGestures(
-                onDragStart = { dragTotal = Offset.Zero },
-                onDrag = { _, amount ->
-                    dragTotal += amount
-                    onDockDrag?.invoke(dragTotal, handleCenter)
-                },
-                onDragEnd = { onDockDrop(dragTotal, handleCenter) },
-                onDragCancel = {
+                onDragStart = { pos ->
                     dragTotal = Offset.Zero
+                    dragStartCenter = handleCenter
+                    velocityTracker.resetTracking()
+                    velocityTracker.addPosition(SystemClock.uptimeMillis(), pos)
+                    isDragging = true
+                    if (!reduced) {
+                        scope.launch {
+                            liftScale.animateTo(
+                                1.02f,
+                                tween(MilkMotion.press, easing = MilkMotion.EaseOut),
+                            )
+                        }
+                    }
+                },
+                onDrag = { change, amount ->
+                    change.consume()
+                    dragTotal += amount
+                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                    // 纯 GPU 平移:1:1 跟手,绝不触发布局重排
+                    scope.launch {
+                        dragOffsetX.snapTo(dragTotal.x)
+                        dragOffsetY.snapTo(dragTotal.y)
+                    }
+                    onDockDrag?.invoke(dragTotal, dragStartCenter)
+                },
+                onDragEnd = {
+                    val velocity = velocityTracker.calculateVelocity()
+                    // 苹果动量投影:松手位置 + 继续滑行距离 → 交给屏幕决定最近停靠边
+                    val projected = Offset(
+                        dragTotal.x + MilkMotion.project(velocity.x, 0.992f),
+                        dragTotal.y + MilkMotion.project(velocity.y, 0.992f),
+                    )
+                    onDockDrop?.invoke(projected, dragStartCenter)
+                    isDragging = false
+                    settleBack(velocity.x, velocity.y)
+                },
+                onDragCancel = {
+                    isDragging = false
                     onDockCancel?.invoke()
+                    settleBack()
                 },
             )
         }
     } else Modifier
-    val shape = if (vertical) RoundedCornerShape(20.dp) else RoundedCornerShape(999.dp)
-    val surface = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+    val shape = if (vertical) RoundedCornerShape(MilkRadius.xl) else PillShape
+    val rimElevation = if (isDragging) 16.dp else 10.dp
+    val dockLayer = Modifier.graphicsLayer {
+        translationX = dragOffsetX.value
+        translationY = dragOffsetY.value
+        scaleX = liftScale.value
+        scaleY = liftScale.value
+    }
 
     val handle: @Composable () -> Unit = {
         Box(
@@ -253,10 +342,8 @@ internal fun WriterMinorToolbar(
             Modifier
                 .width(WriterMinorBarThickness)
                 .heightIn(max = maxHeight)
-                .clip(shape)
-                .background(surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                .softShadow(8.dp, shape)
+                .then(dockLayer)
+                .milkGlassRim(shape, dark = dark, elevation = rimElevation)
                 .padding(vertical = 4.dp)
                 .semantics { contentDescription = "书写页悬浮笔匣(竖排)" },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -265,7 +352,7 @@ internal fun WriterMinorToolbar(
             DockIcon(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
             DockIcon(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
             DockDivider(vertical = true)
-            DockTools(vertical = true, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
+            DockTools(vertical = true, state = state, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
             DockDivider(vertical = true)
             LazyColumn(
                 state = listState,
@@ -285,10 +372,8 @@ internal fun WriterMinorToolbar(
             Modifier
                 .widthIn(max = maxWidth)
                 .height(WriterMinorToolbarHeight + 8.dp)
-                .clip(shape)
-                .background(surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                .softShadow(8.dp, shape)
+                .then(dockLayer)
+                .milkGlassRim(shape, dark = dark, elevation = rimElevation)
                 .padding(horizontal = 4.dp)
                 .semantics { contentDescription = "书写页悬浮笔匣" },
             verticalAlignment = Alignment.CenterVertically,
@@ -297,7 +382,7 @@ internal fun WriterMinorToolbar(
             DockIcon(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
             DockIcon(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
             DockDivider(vertical = false)
-            DockTools(vertical = false, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
+            DockTools(vertical = false, state = state, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
             DockDivider(vertical = false)
             LazyRow(
                 state = listState,
@@ -320,6 +405,7 @@ internal fun WriterMinorToolbar(
 @Composable
 private fun DockTools(
     vertical: Boolean,
+    state: WriterUiState,
     selectedTool: WriterMajorTool,
     enabled: Boolean,
     onTool: (WriterMajorTool) -> Unit,
@@ -327,7 +413,7 @@ private fun DockTools(
     var overflowOpen by remember { mutableStateOf(false) }
     val content: @Composable () -> Unit = {
         dockCoreTools.forEach { tool ->
-            val active = isMajorToolActive(tool, selectedTool, WriterUiState())
+            val active = isMajorToolActive(tool, selectedTool, state)
             DockIcon(
                 dockToolIcon(tool),
                 if (active) "${tool.label}，当前工具" else tool.label,
@@ -393,10 +479,21 @@ private fun DockIcon(
     accent: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        if (active) cs.primary.copy(alpha = 0.12f) else Color.Transparent,
+        MilkMotion.colorSpec(), label = "dockIconBg",
+    )
+    val tint by animateColorAsState(
+        when {
+            active || accent -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        MilkMotion.colorSpec(), label = "dockIconTint",
+    )
     Box(
         Modifier
             .size(36.dp, 36.dp)
-            .clip(RoundedCornerShape(999.dp))
+            .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick)
             .testTag(tag)
             .semantics { contentDescription = label },
@@ -405,20 +502,15 @@ private fun DockIcon(
         Box(
             Modifier
                 .size(30.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(if (active) cs.primary.copy(alpha = 0.12f) else Color.Transparent),
+                .clip(CircleShape)
+                .background(container),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(17.dp).alpha(if (enabled) 1f else 0.35f),
-                tint = when {
-                    !enabled -> cs.onSurfaceVariant
-                    active -> cs.primary
-                    accent -> cs.primary
-                    else -> cs.onSurfaceVariant
-                },
+                tint = tint,
             )
         }
     }
@@ -427,9 +519,9 @@ private fun DockIcon(
 @Composable
 private fun DockDivider(vertical: Boolean) {
     if (vertical) {
-        Box(Modifier.width(18.dp).height(1.dp).background(cs_line()))
+        Box(Modifier.padding(vertical = 4.dp).width(18.dp).height(1.dp).background(cs_line()))
     } else {
-        Box(Modifier.width(1.dp).height(16.dp).background(cs_line()))
+        Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(16.dp).background(cs_line()))
     }
 }
 
@@ -468,8 +560,8 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                 item(key = "laser-note") {
                     Text(
                         "临时指示",
+                        style = MilkText.micro,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
@@ -636,21 +728,29 @@ private fun MinorTextAction(
     tag: String,
 ) {
     val cs = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        if (selected) cs.primary.copy(alpha = 0.12f) else Color.Transparent,
+        MilkMotion.colorSpec(), label = "minorActionBg",
+    )
+    val fg by animateColorAsState(
+        if (selected) cs.primary else cs.onSurfaceVariant,
+        MilkMotion.colorSpec(), label = "minorActionFg",
+    )
     Box(
         Modifier
             .defaultMinSize(minWidth = 40.dp, minHeight = 36.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) cs.primary.copy(alpha = 0.12f) else Color.Transparent)
+            .clip(PillShape)
+            .background(container)
             .clickable(enabled = enabled, onClick = onClick)
             .testTag(tag)
             .semantics { contentDescription = label }
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = MilkSpace.sm),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
-            color = if (selected) cs.primary else cs.onSurfaceVariant,
-            fontSize = 12.5.sp,
+            style = MilkText.label,
+            color = fg,
             maxLines = 1,
         )
     }
@@ -693,7 +793,7 @@ private fun MinorWidthDot(
                     Modifier
                         .width(15.dp)
                         .height(barHeight)
-                        .clip(RoundedCornerShape(99.dp))
+                        .clip(PillShape)
                         .background(if (selected) cs.primary else cs.onSurfaceVariant),
                 )
             }

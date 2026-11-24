@@ -3,6 +3,11 @@ package com.milknote.app.ui.writer
 import android.media.MediaPlayer
 import android.os.SystemClock
 import android.widget.VideoView
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +48,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.theme.LocalMilkMotion
+import com.milknote.app.ui.theme.MilkMotion
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.ink.model.MediaElement
 import com.milknote.ink.model.MediaKind
 import com.milknote.ink.render.MediaElementRenderer
@@ -60,27 +72,26 @@ internal fun VideoInsertPanel(
         subtitle = "本地视频 · 复制进当前笔记本",
         onDismiss = onDismiss,
         maxWidth = 460.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "选择视频", onClick = onChoose)
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton(
+                label = "取消",
+                variant = MilkButtonVariant.SECONDARY,
+                onClick = onDismiss,
+            )
+        },
     ) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
-                .testTag("writer-panel-scroll").padding(top = 16.dp),
+                .testTag("writer-panel-scroll").padding(top = MilkSpace.lg),
         ) {
             Text(
                 "从系统文件选择器选择一个本地视频。文件会复制到笔记本的 media 目录，页面只显示静态占位，点击播放时在中央面板内播放；不会上传或使用外部服务。",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MilkText.body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                Modifier.fillMaxWidth().padding(top = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                MilkButton(label = "选择视频", onClick = onChoose)
-                MilkButton(
-                    label = "取消",
-                    variant = MilkButtonVariant.SECONDARY,
-                    onClick = onDismiss,
-                )
-            }
         }
     }
 }
@@ -153,61 +164,108 @@ internal fun AudioRecordPanel(
         subtitle = "仅前台录音 · 关闭面板或退到后台会停止并丢弃",
         onDismiss = dismiss,
         maxWidth = 460.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            if (state.permission != RecordPermission.GRANTED) {
+                MilkButton(label = "授权麦克风", onClick = onRequestPermission)
+                if (state.permission == RecordPermission.DENIED) {
+                    Spacer(Modifier.width(MilkSpace.sm))
+                    MilkButton(
+                        label = "打开系统设置",
+                        variant = MilkButtonVariant.SECONDARY,
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        android.net.Uri.fromParts("package", context.packageName, null),
+                                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        },
+                    )
+                }
+            } else if (state.isRecording) {
+                MilkButton(
+                    label = "停止并插入",
+                    onClick = {
+                        val elapsed = SystemClock.elapsedRealtime() - startedAtMs
+                        val file = recorder.stop()
+                        if (file == null) {
+                            state = reduceRecordState(
+                                state,
+                                RecordEvent.Failed("录音时间过短或设备不可用，请重新录制"),
+                            )
+                        } else {
+                            state = reduceRecordState(state, RecordEvent.Stopped(elapsed))
+                            onInserted(file, elapsed)
+                            onDismiss()
+                        }
+                    },
+                )
+            } else {
+                MilkButton(
+                    label = "开始录音",
+                    enabled = state.canStart,
+                    onClick = {
+                        val cache = File(context.cacheDir, "record")
+                        if (recorder.start(cache)) {
+                            startedAtMs = SystemClock.elapsedRealtime()
+                            state = reduceRecordState(state, RecordEvent.Start)
+                        } else {
+                            state = reduceRecordState(
+                                state,
+                                RecordEvent.Failed("无法启动录音，请检查麦克风是否被其他应用占用"),
+                            )
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.width(MilkSpace.sm))
+            MilkButton(
+                label = "关闭",
+                variant = MilkButtonVariant.SECONDARY,
+                onClick = dismiss,
+            )
+        },
     ) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
-                .testTag("writer-panel-scroll").padding(top = 16.dp),
+                .testTag("writer-panel-scroll").padding(top = MilkSpace.lg),
         ) {
             if (state.permission != RecordPermission.GRANTED) {
                 Text(
                     "录音需要麦克风权限。MilkNote 只在你按下开始后、且本面板在前台时录音，不会后台上传或使用外部服务。",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MilkText.body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MilkButton(label = "授权麦克风", onClick = onRequestPermission)
-                    if (state.permission == RecordPermission.DENIED) {
-                        MilkButton(
-                            label = "打开系统设置",
-                            variant = MilkButtonVariant.SECONDARY,
-                            onClick = {
-                                runCatching {
-                                    context.startActivity(
-                                        android.content.Intent(
-                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                            android.net.Uri.fromParts("package", context.packageName, null),
-                                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                                    )
-                                }
-                            },
-                        )
-                    }
-                }
             } else {
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(120.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(MilkRadius.lg))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            formatRecordElapsed(state.elapsedMs),
-                            fontSize = 34.sp,
-                            fontFamily = com.milknote.app.ui.theme.Mono,
-                            color = if (state.isRecording) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RecordingPulseDot(active = state.isRecording)
+                            Spacer(Modifier.width(MilkSpace.sm))
+                            Text(
+                                formatRecordElapsed(state.elapsedMs),
+                                style = MilkText.monoBody.copy(fontSize = 30.sp),
+                                color = if (state.isRecording) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                         Text(
                             when {
                                 state.isRecording -> "正在录音…"
                                 state.elapsedMs > 0 -> "录音已停止"
                                 else -> "准备录音"
                             },
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MilkText.caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -215,58 +273,42 @@ internal fun AudioRecordPanel(
                 state.message?.let {
                     Text(
                         it,
-                        modifier = Modifier.padding(top = 10.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = MilkSpace.sm + 2.dp),
+                        style = MilkText.caption,
                         color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.isRecording) {
-                        MilkButton(
-                            label = "停止并插入",
-                            onClick = {
-                                val elapsed = SystemClock.elapsedRealtime() - startedAtMs
-                                val file = recorder.stop()
-                                if (file == null) {
-                                    state = reduceRecordState(
-                                        state,
-                                        RecordEvent.Failed("录音时间过短或设备不可用，请重新录制"),
-                                    )
-                                } else {
-                                    state = reduceRecordState(state, RecordEvent.Stopped(elapsed))
-                                    onInserted(file, elapsed)
-                                    onDismiss()
-                                }
-                            },
-                        )
-                    } else {
-                        MilkButton(
-                            label = "开始录音",
-                            enabled = state.canStart,
-                            onClick = {
-                                val cache = File(context.cacheDir, "record")
-                                if (recorder.start(cache)) {
-                                    startedAtMs = SystemClock.elapsedRealtime()
-                                    state = reduceRecordState(state, RecordEvent.Start)
-                                } else {
-                                    state = reduceRecordState(
-                                        state,
-                                        RecordEvent.Failed("无法启动录音，请检查麦克风是否被其他应用占用"),
-                                    )
-                                }
-                            },
-                        )
-                    }
-                    MilkButton(
-                        label = "关闭",
-                        variant = MilkButtonVariant.SECONDARY,
-                        onClick = dismiss,
                     )
                 }
             }
         }
     }
+}
+
+/** 录音中状态点:柔和脉冲(减弱动效时静态红点) */
+@Composable
+private fun RecordingPulseDot(active: Boolean) {
+    val reduced = LocalMilkMotion.current
+    val cs = MaterialTheme.colorScheme
+    val alpha = if (!active || reduced) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "recordPulse")
+        val value by transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = MilkMotion.StandardEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "recordPulseAlpha",
+        )
+        value
+    }
+    Box(
+        Modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(cs.error.copy(alpha = if (active) alpha else 0.35f)),
+    )
 }
 
 /**
@@ -285,7 +327,8 @@ internal fun MediaPlaybackPanel(
         MilkCenterPanel(title = title, subtitle = "本地媒体", onDismiss = onDismiss, maxWidth = 460.dp) {
             Text(
                 "媒体文件缺失或不在笔记本目录内。",
-                modifier = Modifier.padding(top = 16.dp),
+                modifier = Modifier.padding(top = MilkSpace.lg),
+                style = MilkText.body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -299,7 +342,7 @@ internal fun MediaPlaybackPanel(
     ) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
-                .testTag("writer-panel-scroll").padding(top = 16.dp),
+                .testTag("writer-panel-scroll").padding(top = MilkSpace.lg),
         ) {
             if (element.kind == MediaKind.VIDEO) {
                 VideoPlaybackBody(file, element)
@@ -335,7 +378,7 @@ private fun VideoPlaybackBody(file: File, element: MediaElement) {
         Modifier
             .fillMaxWidth()
             .height(280.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(MilkRadius.md))
             .background(androidx.compose.ui.graphics.Color.Black),
         contentAlignment = Alignment.Center,
     ) {
@@ -359,15 +402,15 @@ private fun VideoPlaybackBody(file: File, element: MediaElement) {
     error?.let {
         Text(
             it,
-            modifier = Modifier.padding(top = 8.dp),
-            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = MilkSpace.sm),
+            style = MilkText.caption,
             color = MaterialTheme.colorScheme.error,
         )
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = 12.dp),
+        Modifier.fillMaxWidth().padding(top = MilkSpace.md),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
     ) {
         MilkButton(
             label = if (playing) "暂停" else "播放",
@@ -385,7 +428,7 @@ private fun VideoPlaybackBody(file: File, element: MediaElement) {
         )
         Text(
             MediaElementRenderer.formatDuration(element.durationMs),
-            style = MaterialTheme.typography.bodySmall,
+            style = MilkText.monoMeta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -442,20 +485,19 @@ private fun AudioPlaybackBody(file: File, element: MediaElement) {
         Modifier
             .fillMaxWidth()
             .height(120.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(MilkRadius.lg))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 if (element.durationMs > 0L) MediaElementRenderer.formatDuration(element.durationMs) else "录音",
-                fontSize = 28.sp,
-                fontFamily = com.milknote.app.ui.theme.Mono,
+                style = MilkText.monoBody.copy(fontSize = 26.sp),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 if (playing) "播放中…" else "本地录音",
-                style = MaterialTheme.typography.bodySmall,
+                style = MilkText.caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -463,15 +505,15 @@ private fun AudioPlaybackBody(file: File, element: MediaElement) {
     error?.let {
         Text(
             it,
-            modifier = Modifier.padding(top = 8.dp),
-            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = MilkSpace.sm),
+            style = MilkText.caption,
             color = MaterialTheme.colorScheme.error,
         )
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = 12.dp),
+        Modifier.fillMaxWidth().padding(top = MilkSpace.md),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
     ) {
         MilkButton(
             label = if (playing) "暂停" else "播放",
@@ -490,7 +532,7 @@ private fun AudioPlaybackBody(file: File, element: MediaElement) {
         Spacer(Modifier.width(2.dp))
         Text(
             MediaElementRenderer.formatDuration(element.durationMs),
-            style = MaterialTheme.typography.bodySmall,
+            style = MilkText.monoMeta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

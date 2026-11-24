@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Search
@@ -43,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -57,7 +56,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -66,9 +64,16 @@ import com.milknote.app.ui.cards.CardEditorPanel
 import com.milknote.app.ui.cards.CardImage
 import com.milknote.app.ui.cards.CardsViewModel
 import com.milknote.app.ui.cards.cardColor
-import com.milknote.app.ui.common.MilkButton
-import com.milknote.app.ui.common.MilkButtonVariant
-import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.cards.cardPreviewText
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkConfirmDialog
+import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.coverColorName
+import com.milknote.app.ui.common.softShadow
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.notes.model.COVER_COLORS
 import com.milknote.notes.model.NoteCard
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +103,8 @@ internal fun WriterSnippetRail(
     currentPageId: String,
     onInsert: (NoteCard) -> Unit,
     modifier: Modifier = Modifier,
+    onShowPages: () -> Unit = {},
+    onShowOutline: () -> Unit = {},
 ) {
     val cardsState by vm.state.collectAsState()
     // 卡片页或本侧栏写入后 vm.refresh() 会产出新 state；借它触发一次完整表重读，
@@ -160,58 +167,79 @@ internal fun WriterSnippetRail(
                 .background(MaterialTheme.colorScheme.surface)
                 .edgeHairline(MaterialTheme.colorScheme.outline.copy(alpha = 0.75f), right = true),
         ) {
-        // P061：颜色与搜索共用顶行；颜色带独立横滑，搜索保持可见。
+        WriterRailSegmentBar(
+            activeMode = WriterRailMode.SNIPPETS,
+            onPages = onShowPages,
+            onSnippets = {},
+            onOutline = onShowOutline,
+        )
+        // P061：搜索独占首行(全宽)；颜色点独占次行(全宽横滑)，248dp 侧栏不再半切色点。
         Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MilkSpace.md, vertical = MilkSpace.xs)
+                .height(40.dp)
+                .clip(RoundedCornerShape(MilkRadius.md))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(MilkRadius.md))
+                .padding(start = MilkSpace.sm + 2.dp, end = MilkSpace.xxs)
+                .testTag("writer-snippet-search"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LazyRow(
-                modifier = Modifier.weight(1f).testTag("writer-snippet-colors"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                item(key = "__all__") {
-                    ColorFilterDot(
-                        selected = color == null,
-                        label = "全部颜色",
-                        brush = rainbowBrush,
-                        onClick = { color = null },
-                        testTag = "writer-snippet-color-all",
-                    )
-                }
-                items(COVER_COLORS, key = { it }) { hex ->
-                    ColorFilterDot(
-                        selected = color.equals(hex, ignoreCase = true),
-                        label = "颜色 $hex",
-                        brush = SolidColor(cardColor(hex)),
-                        onClick = { color = if (color.equals(hex, ignoreCase = true)) null else hex },
-                        testTag = "writer-snippet-color-$hex",
+            Icon(Icons.Outlined.Search, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(MilkSpace.xs))
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                textStyle = MilkText.caption.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1f).semantics { contentDescription = "搜索摘取卡片" },
+                decorationBox = { inner ->
+                    if (query.isEmpty()) Text("搜索", style = MilkText.caption, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    inner()
+                },
+            )
+            if (query.isNotEmpty()) {
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(role = Role.Button) { query = "" }
+                        .semantics { contentDescription = "清空搜索" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            Row(
-                Modifier
-                    .width(112.dp)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 10.dp)
-                    .testTag("writer-snippet-search"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Search, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(5.dp))
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f).semantics { contentDescription = "搜索摘取卡片" },
-                    decorationBox = { inner ->
-                        if (query.isEmpty()) Text("搜索", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        inner()
-                    },
+        }
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().testTag("writer-snippet-colors"),
+            contentPadding = PaddingValues(horizontal = MilkSpace.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            item(key = "__all__") {
+                ColorFilterDot(
+                    selected = color == null,
+                    label = "全部颜色",
+                    brush = rainbowBrush,
+                    onClick = { color = null },
+                    testTag = "writer-snippet-color-all",
+                )
+            }
+            items(COVER_COLORS, key = { it }) { hex ->
+                ColorFilterDot(
+                    selected = color.equals(hex, ignoreCase = true),
+                    label = coverColorName(hex),
+                    brush = SolidColor(cardColor(hex)),
+                    onClick = { color = if (color.equals(hex, ignoreCase = true)) null else hex },
+                    testTag = "writer-snippet-color-$hex",
                 )
             }
         }
@@ -254,35 +282,24 @@ internal fun WriterSnippetRail(
         )
 
         if (filtered.isEmpty()) {
-            Box(
-                Modifier.fillMaxWidth().weight(1f).padding(24.dp).testTag("writer-snippet-empty"),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("没有匹配的摘取卡片", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        if (allCards.isEmpty()) {
-                            "在书写页框选内容并保存为卡片后，会出现在这里。"
-                        } else {
-                            "换个颜色、标签或搜索词试试。"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (allCards.isNotEmpty()) {
-                        Spacer(Modifier.height(14.dp))
-                        MilkButton(
-                            label = "清除筛选",
-                            onClick = {
-                                query = ""
-                                color = null
-                                tagFilter = SnippetTagFilter.All
-                            },
-                            variant = MilkButtonVariant.SECONDARY,
-                        )
-                    }
-                }
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                MilkEmptyState(
+                    title = "没有匹配的摘取卡片",
+                    description = if (allCards.isEmpty()) {
+                        "在书写页框选内容并保存为卡片后，会出现在这里。"
+                    } else {
+                        "换个颜色、标签或搜索词试试。"
+                    },
+                    actionLabel = if (allCards.isNotEmpty()) "清除筛选" else null,
+                    onAction = if (allCards.isNotEmpty()) {
+                        {
+                            query = ""
+                            color = null
+                            tagFilter = SnippetTagFilter.All
+                        }
+                    } else null,
+                    modifier = Modifier.testTag("writer-snippet-empty"),
+                )
             }
         } else {
             LazyColumn(
@@ -338,14 +355,15 @@ internal fun WriterSnippetRail(
                 Modifier
                     .offset { IntOffset((dragPos - railOrigin).x.roundToInt() - 60.dp.roundToPx() / 2, (dragPos - railOrigin).y.roundToInt() - 18.dp.roundToPx()) }
                     .width(120.dp)
-                    .shadow(6.dp, RoundedCornerShape(8.dp))
+                    .softShadow(10.dp, RoundedCornerShape(MilkRadius.sm))
+                    .clip(RoundedCornerShape(MilkRadius.sm))
                     .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(MilkRadius.sm))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 Text(
                     card.title.ifBlank { "无标题卡片" },
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MilkText.label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -365,22 +383,17 @@ internal fun WriterSnippetRail(
     }
 
     deleting?.let { card ->
-        MilkCenterPanel(title = "删除卡片", onDismiss = { deleting = null }, maxWidth = 440.dp) {
-            Spacer(Modifier.height(16.dp))
-            Text("删除「${card.title.ifBlank { "无标题卡片" }}」？此操作不可撤销。")
-            Spacer(Modifier.height(20.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                MilkButton("取消", onClick = { deleting = null }, variant = MilkButtonVariant.SECONDARY)
-                Spacer(Modifier.width(8.dp))
-                MilkButton(
-                    "删除",
-                    onClick = {
-                        vm.delete(card.id)
-                        deleting = null
-                    },
-                )
-            }
-        }
+        MilkConfirmDialog(
+            title = "删除卡片",
+            body = "删除「${card.title.ifBlank { "无标题卡片" }}」？此操作不可撤销。",
+            confirmLabel = "删除",
+            onDismiss = { deleting = null },
+            onConfirm = {
+                vm.delete(card.id)
+                deleting = null
+            },
+            destructive = true,
+        )
     }
 }
 
@@ -417,33 +430,10 @@ private fun ColorFilterDot(
     }
 }
 
-/** 标签筛选胶囊：48dp 命中，选中态使用 accent 淡底 + 描边。 */
+/** 标签筛选胶囊:复用共享 MilkChip(48dp 命中、选中淡强调底 + 描边)。 */
 @Composable
 private fun TagFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .defaultMinSize(minHeight = 48.dp)
-            .clip(CircleShape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .border(
-                1.dp,
-                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                CircleShape,
-            )
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
-    }
+    MilkChip(label = label, selected = selected, onClick = onClick, small = true)
 }
 
 /** 摘取卡片：颜色标题条 + 图片 / 正文 + 回插、编辑、删除动作（每个动作 48dp 命中）。 */
@@ -460,44 +450,44 @@ private fun SnippetCard(
         Modifier
             .fillMaxWidth()
             .graphicsLayer { alpha = if (dimmed) 0.35f else 1f }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(MilkRadius.lg))
             .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f), RoundedCornerShape(MilkRadius.lg))
             .testTag("writer-snippet-card-${card.id}"),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .background(accent.copy(alpha = 0.18f))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = MilkSpace.md, vertical = MilkSpace.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 card.title.ifBlank { "无标题卡片" },
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MilkText.cardTitle,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
         }
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(MilkSpace.md)) {
             card.imageSrc?.let { CardImage(it) }
-            if (card.body.isNotBlank() || card.imageSrc != null) {
+            val preview = cardPreviewText(card.title, card.body)
+            if (preview.isNotBlank() || card.imageSrc != null) {
                 Text(
-                    card.body.ifBlank { "图片摘取" },
-                    style = MaterialTheme.typography.bodySmall,
+                    preview.ifBlank { "图片摘取" },
+                    style = MilkText.caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 6,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             if (card.tags.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MilkSpace.sm))
                 Text(
                     card.tags.joinToString(" · ") { "#$it" },
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MilkText.label,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -543,16 +533,13 @@ private fun SnippetCardAction(
     tint: Color,
     onClick: () -> Unit,
 ) {
-    Box(
-        Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .testTag(testTag),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp), tint = tint)
-    }
+    MilkIconButton(
+        imageVector = icon,
+        contentDescription = description,
+        onClick = onClick,
+        modifier = Modifier.testTag(testTag),
+        tint = tint,
+    )
 }
 
 private val rainbowBrush: Brush = Brush.sweepGradient(

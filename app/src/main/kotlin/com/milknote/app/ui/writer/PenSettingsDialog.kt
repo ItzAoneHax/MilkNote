@@ -47,9 +47,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkIconButton
@@ -58,12 +56,12 @@ import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSlider
 import com.milknote.app.ui.common.MilkSwitch
-import com.milknote.app.ui.common.MilkKeyCap
 import com.milknote.app.ui.theme.InkBlackArgb
 import com.milknote.app.ui.theme.InkDark
 import com.milknote.app.ui.theme.LocalMilkDark
-import com.milknote.app.ui.theme.Mono
-import com.milknote.app.ui.theme.MonoMeta
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 import com.milknote.ink.model.InkTool
 import com.milknote.ink.model.PressureGamma
 import kotlin.math.abs
@@ -71,7 +69,7 @@ import kotlin.math.roundToInt
 
 /**
  * 笔设置中央面板(2026-11 重设计):标准浮层头(笔图标 + 标题 + 关闭)+ 眉标分区
- * (笔迹预览 / 粗细 / 压感灵敏度 / 专属色板);橡皮分支 = 大小卡 + 擦除内容开关列表。
+ * (笔迹预览 / 粗细 / 压感灵敏度 / 专属色板);橡皮分支 = 大小芯片 + 擦除内容开关列表。
  */
 @Composable
 internal fun PenSettingsDialog(
@@ -96,6 +94,10 @@ internal fun PenSettingsDialog(
             onDismiss = onDismiss,
             maxWidth = 460.dp,
             icon = { RealPenIcon(InkTool.ERASER, 0L, modifier = Modifier.size(36.dp)) },
+            footer = {
+                Spacer(Modifier.weight(1f))
+                MilkButton(label = "完成", onClick = onDismiss)
+            },
         ) {
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
                 Spacer(Modifier.height(6.dp))
@@ -141,10 +143,7 @@ internal fun PenSettingsDialog(
                     tag = "writer-eraser-auto-revert",
                     onChange = onAutoRevert,
                 )
-                Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    MilkButton("完成", onClick = onDismiss)
-                }
+                Spacer(Modifier.height(MilkSpace.sm))
             }
         }
         return
@@ -166,7 +165,7 @@ internal fun PenSettingsDialog(
                     Box(
                         Modifier
                             .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(MilkRadius.lg))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -188,8 +187,8 @@ internal fun PenSettingsDialog(
                 Spacer(Modifier.height(14.dp))
 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("粗细", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    Text("%.2f mm".format(current.baseWidthMm), fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("粗细", style = MilkText.caption, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("%.2f mm".format(current.baseWidthMm), style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(4.dp))
                 MilkSlider(
@@ -242,7 +241,7 @@ internal fun PenSettingsDialog(
                 if (tool in writingTools) {
                     Spacer(Modifier.height(20.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("笔盒", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text("笔盒", style = MilkText.caption, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         if (presets.isNotEmpty()) {
                             com.milknote.app.ui.common.MilkActionChip(label = "清空", onClick = onClearPresets, small = true)
                             Spacer(Modifier.width(6.dp))
@@ -253,8 +252,7 @@ internal fun PenSettingsDialog(
                     if (presets.isEmpty()) {
                         Text(
                             "把当前 工具 / 墨色 / 粗细 收藏起来，下次一键换笔",
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
+                            style = MilkText.caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         )
                     } else {
@@ -284,14 +282,10 @@ internal fun PenSettingsDialog(
                     }
                 }
                 Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    MilkKeyCap("Esc")
-                    Spacer(Modifier.width(6.dp))
-                    Text("关闭", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     MilkButton(label = "完成", onClick = onDismiss)
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(MilkSpace.lg))
             }
         }
     }
@@ -318,10 +312,10 @@ private fun PanelSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(label, style = MilkText.body, color = MaterialTheme.colorScheme.onSurface)
             if (description != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(description, style = MilkText.caption, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Spacer(Modifier.width(16.dp))
@@ -333,73 +327,6 @@ private fun PanelSwitchRow(
     }
 }
 
-/** 橡皮大小卡:圆点直径按 mm 比例放大 + 标签;选中 = 淡蓝底 + 蓝描边 */
-@Composable
-private fun EraserSizeCard(mm: Float, label: String, active: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (active) cs.primary.copy(alpha = 0.10f) else cs.surfaceVariant.copy(alpha = 0.5f))
-            .border(1.dp, if (active) cs.primary else cs.outline, RoundedCornerShape(14.dp))
-            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
-            .padding(vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            Modifier
-                .size((mm * 3.2f).dp)
-                .clip(CircleShape)
-                .background(if (active) cs.primary else cs.onSurfaceVariant.copy(alpha = 0.7f)),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (active) FontWeight.Medium else null,
-            color = if (active) cs.primary else cs.onSurface,
-        )
-        Text(
-            "${mm.toInt()} mm",
-            style = MonoMeta,
-            color = cs.onSurfaceVariant,
-        )
-    }
-}
-
-/** 粗细预设:圆点直径示意 + 标签 + mm;选中 = 淡蓝底蓝描边 */
-@Composable
-private fun PenWidthPreset(mm: Float, label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Column(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) cs.primary.copy(alpha = 0.10f) else cs.surfaceVariant.copy(alpha = 0.45f))
-            .border(1.dp, if (selected) cs.primary else cs.outline.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
-            .padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size((3f + mm * 7f).dp)
-                    .clip(CircleShape)
-                    .background(if (selected) cs.primary else cs.onSurface),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.Medium else null,
-                color = if (selected) cs.primary else cs.onSurface,
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Text("%.1f mm".format(mm), style = MonoMeta, color = cs.onSurfaceVariant)
-    }
-}
-
 /** 笔迹预览:恒亮纸面小样(56dp,8dp 圆角 hairline),一条随粗细/墨色变化的曲线;荧光笔半透明 */
 @Composable
 private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float, compact: Boolean = false) {
@@ -408,9 +335,9 @@ private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float, compact: B
         Modifier
             .fillMaxWidth()
             .height(if (compact) 48.dp else 56.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MilkRadius.sm))
             .background(Color.White)
-            .border(1.dp, Color(0x1F18191B), RoundedCornerShape(8.dp)),
+            .border(1.dp, Color(0x1F18191B), RoundedCornerShape(MilkRadius.sm)),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxWidth().height(if (compact) 40.dp else 48.dp).padding(horizontal = 20.dp)) {
@@ -458,7 +385,17 @@ internal fun ColorSettingsDialog(
         onColorChange(current)
     }
 
-    MilkCenterPanel(title = "颜色", subtitle = "网格快速取色，或用滑块精细调整", onDismiss = onDismiss, maxWidth = 500.dp, maxHeight = 720.dp) {
+    MilkCenterPanel(
+        title = "颜色",
+        subtitle = "网格快速取色，或用滑块精细调整",
+        onDismiss = onDismiss,
+        maxWidth = 500.dp,
+        maxHeight = 720.dp,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "完成", onClick = onDismiss)
+        },
+    ) {
         Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
             Spacer(Modifier.height(10.dp))
             MilkSegmented(
@@ -505,9 +442,9 @@ internal fun ColorSettingsDialog(
             }
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("不透明度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text("不透明度", style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.weight(1f))
-                Text("${(opacity * 100).roundToInt()}%", style = MonoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${(opacity * 100).roundToInt()}%", style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(8.dp))
             MilkSlider(
@@ -524,12 +461,12 @@ internal fun ColorSettingsDialog(
                     Box(
                         Modifier
                             .size(56.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(MilkRadius.lg))
                             .background(Color(current.toInt()))
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp)),
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(MilkRadius.lg)),
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text("当前", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("当前", style = MilkText.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.width(20.dp))
                 Column {
@@ -541,14 +478,10 @@ internal fun ColorSettingsDialog(
                             .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text("原色", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("原色", style = MilkText.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
-                Text("#%06X".format(0xFFFFFFL and current), style = MonoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(22.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                MilkButton(label = "完成", onClick = onDismiss)
+                Text("#%06X".format(0xFFFFFFL and current), style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -567,7 +500,7 @@ private fun ColorGrid(current: Long, onSelect: (Long) -> Unit) {
         Modifier
             .fillMaxWidth()
             .height(196.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(MilkRadius.lg))
             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -595,7 +528,7 @@ private fun ColorGridCell(
         modifier
             .fillMaxHeight()
             .background(Color(argb.toInt()))
-            .then(if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(4.dp)) else Modifier)
+            .then(if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(MilkRadius.xs)) else Modifier)
             .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { onSelect(argb) }),
     )
 }
@@ -608,7 +541,7 @@ private fun GradientColorSlider(
     onChange: (Float) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(8.dp))
         MilkSlider(
             value = value,

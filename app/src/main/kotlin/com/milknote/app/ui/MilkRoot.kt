@@ -4,14 +4,10 @@ import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -24,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -34,6 +29,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Summarize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -215,12 +211,26 @@ fun MilkRoot() {
         }
         else -> {
             val notebooks = bookshelfVm.notebooks.value
+            val cards = cardsVm.state.value.cards.take(8)
             listOf(
                 CommandItem("id_new", "新建笔记本", hint = "↵", section = "笔记本", icon = Icons.Outlined.Add) { showNewNotebook = true },
             ) + notebooks.take(6).map { nb ->
                 CommandItem("nb_${nb.id}", nb.name, hint = "${bookshelfVm.pageCountOf(nb.id)} 页", section = "切换笔记本", icon = Icons.AutoMirrored.Outlined.MenuBook) {
                     writerVm.open(nb.id)
                     screen = MilkScreen.Writer(nb.id)
+                }
+            } + cards.map { card ->
+                // 兑现搜索框「搜索笔记、卡片或命令…」:点卡片直达书架卡片页并按其标题检索
+                CommandItem(
+                    id = "card_${card.id}",
+                    title = card.title.ifBlank { "无标题卡片" },
+                    hint = card.tags.firstOrNull()?.let { "#$it" }.orEmpty(),
+                    section = "卡片",
+                    icon = Icons.Outlined.Style,
+                ) {
+                    cardsVm.search(card.title)
+                    bookshelfVm.setNav(com.milknote.app.ui.bookshelf.BookshelfNav.Cards)
+                    screen = MilkScreen.Bookshelf
                 }
             } + listOf(
                 CommandItem("id_settings", "设置", section = "通用", icon = Icons.Outlined.Settings) { openSettings(false, "appearance") },
@@ -369,31 +379,21 @@ fun MilkRoot() {
                 }
             }
 
-            // ⌘K 命令面板(顶层;scrim 淡入,面板本体 0.97→1 缩放入场)
-            AnimatedVisibility(
-                visible = showPalette,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
+            // ⌘K 命令面板(顶层):高频键盘动作,零动画瞬开瞬关(Raycast / Emil 原则)——
+            // 100+/天 的快捷键不该等 200ms 的浮层入场;scrim 也不给按压灰层与波纹。
+            if (showPalette) {
                 Box(
                     Modifier
                         .fillMaxSize()
                         .background(com.milknote.app.ui.theme.MilkScrim)
-                        .clickable { showPalette = false },
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { showPalette = false },
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     Box(Modifier.padding(top = 96.dp).clickable(enabled = false) {}) {
-                        // 减弱动效:取消缩放,仅 ≤80ms 淡化(红线三.11)
-                        val reduced = com.milknote.app.ui.theme.LocalMilkMotion.current
-                        AnimatedVisibility(
-                            visible = showPalette,
-                            enter = if (reduced) fadeIn(animationSpec = tween(60))
-                            else fadeIn(animationSpec = tween(180)) +
-                                scaleIn(initialScale = 0.97f, animationSpec = tween(200)),
-                            exit = fadeOut(animationSpec = tween(if (reduced) 60 else 140)),
-                        ) {
-                            CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
-                        }
+                        CommandPalette(items = paletteItems, onDismiss = { showPalette = false })
                     }
                 }
             }

@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.common.milkDialogSurface
+import com.milknote.app.ui.theme.milkPanelEnter
 
 /** 整页居中的工具编辑卡片：12% 轻暗化 + 共享柔和阴影，不再锚定工具按钮。 */
 @Composable
@@ -45,6 +46,7 @@ internal fun WriterFloatingPanel(
                     .widthIn(max = width)
                     .fillMaxWidth()
                     .heightIn(max = maxHeight)
+                    .milkPanelEnter()
                     .milkDialogSurface()
                     .testTag("writer-floating-panel"),
                 content = content,
