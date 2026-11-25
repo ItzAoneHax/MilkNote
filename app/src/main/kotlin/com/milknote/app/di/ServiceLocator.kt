@@ -58,11 +58,14 @@ object ServiceLocator {
     /** Agent(M2):渲染源经 AgentBridge 由 WriterViewModel 注册 */
     val agentSnipSource: AppSnipSource by lazy { AppSnipSource(render = ::renderAgentPage) }
 
+    /** 会话/附件存储(抽屉展示真实缩略图时直接读取) */
+    val agentStore: AgentStore by lazy { AgentStore(appContext.filesDir, notebooksRoot()) }
+
     val agentController: AgentController by lazy {
         val vault = KeyVault(appContext)
         val c = AgentController(
             scope = appScope,
-            store = AgentStore(appContext.filesDir, notebooksRoot()),
+            store = agentStore,
             snipSource = agentSnipSource,
             annotationSink = AppAnnotationSink(),
             keyFor = { alias -> runCatching { vault.get(alias) }.getOrNull() },
