@@ -495,6 +495,7 @@ fun WriterScreen(
                         onIntent = vm::snipPickIntent,
                         onSend = vm::snipSend,
                         onSaveCard = vm::snipSaveCard,
+                        onAttach = vm::snipAttachOnly,
                     )
                 }
                 // ⑤ 右侧三合一 Studio 抽屉(AI / Markdown / 关联，默认收起)
@@ -506,6 +507,7 @@ fun WriterScreen(
                 AgentDrawerHost(
                     onOpenSettings = onOpenSettings,
                     onSnip = vm::enterSnip,
+                    onSnipToAttachment = vm::enterSnipForAttachment,
                     onExplainPage = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.EXPLAIN) },
                     onSummarizeChapter = { quickAgentIntent(vm, com.milknote.agent.Intents.Id.SUMMARIZE) },
                     pageLabel = "第 ${state.currentPageIndex + 1} 页",

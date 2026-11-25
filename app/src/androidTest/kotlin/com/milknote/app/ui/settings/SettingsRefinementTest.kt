@@ -47,4 +47,17 @@ class SettingsRefinementTest {
         rule.onNodeWithText("浅紫").assertIsDisplayed()
         rule.onNodeWithText("浅绿").assertIsDisplayed()
     }
+
+    @Test
+    fun agentBehavior_hasSummaryAndAttachmentBlocks() {
+        showSettings("agent")
+
+        rule.onNodeWithText("会话总结").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("自动生成会话总结").assertIsDisplayed()
+        rule.onNodeWithText("继承对话").assertIsDisplayed()
+        rule.onNodeWithText("指定模型").assertIsDisplayed()
+
+        rule.onNodeWithText("附件与引用").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("上传附件时默认 @ 引用").assertIsDisplayed()
+    }
 }

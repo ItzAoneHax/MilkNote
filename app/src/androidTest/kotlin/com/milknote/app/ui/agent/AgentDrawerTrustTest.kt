@@ -1,15 +1,26 @@
 package com.milknote.app.ui.agent
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.PageRef
 import com.milknote.app.di.ServiceLocator
@@ -25,6 +36,28 @@ import org.junit.Test
 class AgentDrawerTrustTest {
     @get:Rule
     val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
+
+    /** 覆盖 Markdown 表格 + 块级公式 + AI 生成文档卡的最小真实样本 */
+    private val richDocument = """
+        # 线性代数 · 第三章
+
+        矩阵的特征值满足 ${'$'}A v = \lambda v${'$'}，下面只留结论。
+
+        | 符号 | 说明 |
+        | :--- | ---: |
+        | 特征值 | λ |
+        | 特征向量 | v |
+
+        ${'$'}${'$'}
+        A v = \lambda v
+        ${'$'}${'$'}
+
+        ```milkdoc title="线性代数讲义.md" type="markdown"
+        ## 小结
+
+        每个特征向量只对应一个特征值。
+        ```
+    """.trimIndent()
 
     private fun showDrawer(
         markdown: String = "",
@@ -54,6 +87,15 @@ class AgentDrawerTrustTest {
                 }
             }
         }
+    }
+
+    /** 测试环境没有 Writer,页序提供方为 null:临时注入单页笔记本供「笔记页面」二级面板使用 */
+    private fun stubPageList() {
+        ServiceLocator.agentSnipSource.pagesListProvider = { listOf(PageRef("agent-test", "p0001")) }
+    }
+
+    private fun clearPageList() {
+        ServiceLocator.agentSnipSource.pagesListProvider = null
     }
 
     /** 配置一个可用视觉模型(临时落盘,用例结束移除) */
@@ -192,18 +234,119 @@ class AgentDrawerTrustTest {
     @Test
     fun attachmentPanel_hasNoInstructionalProse() {
         val profileId = configureVisionModel()
+        stubPageList()
         try {
             showDrawer()
-            rule.onNodeWithContentDescription("附件").assertIsDisplayed().performClick()
-            rule.onNodeWithText("附加页面").assertIsDisplayed()
+            rule.onNodeWithContentDescription("添加附件").assertIsDisplayed().performClick()
+            // 一级菜单:四个真实入口,没有一句操作提示
+            rule.onNodeWithText("系统图片").assertIsDisplayed()
+            rule.onNodeWithText("导入文档").assertIsDisplayed()
+            rule.onNodeWithText("笔记页面").assertIsDisplayed()
+            rule.onNodeWithText("画布框选").assertIsDisplayed()
+            rule.onNodeWithText("可附加当前页", substring = true).assertDoesNotExist()
+            rule.onNodeWithText("点按附加", substring = true).assertDoesNotExist()
+
+            // 二级 C:笔记页面范围面板
+            rule.onNodeWithText("笔记页面").assertIsDisplayed().performClick()
             rule.onNodeWithText("当前页 · 第 1 页").assertIsDisplayed()
             rule.onNodeWithText("可附加当前页", substring = true).assertDoesNotExist()
             rule.onNodeWithText("点按附加", substring = true).assertDoesNotExist()
             rule.onNodeWithText("p0001", substring = true).assertDoesNotExist()
         } finally {
+            clearPageList()
             ServiceLocator.agentController.closeDrawer()
             ServiceLocator.agentController.removeProfile(profileId)
         }
+    }
+
+    @Test
+    fun headerActions_openSessionSwitcherWithScopeSearchAndMetrics() {
+        val profileId = configureVisionModel()
+        try {
+            showDrawer()
+            rule.onNodeWithContentDescription("历史会话").assertIsDisplayed().performClick()
+
+            // 独立浮层:标题 + 范围分段 + 搜索 + 新会话
+            rule.onNodeWithText("历史会话").assertIsDisplayed()
+            rule.onNodeWithText("本页").assertIsDisplayed()
+            rule.onNodeWithText("整本笔记").assertIsDisplayed()
+            rule.onNodeWithText("搜索总结、对话或模型…").assertIsDisplayed()
+            rule.onNodeWithText("新会话").assertIsDisplayed()
+
+            // 会话卡直接给出上下文用量与平均输出速度
+            rule.onAllNodesWithText("上下文", substring = true).onFirst().assertIsDisplayed()
+            rule.onAllNodesWithText("速度", substring = true).onFirst().assertIsDisplayed()
+            rule.onNodeWithText("本页开始提问后会自动记录", substring = true).assertDoesNotExist()
+        } finally {
+            ServiceLocator.agentController.closeDrawer()
+            ServiceLocator.agentController.removeProfile(profileId)
+        }
+    }
+
+    @Test
+    fun headerActions_openPreviewHubWithCategoriesAndLocalFileEntry() {
+        val profileId = configureVisionModel()
+        try {
+            showDrawer(markdown = "## 本页要点\n\n特征值只与矩阵有关。")
+            rule.onNodeWithContentDescription("文件与文档预览").assertIsDisplayed().performClick()
+
+            rule.onNodeWithText("文件与文档预览").assertIsDisplayed()
+            rule.onNodeWithText("全部").assertIsDisplayed()
+            rule.onNodeWithText("图片").assertIsDisplayed()
+            rule.onNodeWithText("文档").assertIsDisplayed()
+            // 顶栏页签「Markdown」+ 预览中心分类「Markdown」
+            rule.onAllNodesWithText("Markdown").assertCountEquals(2)
+            rule.onNodeWithText("打开本地文件预览").assertIsDisplayed()
+
+            // 分类筛选真的生效:当前只有页内 Markdown,文档分类应为空
+            rule.onNodeWithText("文档").assertIsDisplayed().performClick()
+            rule.onNodeWithText("该分类暂无内容").assertIsDisplayed()
+        } finally {
+            ServiceLocator.agentController.closeDrawer()
+            ServiceLocator.agentController.removeProfile(profileId)
+        }
+    }
+
+    @Test
+    fun markdownDocument_rendersTableAndOpensFloatingPreview() {
+        var preview by mutableStateOf<AgentPreviewTarget?>(null)
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(480.dp).height(700.dp)) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        MilkMarkdownView(
+                            text = richDocument,
+                            onPreviewDocument = { document -> preview = document.toPreviewTarget() },
+                            onFormulaClick = { latex ->
+                                preview = AgentPreviewTarget.Markdown(
+                                    title = "公式预览",
+                                    content = latex,
+                                    docType = MarkdownLite.GeneratedDocType.LATEX,
+                                    canSaveToNotes = false,
+                                    canSaveCard = true,
+                                )
+                            },
+                        )
+                    }
+                    preview?.let { target ->
+                        AgentFloatingPreviewDialog(target = target, onDismiss = { preview = null })
+                    }
+                }
+            }
+        }
+
+        // 表格内容真实渲染(表头 + 两行单元格)
+        rule.onNodeWithText("符号").assertIsDisplayed()
+        rule.onNodeWithText("特征值").assertIsDisplayed()
+        rule.onNodeWithText("特征向量").assertIsDisplayed()
+
+        // 生成文档卡:标题 + 悬浮预览动作
+        rule.onNodeWithText("线性代数讲义.md").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("悬浮预览").performScrollTo().assertIsDisplayed().performClick()
+
+        // 打开悬浮预览窗:渲染预览 / 源码 双模式
+        rule.onNodeWithText("渲染预览").assertIsDisplayed()
+        rule.onNodeWithText("源码").assertIsDisplayed()
     }
 
     @Test

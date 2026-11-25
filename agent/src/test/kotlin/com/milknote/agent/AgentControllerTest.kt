@@ -68,6 +68,8 @@ class AgentControllerTest {
         scope: kotlinx.coroutines.CoroutineScope,
         key: String? = "sk-x",
         pageCount: Int = 3,
+        autoSummary: Boolean = false,
+        clock: () -> Long = System::currentTimeMillis,
         script: (ChatRequest) -> List<ChatEvent>,
     ): Env {
         val filesRoot = tmp.newFolder()
@@ -81,8 +83,12 @@ class AgentControllerTest {
             annotationSink = sink,
             keyFor = { key },
             providerFactory = { _, _, _ -> fake },
+            clockMs = clock,
         )
         c.addProfile("glm", "", "", key ?: "")
+        // 存量用例断言的是「聊天请求恰好 N 次 / requests.last() 是聊天」;
+        // 摘要引擎默认开启会多打一次请求,故这里显式关闭,摘要行为另用专门用例覆盖。
+        if (!autoSummary) c.setSummaryConfig(SummaryConfig(enabled = false))
         return Env(c, filesRoot, notebooksRoot, fake, sink)
     }
 

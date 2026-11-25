@@ -3,6 +3,7 @@ package com.milknote.app.ui.agent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -38,10 +39,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,14 +64,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
@@ -87,6 +82,8 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Layers
@@ -114,17 +111,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -132,18 +128,21 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.milknote.agent.AgentError
 import com.milknote.agent.AgentMessage
 import com.milknote.agent.AgentUiState
 import com.milknote.agent.Attachment
-import com.milknote.agent.ImageBudget
+import com.milknote.agent.DraftAttachment
 import com.milknote.agent.Intents
 import com.milknote.agent.ReasoningEffort
 import com.milknote.agent.UiMessage
@@ -151,14 +150,22 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.cards.cardPreviewText
 import com.milknote.app.ui.common.MilkActionChip
 import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonSize
+import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkComposerField
 import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkRadioRow
+import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkStatusBadge
 import com.milknote.app.ui.common.MilkStatusTone
+import com.milknote.app.ui.common.MilkSurfaceGroup
+import com.milknote.app.ui.common.MilkTextField
+import com.milknote.app.ui.common.MilkToast
 import com.milknote.app.ui.common.milkEdgeHairline
 import com.milknote.app.ui.common.milkGlassRim
 import com.milknote.app.ui.common.softClickable
@@ -203,6 +210,7 @@ fun AgentDrawerHost(
     onInsertCard: (com.milknote.notes.model.NoteCard) -> Unit = {},
     onSaveMessageCard: (String) -> Unit = {},
     allNotebooks: List<com.milknote.notes.model.NotebookMeta> = emptyList(),
+    onSnipToAttachment: () -> Unit = onSnip,
 ) {
     val agent = ServiceLocator.agentController
     val state by agent.state.collectAsState()
@@ -320,6 +328,7 @@ fun AgentDrawerHost(
                 widthPx = widthAnim.value,
                 onOpenSettings = onOpenSettings,
                 onSnip = onSnip,
+                onSnipToAttachment = onSnipToAttachment,
                 onExplainPage = onExplainPage,
                 onSummarizeChapter = onSummarizeChapter,
                 pageLabel = pageLabel,
@@ -408,6 +417,7 @@ private fun AgentDrawer(
     widthPx: Float,
     onOpenSettings: (page: String) -> Unit,
     onSnip: () -> Unit,
+    onSnipToAttachment: () -> Unit,
     onExplainPage: () -> Unit,
     onSummarizeChapter: () -> Unit,
     pageLabel: String = "第 1 页",
@@ -426,6 +436,12 @@ private fun AgentDrawer(
     val reduced = LocalMilkMotion.current
     var studioTab by remember { mutableStateOf("ai") }
     var pageIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    // 伴随笔记合并规则:写入内容接在现有页面 Markdown 之后(两处入口共用同一口径)
+    val writeToNotes: (String) -> Unit = { content ->
+        onMarkdownChange(
+            if (pageMarkdown.isBlank()) content else pageMarkdown.trimEnd() + "\n\n" + content,
+        )
+    }
     // 页码顺序由当前笔记本页序决定;拖动调宽与页码加载互不影响
     LaunchedEffect(state.boundPage?.notebookId) {
         val notebookId = state.boundPage?.notebookId
@@ -451,6 +467,11 @@ private fun AgentDrawer(
             onSelectTab = { studioTab = it },
             headerDragModifier = headerDragModifier,
             onOpenSettings = onOpenSettings,
+            pageLabel = pageLabel,
+            pageMarkdown = pageMarkdown,
+            pageIds = pageIds,
+            onWriteToNotes = writeToNotes,
+            onSaveCard = onSaveMessageCard,
         )
         Crossfade(
             targetState = studioTab,
@@ -468,6 +489,7 @@ private fun AgentDrawer(
                         onOpenSplit = onOpenSplitNotebook,
                         modifier = Modifier.fillMaxSize(),
                     )
+
                     "links" -> StudioLinksPane(
                         notebooks = relatedNotebooks,
                         cards = relatedCards,
@@ -475,11 +497,18 @@ private fun AgentDrawer(
                         onInsertCard = onInsertCard,
                         modifier = Modifier.fillMaxSize(),
                     )
+
                     else -> if (state.setupRequired) {
                         SetupGuide(onOpenSettings, Modifier.weight(1f))
                     } else {
                         if (state.messages.isNotEmpty()) {
-                            Messages(state, Modifier.weight(1f), onSaveCard = onSaveMessageCard, pageIds = pageIds)
+                            Messages(
+                                state = state,
+                                modifier = Modifier.weight(1f),
+                                onSaveCard = onSaveMessageCard,
+                                onWriteToNotes = writeToNotes,
+                                pageIds = pageIds,
+                            )
                         } else {
                             Spacer(Modifier.weight(1f))
                             EmptyPromptActions(
@@ -490,7 +519,7 @@ private fun AgentDrawer(
                             )
                             Spacer(Modifier.height(MilkSpace.sm))
                         }
-                        Composer(state, pageIds)
+                        Composer(state, pageIds, onSnipToAttachment)
                     }
                 }
             }
@@ -510,6 +539,7 @@ private fun StudioMarkdownPane(
 ) {
     val cs = MaterialTheme.colorScheme
     var editSource by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
     // [[线性代数讲义.pdf#p14]] → 按名称匹配笔记本(忽略 .pdf / #页码 后缀),命中则双开分屏
     val openWikilink: (String) -> Unit = { raw ->
         val key = raw.substringBefore('#').removeSuffix(".pdf").trim()
@@ -521,8 +551,8 @@ private fun StudioMarkdownPane(
             Modifier
                 .fillMaxWidth()
                 .milkEdgeHairline(cs.outline, bottom = true)
-                .heightIn(min = 44.dp)
-                .padding(start = MilkSpace.md + 2.dp, end = MilkSpace.md),
+                .heightIn(min = 46.dp)
+                .padding(start = MilkSpace.md + 2.dp, end = MilkSpace.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -531,37 +561,59 @@ private fun StudioMarkdownPane(
                 color = cs.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            StudioPill(
+            MilkActionChip(
+                label = "悬浮预览",
+                small = true,
+                enabled = markdown.isNotBlank(),
+                onClick = {
+                    preview = AgentPreviewTarget.Markdown(
+                        title = pageLabel.ifBlank { "当前页" },
+                        content = markdown,
+                        canSaveToNotes = false,
+                    )
+                },
+                leading = {
+                    Icon(
+                        Icons.Outlined.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (markdown.isNotBlank()) cs.primary else cs.onSurfaceVariant.copy(alpha = 0.4f),
+                    )
+                },
+            )
+            Spacer(Modifier.width(MilkSpace.xs))
+            MilkActionChip(
                 label = if (editSource) "预览" else "源码",
+                small = true,
+                selected = editSource,
                 onClick = { editSource = !editSource },
             )
             Spacer(Modifier.width(MilkSpace.xs))
-            StudioPill(
+            MilkActionChip(
                 label = "存卡片",
+                small = true,
                 enabled = markdown.isNotBlank(),
                 onClick = onSaveCard,
             )
         }
 
         if (editSource) {
-            BasicTextField(
-                value = markdown,
-                onValueChange = onMarkdownChange,
-                textStyle = MilkText.monoBody.copy(color = cs.onSurface),
-                cursorBrush = SolidColor(cs.primary),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (markdown.isBlank()) {
-                            Text("记录本页要点…", color = cs.onSurfaceVariant, style = MilkText.monoBody)
-                        }
-                        innerTextField()
-                    }
-                },
-                modifier = Modifier
+            Column(
+                Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(MilkSpace.lg - 2.dp),
-            )
+                    .verticalScroll(rememberScrollState())
+                    .padding(MilkSpace.md),
+            ) {
+                MilkTextField(
+                    value = markdown,
+                    onValueChange = onMarkdownChange,
+                    placeholder = "记录本页要点…",
+                    singleLine = false,
+                    minLines = 12,
+                    mono = true,
+                )
+            }
         } else {
             Column(
                 Modifier
@@ -569,68 +621,33 @@ private fun StudioMarkdownPane(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .clickable { editSource = true }
-                    .padding(MilkSpace.lg - 2.dp),
+                    .padding(MilkSpace.md),
             ) {
                 if (markdown.isBlank()) {
                     Text("记录本页要点…", color = cs.onSurfaceVariant, style = MilkText.body)
                 } else {
-                    MarkdownBlocks(markdown, onWikilink = openWikilink)
+                    MilkMarkdownView(
+                        text = markdown,
+                        onWikilink = openWikilink,
+                        onFormulaClick = { latex ->
+                            preview = AgentPreviewTarget.Markdown(
+                                title = "公式预览",
+                                content = latex,
+                                docType = MarkdownLite.GeneratedDocType.LATEX,
+                                canSaveToNotes = false,
+                                canSaveCard = true,
+                            )
+                        },
+                    )
                 }
             }
         }
     }
-}
-
-@Composable
-private fun StudioPill(
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val reduced = LocalMilkMotion.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled && !reduced) 0.96f else 1f,
-        animationSpec = tween(MilkMotion.press, easing = MilkMotion.EaseOut),
-        label = "studioPillScale",
-    )
-    val wash = if (pressed && enabled) {
-        cs.onSurface.copy(alpha = if (dark) 0.09f else 0.06f)
-    } else {
-        Color.Transparent
-    }
-    Box(
-        Modifier
-            .height(40.dp)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .height(28.dp)
-                .clip(PillShape)
-                .background(wash)
-                .border(1.dp, if (enabled) cs.outline else cs.outline.copy(alpha = 0.55f), PillShape)
-                .padding(horizontal = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label,
-                style = MilkText.label,
-                color = if (enabled) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.38f),
-                maxLines = 1,
-            )
-        }
+    preview?.let { target ->
+        AgentFloatingPreviewDialog(
+            target = target,
+            onDismiss = { preview = null },
+        )
     }
 }
 
@@ -643,9 +660,6 @@ private fun StudioLinksPane(
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val groupShape = RoundedCornerShape(MilkRadius.lg)
-    val groupBg = if (dark) SurfaceElevatedDark.copy(alpha = 0.65f) else cs.surface
     Column(
         modifier
             .fillMaxWidth()
@@ -653,24 +667,13 @@ private fun StudioLinksPane(
             .padding(MilkSpace.md),
         verticalArrangement = Arrangement.spacedBy(MilkSpace.xs),
     ) {
-        Text(
-            "双开对照",
-            style = MilkText.eyebrow,
-            color = cs.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = MilkSpace.sm, vertical = 2.dp),
-        )
+        MilkSectionLabel(text = "双开对照", modifier = Modifier.padding(horizontal = MilkSpace.xs))
         if (notebooks.isEmpty()) {
             MilkEmptyState(title = "暂无其他笔记本", icon = Icons.Outlined.VerticalSplit)
         } else {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(groupShape)
-                    .background(groupBg)
-                    .border(1.dp, cs.outline, groupShape),
-            ) {
+            MilkSurfaceGroup {
                 notebooks.take(5).forEachIndexed { index, nb ->
-                    if (index > 0) InnerHairline(startIndent = 40.dp, endIndent = 12.dp)
+                    if (index > 0) MilkHairlineDivider(startIndent = 40.dp, endIndent = 12.dp)
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -712,24 +715,13 @@ private fun StudioLinksPane(
         }
 
         Spacer(Modifier.height(MilkSpace.xs))
-        Text(
-            "知识卡片",
-            style = MilkText.eyebrow,
-            color = cs.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = MilkSpace.sm, vertical = 2.dp),
-        )
+        MilkSectionLabel(text = "知识卡片", modifier = Modifier.padding(horizontal = MilkSpace.xs))
         if (cards.isEmpty()) {
             MilkEmptyState(title = "暂无卡片", icon = Icons.Outlined.Style)
         } else {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(groupShape)
-                    .background(groupBg)
-                    .border(1.dp, cs.outline, groupShape),
-            ) {
+            MilkSurfaceGroup {
                 cards.take(8).forEachIndexed { index, card ->
-                    if (index > 0) InnerHairline(startIndent = 32.dp, endIndent = 12.dp)
+                    if (index > 0) MilkHairlineDivider(startIndent = 32.dp, endIndent = 12.dp)
                     val preview = cardPreviewText(card.title, card.body)
                     Row(
                         Modifier
@@ -779,17 +771,6 @@ private fun StudioLinksPane(
 }
 
 @Composable
-private fun InnerHairline(startIndent: Dp = 0.dp, endIndent: Dp = 0.dp) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = startIndent, end = endIndent)
-            .height(1.dp)
-            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
-    )
-}
-
-@Composable
 private fun NotebookSwatch(coverColor: String, paperColor: String) {
     val cover = parseHexColor(coverColor, MaterialTheme.colorScheme.primary)
     val paper = parseHexColor(paperColor, Color.White)
@@ -820,11 +801,21 @@ private fun DrawerHeader(
     onSelectTab: (String) -> Unit = {},
     headerDragModifier: Modifier = Modifier,
     onOpenSettings: (page: String) -> Unit = {},
+    pageLabel: String = "第 1 页",
+    pageMarkdown: String = "",
+    pageIds: List<String> = emptyList(),
+    onWriteToNotes: (String) -> Unit = {},
+    onSaveCard: (String) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
+    val scope = rememberCoroutineScope()
     var showModels by remember { mutableStateOf(false) }
+    var showSessions by remember { mutableStateOf(false) }
+    var showHub by remember { mutableStateOf(false) }
+    var editingDraft by remember { mutableStateOf<DraftAttachment?>(null) }
+    var editingBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val tabs = remember { listOf("ai" to "AI", "md" to "Markdown", "links" to "关联") }
     val streaming = state.phase == AgentMessage.Phase.STREAMING || state.phase == AgentMessage.Phase.SENDING
     Column(
@@ -874,10 +865,9 @@ private fun DrawerHeader(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 36.dp)
-                    .padding(start = 12.dp, end = 8.dp, bottom = 8.dp),
+                    .heightIn(min = 44.dp)
+                    .padding(start = 12.dp, end = 6.dp, bottom = MilkSpace.sm),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(
                     Modifier
@@ -916,30 +906,33 @@ private fun DrawerHeader(
                         tint = cs.onSurfaceVariant,
                     )
                 }
-                if (state.messages.isNotEmpty()) {
-                    Spacer(Modifier.width(MilkSpace.xxs))
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .softClickable(enabled = !streaming) { agent.clearSession() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(32.dp)
-                                .clip(CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Outlined.Add,
-                                contentDescription = "新对话",
-                                modifier = Modifier.size(17.dp),
-                                tint = if (streaming) cs.onSurfaceVariant.copy(alpha = 0.38f) else cs.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                Spacer(Modifier.weight(1f))
+                MilkIconButton(
+                    imageVector = Icons.Outlined.FolderOpen,
+                    contentDescription = "文件与文档预览",
+                    onClick = { showHub = true },
+                    touchSize = 36.dp,
+                    visualSize = 30.dp,
+                    iconSize = 17.dp,
+                )
+                MilkIconButton(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = "历史会话",
+                    onClick = { showSessions = !showSessions },
+                    selected = showSessions,
+                    touchSize = 36.dp,
+                    visualSize = 30.dp,
+                    iconSize = 17.dp,
+                )
+                MilkIconButton(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = "新对话",
+                    onClick = { agent.clearSession() },
+                    enabled = !streaming,
+                    touchSize = 36.dp,
+                    visualSize = 30.dp,
+                    iconSize = 18.dp,
+                )
             }
         }
     }
@@ -956,6 +949,74 @@ private fun DrawerHeader(
                 onOpenSettings = onOpenSettings,
             )
         }
+    }
+    SessionSwitcherMenu(
+        expanded = showSessions,
+        state = state,
+        pageIds = pageIds,
+        onDismiss = { showSessions = false },
+        onSwitchSession = { id ->
+            agent.switchSession(id)
+            showSessions = false
+        },
+        onNewSession = {
+            agent.clearSession()
+            showSessions = false
+        },
+        onDeleteSession = { id -> agent.deleteSession(id) },
+        onRegenerateSummary = { id -> agent.regenerateSummary(id) },
+        anchorHeight = 88.dp,
+    )
+    if (showHub) {
+        val items = remember(state, pageMarkdown, pageLabel, pageIds) {
+            collectSessionPreviewItems(state, pageMarkdown, pageLabel, pageIds)
+        }
+        AgentPreviewHubDialog(
+            items = items,
+            onDismiss = { showHub = false },
+            onSaveToNotes = { markdown -> onWriteToNotes(markdown.content) },
+            onSaveCard = { markdown -> onSaveCard(markdown.content) },
+            onEditDraftImage = { draftId ->
+                val draft = state.draftAttachments.firstOrNull { it.id == draftId }
+                if (draft != null) {
+                    scope.launch {
+                        val bitmap = withContext(Dispatchers.Default) {
+                            runCatching { BitmapFactory.decodeByteArray(draft.png, 0, draft.png.size) }.getOrNull()
+                        }
+                        if (bitmap != null) {
+                            editingDraft = draft
+                            editingBitmap = bitmap
+                        }
+                    }
+                }
+            },
+        )
+    }
+    val editing = editingBitmap
+    val draftBeingEdited = editingDraft
+    if (editing != null && draftBeingEdited != null) {
+        ImageEditorFloatingPanel(
+            source = editing,
+            title = "编辑图片",
+            confirmLabel = "保存修改",
+            onDismiss = {
+                editingBitmap = null
+                editingDraft = null
+                if (!editing.isRecycled) editing.recycle()
+            },
+            onConfirm = { encoded ->
+                agent.updateDraftAttachment(
+                    id = draftBeingEdited.id,
+                    png = encoded.bytes,
+                    jpeg = encoded.jpeg,
+                    widthPx = encoded.widthPx,
+                    heightPx = encoded.heightPx,
+                )
+                editingBitmap = null
+                editingDraft = null
+                if (!editing.isRecycled) editing.recycle()
+            },
+        )
     }
 }
 
@@ -1005,7 +1066,7 @@ private fun SetupGuide(onOpenSettings: (page: String) -> Unit, modifier: Modifie
     }
 }
 
-/** 空会话的纸面动作:三行扁平 hairline 卡,位置与文案即说明,不写操作提示 */
+/** 空会话的纸面动作:统一分组面 + hairline 分隔,位置与文案即说明,不写操作提示 */
 @Composable
 private fun EmptyPromptActions(
     pageLabel: String,
@@ -1014,30 +1075,20 @@ private fun EmptyPromptActions(
     onSummarizeChapter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val shape = RoundedCornerShape(MilkRadius.lg)
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .clip(shape)
-            .background(if (dark) SurfaceElevatedDark.copy(alpha = 0.7f) else cs.surface)
-            .border(1.dp, cs.outline, shape),
-    ) {
+    MilkSurfaceGroup(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
         EmptyActionRow(
             icon = Icons.Outlined.CropFree,
             label = "框选题目",
             onClick = onSnip,
         )
-        ActionHairline()
+        MilkHairlineDivider(startIndent = 38.dp, endIndent = 10.dp)
         EmptyActionRow(
             icon = Icons.Outlined.Description,
             label = "讲解本页",
             trailing = pageLabel,
             onClick = onExplainPage,
         )
-        ActionHairline()
+        MilkHairlineDivider(startIndent = 38.dp, endIndent = 10.dp)
         EmptyActionRow(
             icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
             label = "归纳本章",
@@ -1078,17 +1129,6 @@ private fun EmptyActionRow(
     }
 }
 
-@Composable
-private fun ActionHairline() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 38.dp, end = 10.dp)
-            .height(1.dp)
-            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
-    )
-}
-
 // ---------------- 消息区(§8.4 流式渲染) ----------------
 
 @Composable
@@ -1096,14 +1136,15 @@ private fun Messages(
     state: AgentUiState,
     modifier: Modifier = Modifier,
     onSaveCard: (String) -> Unit = {},
+    onWriteToNotes: (String) -> Unit = {},
     pageIds: List<String> = emptyList(),
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
     val reduced = LocalMilkMotion.current
     val notebookId = state.boundPage?.notebookId
+    var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
+    var toast by remember { mutableStateOf<String?>(null) }
 
     // 贴底跟随;用户上滑即解除(A-20)
     val atBottom by remember {
@@ -1133,8 +1174,21 @@ private fun Messages(
         ) {
             items(state.messages, key = { it.id }) { msg ->
                 when (msg.role) {
-                    AgentMessage.Role.USER -> UserMessage(msg, notebookId, pageIds)
-                    AgentMessage.Role.ASSISTANT -> AssistantMessage(state, msg, onSaveCard)
+                    AgentMessage.Role.USER -> UserMessage(
+                        msg = msg,
+                        notebookId = notebookId,
+                        pageIds = pageIds,
+                        onPreview = { preview = it },
+                    )
+
+                    AgentMessage.Role.ASSISTANT -> AssistantMessage(
+                        state = state,
+                        msg = msg,
+                        onSaveCard = onSaveCard,
+                        onWriteToNotes = onWriteToNotes,
+                        onPreview = { preview = it },
+                        onToast = { toast = it },
+                    )
                 }
             }
             if (state.error != null) {
@@ -1152,50 +1206,42 @@ private fun Messages(
             exit = fadeOut(tween(if (reduced) MilkMotion.reduced else 110, easing = MilkMotion.EaseOut)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 10.dp),
+                .padding(bottom = 6.dp),
         ) {
-            val scrollInteraction = remember { MutableInteractionSource() }
-            val scrollPressed by scrollInteraction.collectIsPressedAsState()
-            val scrollScale by animateFloatAsState(
-                targetValue = if (scrollPressed && !reduced) 0.92f else 1f,
-                animationSpec = tween(MilkMotion.press, easing = MilkMotion.EaseOut),
-                label = "agentScrollScale",
+            MilkIconButton(
+                imageVector = Icons.Outlined.KeyboardArrowDown,
+                contentDescription = "回到底部",
+                onClick = {
+                    scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
+                },
+                container = true,
+                shape = CircleShape,
+                touchSize = 48.dp,
+                visualSize = 34.dp,
+                iconSize = 18.dp,
+                tint = MaterialTheme.colorScheme.onSurface,
             )
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clickable(
-                        interactionSource = scrollInteraction,
-                        indication = null,
-                        role = Role.Button,
-                    ) {
-                        scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .graphicsLayer { scaleX = scrollScale; scaleY = scrollScale }
-                        .size(34.dp)
-                        .milkGlassRim(CircleShape, dark, 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (scrollPressed) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(cs.onSurface.copy(alpha = if (dark) 0.09f else 0.06f)),
-                        )
-                    }
-                    Icon(
-                        Icons.Outlined.KeyboardArrowDown,
-                        contentDescription = "回到底部",
-                        modifier = Modifier.size(18.dp),
-                        tint = cs.onSurface,
-                    )
-                }
-            }
         }
+        MilkToast(
+            visible = toast != null,
+            text = toast.orEmpty(),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+        )
+    }
+    LaunchedEffect(toast) {
+        if (toast != null) {
+            delay(1600)
+            toast = null
+        }
+    }
+    preview?.let { target ->
+        AgentFloatingPreviewDialog(
+            target = target,
+            onDismiss = { preview = null },
+            onSaveToNotes = { markdown -> onWriteToNotes(markdown.content) },
+            onSaveCard = { markdown -> onSaveCard(markdown.content) },
+            onToast = { toast = it },
+        )
     }
 }
 
@@ -1272,7 +1318,12 @@ private fun ReasoningBlock(msg: UiMessage) {
 }
 
 @Composable
-private fun UserMessage(msg: UiMessage, notebookId: String?, pageIds: List<String>) {
+private fun UserMessage(
+    msg: UiMessage,
+    notebookId: String?,
+    pageIds: List<String>,
+    onPreview: (AgentPreviewTarget) -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
     val bubble = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp)
@@ -1282,7 +1333,14 @@ private fun UserMessage(msg: UiMessage, notebookId: String?, pageIds: List<Strin
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                msg.attachments.forEach { att -> MessageAttachmentChip(notebookId, att, pageIds) }
+                msg.attachments.forEach { att ->
+                    MessageAttachmentChip(
+                        notebookId = notebookId,
+                        att = att,
+                        pageIds = pageIds,
+                        onClick = { onPreview(att.toPreviewTarget(notebookId, pageIds)) },
+                    )
+                }
             }
             Spacer(Modifier.height(6.dp))
         }
@@ -1299,14 +1357,80 @@ private fun UserMessage(msg: UiMessage, notebookId: String?, pageIds: List<Strin
                     )
                     .padding(horizontal = 12.dp, vertical = 9.dp),
             ) {
-                Text(msg.text, style = MilkText.body, color = cs.onSurface)
+                val annotated = remember(msg.text, cs.primary) {
+                    buildMentionAnnotated(msg.text, cs.primary)
+                }
+                val hasMention = remember(annotated) {
+                    annotated.getStringAnnotations("mention", 0, annotated.length).isNotEmpty()
+                }
+                if (hasMention) {
+                    MentionText(
+                        text = annotated,
+                        style = MilkText.body.copy(color = cs.onSurface),
+                        onMention = { name ->
+                            val attachment = msg.attachments.firstOrNull {
+                                it.mentionName == name || it.logicalName == name
+                            }
+                            if (attachment != null) {
+                                onPreview(attachment.toPreviewTarget(notebookId, pageIds))
+                            }
+                        },
+                    )
+                } else {
+                    Text(msg.text, style = MilkText.body, color = cs.onSurface)
+                }
             }
         }
     }
 }
 
+private val mentionPattern = Regex("@[^\\s@]+")
+
+/**
+ * 带可点注解的正文:命中 `mention` 注解的偏移交给调用方(比已废弃的 ClickableText 更稳,
+ * 且保留 Text 的全部排版能力)。
+ */
 @Composable
-private fun MessageAttachmentChip(notebookId: String?, att: Attachment, pageIds: List<String>) {
+private fun MentionText(
+    text: AnnotatedString,
+    style: TextStyle,
+    onMention: (String) -> Unit,
+) {
+    var layout by remember(text) { mutableStateOf<TextLayoutResult?>(null) }
+    Text(
+        text = text,
+        style = style,
+        onTextLayout = { layout = it },
+        modifier = Modifier.pointerInput(text) {
+            detectTapGestures { position ->
+                val result = layout ?: return@detectTapGestures
+                val offset = result.getOffsetForPosition(position)
+                text.getStringAnnotations("mention", offset, offset).firstOrNull()?.let { onMention(it.item) }
+            }
+        },
+    )
+}
+
+/** 用户消息里的 @提及:保留原文,仅给 token 上色并打上可点击注解 */
+private fun buildMentionAnnotated(text: String, color: Color): AnnotatedString = buildAnnotatedString {
+    append(text)
+    mentionPattern.findAll(text).forEach { match ->
+        addStyle(
+            SpanStyle(color = color, fontWeight = FontWeight.Medium),
+            match.range.first,
+            match.range.last + 1,
+        )
+        addStringAnnotation("mention", match.value.removePrefix("@"), match.range.first, match.range.last + 1)
+    }
+}
+
+@Composable
+private fun MessageAttachmentChip(
+    notebookId: String?,
+    att: Attachment,
+    pageIds: List<String>,
+    onClick: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
     val bitmap = rememberAttachmentBitmap(notebookId, att)
@@ -1316,6 +1440,7 @@ private fun MessageAttachmentChip(notebookId: String?, att: Attachment, pageIds:
             .clip(RoundedCornerShape(MilkRadius.md))
             .background(cs.surfaceVariant.copy(alpha = if (dark) 0.85f else 0.7f))
             .border(1.dp, cs.outline, RoundedCornerShape(MilkRadius.md))
+            .softClickable(onClick = onClick)
             .padding(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1329,7 +1454,7 @@ private fun MessageAttachmentChip(notebookId: String?, att: Attachment, pageIds:
                 maxLines = 1,
             )
             Text(
-                "${att.widthPx}×${att.heightPx}",
+                if (att.pageRangeLabel.isNotBlank()) att.pageRangeLabel else "${att.widthPx}×${att.heightPx}",
                 style = MilkText.monoMicro,
                 color = cs.onSurfaceVariant,
             )
@@ -1383,9 +1508,17 @@ private fun rememberAttachmentBitmap(notebookId: String?, att: Attachment): Imag
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AssistantMessage(state: AgentUiState, msg: UiMessage, onSaveCard: (String) -> Unit) {
+private fun AssistantMessage(
+    state: AgentUiState,
+    msg: UiMessage,
+    onSaveCard: (String) -> Unit,
+    onWriteToNotes: (String) -> Unit,
+    onPreview: (AgentPreviewTarget) -> Unit,
+    onToast: (String) -> Unit,
+) {
     val agent = ServiceLocator.agentController
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
     var copied by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(copied) {
@@ -1403,29 +1536,65 @@ private fun AssistantMessage(state: AgentUiState, msg: UiMessage, onSaveCard: (S
         when {
             msg.streaming && msg.text.isBlank() && msg.reasoning.isBlank() -> ThinkingDots()
             else -> {
-                if (msg.text.isNotBlank()) MarkdownBlocks(msg.text)
+                if (msg.text.isNotBlank()) {
+                    MilkMarkdownView(
+                        text = msg.text,
+                        streaming = msg.streaming,
+                        onFormulaClick = { latex ->
+                            onPreview(
+                                AgentPreviewTarget.Markdown(
+                                    title = "公式预览",
+                                    content = latex,
+                                    docType = MarkdownLite.GeneratedDocType.LATEX,
+                                    canSaveToNotes = false,
+                                    canSaveCard = true,
+                                ),
+                            )
+                        },
+                        onPreviewDocument = { document -> onPreview(document.toPreviewTarget()) },
+                        onSaveDocumentToNotes = { document -> onWriteToNotes(document.content) },
+                        onSaveDocumentCard = { document -> onSaveCard(document.content) },
+                        onExportDocument = { document ->
+                            scope.launch {
+                                val ok = exportGeneratedDocument(context, document)
+                                if (!ok) onToast("导出失败")
+                            }
+                        },
+                    )
+                }
                 if (msg.streaming && msg.text.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
                     PulsingDot(color = cs.primary, active = true)
                 }
             }
         }
-        // 操作栏(DESIGN-V2 msg-bar):贴回纸面 / 存卡片 / 复制
+        // 操作栏(DESIGN-V2 msg-bar):贴回纸面 / 预览 / 存卡片 / 复制
         when (msg.phase) {
             AgentMessage.Phase.STREAMING, AgentMessage.Phase.SENDING -> {}
+
             AgentMessage.Phase.FAILED -> {
                 Spacer(Modifier.height(MilkSpace.xs))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AgentActionPill(
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MilkStatusBadge("失败", MilkStatusTone.DANGER)
+                    MilkActionChip(
                         label = "重试",
-                        icon = Icons.Outlined.Refresh,
-                        fg = cs.primary,
-                        background = cs.primary.copy(alpha = 0.10f),
-                        borderColor = cs.primary.copy(alpha = 0.30f),
+                        small = true,
                         onClick = { agent.retry() },
+                        leading = {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = cs.primary,
+                            )
+                        },
                     )
                 }
             }
+
             AgentMessage.Phase.INTERRUPTED -> {
                 Spacer(Modifier.height(MilkSpace.xs))
                 Row(
@@ -1433,16 +1602,22 @@ private fun AssistantMessage(state: AgentUiState, msg: UiMessage, onSaveCard: (S
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MilkStatusBadge("已中断", MilkStatusTone.NEUTRAL)
-                    AgentActionPill(
+                    MilkActionChip(
                         label = "重试",
-                        icon = Icons.Outlined.Refresh,
-                        fg = cs.primary,
-                        background = cs.primary.copy(alpha = 0.10f),
-                        borderColor = cs.primary.copy(alpha = 0.30f),
+                        small = true,
                         onClick = { agent.retry() },
+                        leading = {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = cs.primary,
+                            )
+                        },
                     )
                 }
             }
+
             AgentMessage.Phase.DONE -> {
                 Spacer(Modifier.height(MilkSpace.xs))
                 FlowRow(
@@ -1450,49 +1625,87 @@ private fun AssistantMessage(state: AgentUiState, msg: UiMessage, onSaveCard: (S
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     if (msg.insertedAnnotationId == null) {
-                        AgentActionPill(
+                        MilkActionChip(
                             label = "贴回纸面",
-                            icon = Icons.Outlined.PushPin,
-                            fg = cs.primary,
-                            background = cs.primary.copy(alpha = 0.10f),
-                            borderColor = cs.primary.copy(alpha = 0.30f),
+                            small = true,
                             onClick = { agent.insertAnnotation(msg.id) },
+                            leading = {
+                                Icon(
+                                    Icons.Outlined.PushPin,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = cs.primary,
+                                )
+                            },
                         )
                     } else {
                         // 已贴回是状态不是操作:静态胶囊,不注册点击
-                        AgentActionPill(
-                            label = "已贴回",
-                            icon = Icons.Outlined.Check,
-                            fg = LocalMilkSuccess.current,
-                            background = LocalMilkSuccess.current.copy(alpha = 0.10f),
-                            borderColor = LocalMilkSuccess.current.copy(alpha = 0.24f),
-                        )
+                        MilkStatusBadge("已贴回", MilkStatusTone.SUCCESS)
                     }
-                    AgentActionPill(
-                        label = "存卡片",
-                        icon = Icons.Outlined.BookmarkBorder,
-                        fg = cs.onSurfaceVariant,
-                        background = Color.Transparent,
-                        borderColor = cs.outline,
-                        onClick = { onSaveCard(msg.text) },
-                    )
-                    AgentActionPill(
-                        label = if (copied) "已复制" else "复制",
-                        icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
-                        fg = if (copied) LocalMilkSuccess.current else cs.onSurfaceVariant,
-                        background = if (copied) LocalMilkSuccess.current.copy(alpha = 0.10f) else Color.Transparent,
-                        borderColor = if (copied) LocalMilkSuccess.current.copy(alpha = 0.24f) else cs.outline,
+                    MilkActionChip(
+                        label = "预览",
+                        small = true,
+                        enabled = msg.text.isNotBlank(),
                         onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("agent", msg.text))
+                            onPreview(
+                                AgentPreviewTarget.Markdown(
+                                    title = "AI 回复",
+                                    content = msg.text,
+                                    canSaveToNotes = true,
+                                ),
+                            )
+                        },
+                        leading = {
+                            Icon(
+                                Icons.Outlined.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (msg.text.isNotBlank()) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        },
+                    )
+                    MilkActionChip(
+                        label = "存卡片",
+                        small = true,
+                        enabled = msg.text.isNotBlank(),
+                        onClick = { onSaveCard(msg.text) },
+                        leading = {
+                            Icon(
+                                Icons.Outlined.BookmarkBorder,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = cs.onSurfaceVariant,
+                            )
+                        },
+                    )
+                    MilkActionChip(
+                        label = if (copied) "已复制" else "复制",
+                        small = true,
+                        selected = copied,
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("agent", msg.text))
                             copied = true
+                        },
+                        leading = {
+                            Icon(
+                                if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (copied) LocalMilkSuccess.current else cs.onSurfaceVariant,
+                            )
                         },
                     )
                 }
             }
         }
-        // 用量元信息:模型 · prompt→completion tok
-        val meta = formatAgentUsageMeta(msg.modelId, msg.promptTokens, msg.completionTokens)
+        // 用量元信息:模型 · prompt→completion tok · 输出速度
+        val meta = formatAgentUsageMeta(
+            modelId = msg.modelId,
+            promptTokens = msg.promptTokens,
+            completionTokens = msg.completionTokens,
+            generationMs = msg.generationMs,
+        )
         if (meta.isNotBlank()) {
             Spacer(Modifier.height(MilkSpace.sm))
             Text(
@@ -1500,66 +1713,6 @@ private fun AssistantMessage(state: AgentUiState, msg: UiMessage, onSaveCard: (S
                 style = MilkText.monoMicro,
                 color = cs.onSurfaceVariant.copy(alpha = 0.72f),
             )
-        }
-    }
-}
-
-/** 紧凑药丸:28dp 视觉胶囊 + 36–40dp 命中高,按下 0.96 微缩;无点击时不注册语义 */
-@Composable
-private fun AgentActionPill(
-    label: String,
-    icon: ImageVector,
-    fg: Color,
-    background: Color,
-    borderColor: Color,
-    onClick: (() -> Unit)? = null,
-) {
-    val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val reduced = LocalMilkMotion.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && onClick != null && !reduced) 0.96f else 1f,
-        animationSpec = tween(MilkMotion.press, easing = MilkMotion.EaseOut),
-        label = "agentPillScale",
-    )
-    val wash = if (pressed && onClick != null) {
-        cs.onSurface.copy(alpha = if (dark) 0.09f else 0.06f)
-    } else {
-        Color.Transparent
-    }
-    Box(
-        Modifier
-            .heightIn(min = 38.dp)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(
-                        interactionSource = interaction,
-                        indication = null,
-                        role = Role.Button,
-                        onClick = onClick,
-                    )
-                } else {
-                    Modifier
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(
-            Modifier
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .height(28.dp)
-                .clip(PillShape)
-                .background(background)
-                .background(wash)
-                .border(0.75.dp, borderColor, PillShape)
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(13.dp), tint = fg)
-            Spacer(Modifier.width(5.dp))
-            Text(label, style = MilkText.label, color = fg, maxLines = 1)
         }
     }
 }
@@ -1622,7 +1775,7 @@ private fun ThinkingDots(modifier: Modifier = Modifier) {
             val alpha = if (reduced) {
                 0.4f
             } else {
-                (0.3f + 0.7f * ((cos(2.0 * PI * (phase - index * 0.16f)) + 1.0) / 2.0)).toFloat()
+                (0.3 + 0.7 * ((cos(2.0 * PI * (phase - index * 0.16f)) + 1.0) / 2.0)).toFloat()
             }
             Box(
                 Modifier
@@ -1686,347 +1839,347 @@ private fun errorTitle(e: AgentError): String = when (e) {
     else -> "请求失败"
 }
 
-// ---------------- 输入区(追问 / slash) ----------------
+// ---------------- 输入区(追问 / 附件 / slash / @ 提及) ----------------
 
 @Composable
 private fun Composer(
     state: AgentUiState,
     pageIds: List<String>,
+    onSnipToAttachment: () -> Unit,
 ) {
     val agent = ServiceLocator.agentController
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val reduced = LocalMilkMotion.current
-    var text by remember { mutableStateOf("") }
-    var showAttach by remember { mutableStateOf(false) }
-    var composerFocused by remember { mutableStateOf(false) }
-    val streaming = state.phase == AgentMessage.Phase.STREAMING || state.phase == AgentMessage.Phase.SENDING
+    val text = state.draftText
+    var attachOpen by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
+    var editingDraft by remember { mutableStateOf<DraftAttachment?>(null) }
+    var editingBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    val mentionTransform = remember(cs.primary, cs.onSurface) {
+        MentionHighlightTransformation(cs.primary, cs.onSurface)
+    }
+    val streaming = state.isAgentStreaming()
     // 无文字且无附件 → 发送禁用(hairline 灰底弱图标、disabled 语义),不产生空请求
     val canSend = text.isNotBlank() || state.draftAttachments.isNotEmpty()
 
-    // slash 面板(§6.4:前缀匹配六意图 + /清空)
-    val slashSuggestions = if (text.startsWith("/")) {
-        listOfNotNull(
-            *Intents.all.filter { "/${it.label}".startsWith(text) || text == "/" }
-                .map { "/${it.label}" to it.id }.toTypedArray(),
-            if ("/清空".startsWith(text)) "/清空" to null else null,
-        )
+    // slash 面板(§6.4:前缀匹配意图 + 生成文档 + 清空)
+    val slashSuggestions: List<Pair<String, () -> Unit>> = if (text.startsWith("/")) {
+        buildList {
+            Intents.all
+                .filter { "/${it.label}".startsWith(text) || text == "/" }
+                .forEach { spec ->
+                    add(
+                        "/${spec.label}" to {
+                            agent.setDraftText("")
+                            agent.sendWithIntent(spec.id)
+                        },
+                    )
+                }
+            if ("/生成文档".startsWith(text) || text == "/") {
+                add(
+                    "/生成文档" to {
+                        agent.setDraftText("请根据以上内容生成一份结构化的 Markdown 文档：")
+                    },
+                )
+            }
+            if ("/清空".startsWith(text) || text == "/") {
+                add(
+                    "/清空" to {
+                        agent.setDraftText("")
+                        agent.clearSession()
+                    },
+                )
+            }
+        }
     } else {
         emptyList()
     }
     var dismissedSlash by remember { mutableStateOf<String?>(null) }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .milkEdgeHairline(cs.outline.copy(alpha = 0.7f), top = true),
-    ) {
-        // 内联 slash 建议:直接贴在输入框上方,不再弹居中面板
-        if (slashSuggestions.isNotEmpty() && dismissedSlash != text) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .milkGlassRim(RoundedCornerShape(MilkRadius.lg), dark, 10.dp)
-                    .heightIn(max = 260.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(4.dp),
-            ) {
-                slashSuggestions.take(7).forEach { (label, intent) ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(MilkRadius.sm))
-                            .softClickable {
-                                text = ""
-                                dismissedSlash = null
-                                if (intent != null) agent.sendWithIntent(intent) else agent.clearSession()
-                            }
-                            .heightIn(min = 36.dp)
-                            .padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(label, style = MilkText.monoBody, color = cs.onSurface)
-                    }
-                }
-            }
-        }
-        // 草稿附件:真实缩略图 + ✕ 移除,随下一条消息发出
-        if (state.draftAttachments.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = MilkSpace.sm),
-                horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
-            ) {
-                state.draftAttachments.forEach { draft ->
-                    DraftAttachmentCard(
-                        draft = draft,
-                        pageIds = pageIds,
-                        onRemove = { agent.removeDraftAttachment(draft.id) },
-                    )
-                }
-            }
-            Text(
-                "${state.draftAttachments.size} 项 · ~${formatAgentTokenCount(agent.estTokensNow())} tok",
-                style = MilkText.monoMicro,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = MilkSpace.xs),
-            )
-        }
+    // @ 提及补全:草稿附件优先,其次本会话已发送附件
+    val mentionQuery = extractMentionQuery(text)
+    val mentionCandidates: List<Pair<String, AgentPreviewTarget?>> = if (mentionQuery != null) {
+        val draftNames = state.draftAttachments
+            .filter { it.mentionName.isNotBlank() && it.mentionName.contains(mentionQuery, ignoreCase = true) }
+            .map { it.mentionName to it.toPreviewTarget(pageIds) as AgentPreviewTarget? }
+        val sentNames = state.messages
+            .flatMap { it.attachments }
+            .filter { it.mentionName.isNotBlank() && it.mentionName.contains(mentionQuery, ignoreCase = true) }
+            .map { it.mentionName to (it.toPreviewTarget(state.boundPage?.notebookId, pageIds) as AgentPreviewTarget?) }
+        (draftNames + sentNames).distinctBy { it.first }.take(6)
+    } else {
+        emptyList()
+    }
 
-        val capsuleShape = RoundedCornerShape(MilkRadius.xl)
-        val capsuleBg by animateColorAsState(
-            targetValue = if (composerFocused) cs.surface
-            else cs.surfaceVariant.copy(alpha = if (dark) 0.85f else 0.7f),
-            animationSpec = if (reduced) snap() else MilkMotion.colorSpec(),
-            label = "composerBg",
-        )
-        val borderColor by animateColorAsState(
-            targetValue = if (composerFocused) cs.primary else cs.outline.copy(alpha = 0.6f),
-            animationSpec = if (reduced) snap() else MilkMotion.colorSpec(),
-            label = "composerBorder",
-        )
-        val borderWidth by animateDpAsState(
-            targetValue = if (composerFocused) 1.5.dp else 1.dp,
-            animationSpec = if (reduced) snap() else MilkMotion.colorSpec(),
-            label = "composerBorderWidth",
-        )
-        Row(
+    Box(Modifier.fillMaxWidth()) {
+        Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = MilkSpace.sm)
-                .clip(capsuleShape)
-                .background(capsuleBg)
-                .border(borderWidth, borderColor, capsuleShape)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Bottom,
+                .milkEdgeHairline(cs.outline.copy(alpha = 0.7f), top = true),
         ) {
-            // 回形针:附件面板
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .softClickable { showAttach = !showAttach },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.AttachFile,
-                    contentDescription = if (showAttach) "收起附件面板" else "附件",
-                    modifier = Modifier.size(17.dp),
-                    tint = if (showAttach || state.draftAttachments.isNotEmpty()) cs.primary else cs.onSurfaceVariant,
-                )
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .padding(horizontal = MilkSpace.xs, vertical = 7.dp),
-            ) {
-                if (text.isEmpty()) {
-                    Text("提问…", style = MilkText.body, color = cs.onSurfaceVariant.copy(alpha = 0.6f))
-                }
-                BasicTextField(
-                    value = text,
-                    onValueChange = {
-                        text = it
-                        dismissedSlash = null
-                    },
-                    textStyle = MilkText.body.copy(color = cs.onSurface),
-                    cursorBrush = SolidColor(cs.primary),
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { composerFocused = it.isFocused },
-                )
-            }
-            Spacer(Modifier.width(MilkSpace.xxs))
-            if (streaming) {
-                Box(
+            // 内联 slash 建议:直接贴在输入框上方,不再弹居中面板
+            if (slashSuggestions.isNotEmpty() && dismissedSlash != text) {
+                Column(
                     Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(cs.error.copy(alpha = 0.14f))
-                        .softClickable { agent.stop() },
-                    contentAlignment = Alignment.Center,
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .milkGlassRim(RoundedCornerShape(MilkRadius.lg), LocalMilkDark.current, 10.dp)
+                        .heightIn(max = 260.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(4.dp),
                 ) {
-                    Icon(
-                        Icons.Outlined.Stop,
-                        contentDescription = "停止",
-                        modifier = Modifier.size(15.dp),
-                        tint = cs.error,
-                    )
-                }
-            } else {
-                val sendBg by animateColorAsState(
-                    targetValue = when {
-                        canSend -> cs.primary
-                        dark -> SurfaceElevatedDark
-                        else -> cs.outline.copy(alpha = 0.75f)
-                    },
-                    animationSpec = if (reduced) snap() else MilkMotion.colorSpec(),
-                    label = "sendBg",
-                )
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(sendBg)
-                        .softClickable(enabled = canSend) {
-                            agent.setDraftText(text)
-                            agent.send()
-                            text = ""
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.Send,
-                        contentDescription = "发送",
-                        modifier = Modifier.size(14.dp),
-                        tint = when {
-                            canSend -> cs.onPrimary
-                            dark -> cs.onSurfaceVariant.copy(alpha = 0.55f)
-                            else -> cs.surface
-                        },
-                    )
-                }
-            }
-        }
-    }
-    if (showAttach) {
-        MilkCenterPanel(
-            title = "附加页面",
-            subtitle = null,
-            onDismiss = { showAttach = false },
-            maxWidth = 380.dp,
-        ) {
-            AttachmentPanel(
-                boundPage = state.boundPage,
-                attachedNames = state.draftAttachments.map { it.logicalName }.toSet(),
-                onPickPage = { ref -> scope.launch { agent.addPageAttachment(ref) } },
-                onPickCurrent = {
-                    state.boundPage?.let { ref -> scope.launch { agent.addPageAttachment(ref) } }
-                },
-                onPickChapter = {
-                    scope.launch {
-                        val n = agent.addChapterAttachments()
-                        if (n == 0) agent.setDraftText(state.draftText)
-                    }
-                },
-            )
-        }
-    }
-}
-
-/** 📎 附件面板:当前页 / 整章 / 本笔记本任意页(可多点累积;中央面板内容) */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AttachmentPanel(
-    boundPage: com.milknote.agent.PageRef?,
-    attachedNames: Set<String>,
-    onPickPage: (com.milknote.agent.PageRef) -> Unit,
-    onPickCurrent: () -> Unit,
-    onPickChapter: () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    var pages by remember { mutableStateOf<List<com.milknote.agent.PageRef>>(emptyList()) }
-    LaunchedEffect(boundPage?.notebookId) {
-        boundPage?.let {
-            pages = runCatching { ServiceLocator.agentSnipSource.pagesOf(it.notebookId) }.getOrDefault(emptyList())
-        }
-    }
-    val pageIds = pages.map { it.pageId }
-    val currentLabel = boundPage?.let { formatPageDisplayLabel(it.pageId, pageIds) } ?: "—"
-    val restPages = pages.filter { it.pageId != boundPage?.pageId }
-    val currentAttached = boundPage != null &&
-        ImageBudget.logicalNamePage(boundPage.pageId) in attachedNames
-    val groupShape = RoundedCornerShape(MilkRadius.lg)
-    Column(Modifier.fillMaxWidth().padding(top = MilkSpace.md)) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
-            verticalArrangement = Arrangement.spacedBy(MilkSpace.xxs),
-        ) {
-            MilkActionChip(
-                label = "当前页 · $currentLabel",
-                selected = currentAttached,
-                leading = {
-                    Icon(
-                        if (currentAttached) Icons.Outlined.Check else Icons.Outlined.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                    )
-                },
-                small = true,
-                onClick = onPickCurrent,
-            )
-            MilkActionChip(
-                label = "整章 · ${restPages.size} 页",
-                enabled = restPages.isNotEmpty(),
-                leading = { Icon(Icons.Outlined.Layers, null, modifier = Modifier.size(15.dp)) },
-                small = true,
-                onClick = onPickChapter,
-            )
-        }
-        if (restPages.isNotEmpty()) {
-            Spacer(Modifier.height(MilkSpace.lg - 2.dp))
-            Text("全部页面", style = MilkText.eyebrow, color = cs.onSurfaceVariant)
-            Spacer(Modifier.height(MilkSpace.xs))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .clip(groupShape)
-                    .border(1.dp, cs.outline, groupShape)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                restPages.forEachIndexed { index, page ->
-                    if (index > 0) InnerHairline(startIndent = 12.dp, endIndent = 12.dp)
-                    val attached = ImageBudget.logicalNamePage(page.pageId) in attachedNames
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .softClickable { onPickPage(page) }
-                            .heightIn(min = 48.dp)
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            formatPageDisplayLabel(page.pageId, pageIds),
-                            style = MilkText.rowTitle,
-                            color = cs.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (attached) {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = LocalMilkSuccess.current,
-                            )
-                        } else {
-                            Icon(
-                                Icons.Outlined.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = cs.primary,
-                            )
+                    slashSuggestions.take(8).forEach { (label, action) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(MilkRadius.sm))
+                                .softClickable {
+                                    dismissedSlash = text
+                                    action()
+                                }
+                                .heightIn(min = 40.dp)
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(label, style = MilkText.monoBody, color = cs.onSurface)
                         }
                     }
                 }
             }
+
+            // @ 提及补全:同样贴在输入框上方,列出可引用的附件
+            if (mentionQuery != null && mentionCandidates.isNotEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .milkGlassRim(RoundedCornerShape(MilkRadius.lg), LocalMilkDark.current, 10.dp)
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(4.dp),
+                ) {
+                    mentionCandidates.forEach { (name, target) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(MilkRadius.sm))
+                                .softClickable {
+                                    agent.setDraftText(replaceTrailingMention(text, name))
+                                }
+                                .heightIn(min = 40.dp)
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (target is AgentPreviewTarget.Image) Icons.Outlined.Image else Icons.Outlined.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = cs.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(MilkSpace.sm))
+                            Text(
+                                "@$name",
+                                style = MilkText.monoBody,
+                                color = cs.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (target != null) {
+                                Text(
+                                    when (target) {
+                                        is AgentPreviewTarget.Image -> "图片"
+                                        is AgentPreviewTarget.Document -> formatAttachmentBadge(target.source)
+                                        is AgentPreviewTarget.Markdown -> "MD"
+                                    },
+                                    style = MilkText.monoMicro,
+                                    color = cs.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 草稿附件:真实缩略图 + ✕ 移除,随下一条消息发出;点按打开悬浮预览
+            if (state.draftAttachments.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = MilkSpace.sm),
+                    horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm),
+                ) {
+                    state.draftAttachments.forEach { draft ->
+                        DraftAttachmentCard(
+                            draft = draft,
+                            pageIds = pageIds,
+                            onClick = { preview = draft.toPreviewTarget(pageIds) },
+                            onRemove = { agent.removeDraftAttachment(draft.id) },
+                        )
+                    }
+                }
+                Text(
+                    "${state.draftAttachments.size} 项 · ~${formatAgentTokenCount(agent.estTokensNow())} tok",
+                    style = MilkText.monoMicro,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = MilkSpace.xs),
+                )
+            }
+
+            MilkComposerField(
+                value = text,
+                onValueChange = {
+                    if (dismissedSlash != null && !it.startsWith("/")) dismissedSlash = null
+                    agent.setDraftText(it)
+                },
+                placeholder = "提问…",
+                minLines = 1,
+                maxLines = 4,
+                dirty = attachOpen,
+                visualTransformation = mentionTransform,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = MilkSpace.sm),
+                leading = {
+                    MilkIconButton(
+                        imageVector = Icons.Outlined.AttachFile,
+                        contentDescription = if (attachOpen) "收起附件菜单" else "添加附件",
+                        onClick = { attachOpen = !attachOpen },
+                        selected = attachOpen || state.draftAttachments.isNotEmpty(),
+                        tint = if (state.draftAttachments.isNotEmpty() || attachOpen) {
+                            cs.primary
+                        } else {
+                            cs.onSurfaceVariant
+                        },
+                        touchSize = 40.dp,
+                        visualSize = 32.dp,
+                        iconSize = 18.dp,
+                    )
+                },
+                trailing = {
+                    if (streaming) {
+                        MilkIconButton(
+                            imageVector = Icons.Outlined.Stop,
+                            contentDescription = "停止",
+                            onClick = { agent.stop() },
+                            tint = cs.error,
+                            touchSize = 40.dp,
+                            visualSize = 32.dp,
+                            iconSize = 16.dp,
+                        )
+                    } else {
+                        MilkIconButton(
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = "发送",
+                            onClick = { agent.send() },
+                            enabled = canSend,
+                            selected = canSend,
+                            tint = if (canSend) cs.primary else cs.onSurfaceVariant,
+                            shape = CircleShape,
+                            touchSize = 44.dp,
+                            visualSize = 34.dp,
+                            iconSize = 17.dp,
+                        )
+                    }
+                },
+            )
+
+            AttachmentFloatingMenu(
+                expanded = attachOpen,
+                state = state,
+                pageIds = pageIds,
+                onDismiss = { attachOpen = false },
+                onSnipToAttachment = {
+                    attachOpen = false
+                    onSnipToAttachment()
+                },
+                onPreviewDraft = { draft ->
+                    attachOpen = false
+                    preview = draft.toPreviewTarget(pageIds)
+                },
+                anchorHeight = 56.dp,
+            )
+        }
+        MilkToast(
+            visible = toast != null,
+            text = toast.orEmpty(),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = MilkSpace.sm),
+        )
+    }
+
+    preview?.let { target ->
+        AgentFloatingPreviewDialog(
+            target = target,
+            onDismiss = { preview = null },
+            onEditDraftImage = { draftId ->
+                val draft = state.draftAttachments.firstOrNull { it.id == draftId }
+                preview = null
+                if (draft != null) {
+                    scope.launch {
+                        val bitmap = withContext(Dispatchers.Default) {
+                            runCatching {
+                                BitmapFactory.decodeByteArray(draft.png, 0, draft.png.size)
+                            }.getOrNull()
+                        }
+                        if (bitmap != null) {
+                            editingDraft = draft
+                            editingBitmap = bitmap
+                        } else {
+                            toast = "无法读取该图片"
+                        }
+                    }
+                }
+            },
+            onToast = { toast = it },
+        )
+    }
+
+    val editing = editingBitmap
+    val draftBeingEdited = editingDraft
+    if (editing != null && draftBeingEdited != null) {
+        ImageEditorFloatingPanel(
+            source = editing,
+            title = "编辑图片",
+            confirmLabel = "保存修改",
+            onDismiss = {
+                editingBitmap = null
+                editingDraft = null
+                if (!editing.isRecycled) editing.recycle()
+            },
+            onConfirm = { encoded ->
+                agent.updateDraftAttachment(
+                    id = draftBeingEdited.id,
+                    png = encoded.bytes,
+                    jpeg = encoded.jpeg,
+                    widthPx = encoded.widthPx,
+                    heightPx = encoded.heightPx,
+                )
+                editingBitmap = null
+                editingDraft = null
+                if (!editing.isRecycled) editing.recycle()
+            },
+        )
+    }
+
+    LaunchedEffect(toast) {
+        if (toast != null) {
+            delay(1600)
+            toast = null
         }
     }
 }
 
-/** 草稿附件卡片:真实缩略图 + 标题 + 尺寸 + ✕ 移除 */
+/** 草稿附件卡片:真实缩略图 + 标题 + 尺寸 + ✕ 移除;点按进入悬浮预览 */
 @Composable
 private fun DraftAttachmentCard(
-    draft: com.milknote.agent.DraftAttachment,
+    draft: DraftAttachment,
     pageIds: List<String>,
+    onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
-    val bitmap = remember(draft.id) {
+    val bitmap = remember(draft.id, draft.png) {
         runCatching { BitmapFactory.decodeByteArray(draft.png, 0, draft.png.size)?.asImageBitmap() }.getOrNull()
     }
     Row(
@@ -2034,7 +2187,8 @@ private fun DraftAttachmentCard(
             .clip(RoundedCornerShape(MilkRadius.md))
             .background(cs.surfaceVariant.copy(alpha = if (dark) 0.85f else 0.7f))
             .border(1.dp, cs.outline, RoundedCornerShape(MilkRadius.md))
-            .padding(6.dp),
+            .softClickable(onClick = onClick)
+            .padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AttachmentThumbnail(bitmap, 38.dp, RoundedCornerShape(MilkRadius.xs))
@@ -2048,26 +2202,24 @@ private fun DraftAttachmentCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${draft.widthPx}×${draft.heightPx}",
+                when {
+                    draft.pageRangeLabel.isNotBlank() -> draft.pageRangeLabel
+                    draft.widthPx > 0 || draft.heightPx > 0 -> "${draft.widthPx}×${draft.heightPx}"
+                    draft.hasText -> "${draft.textContent.length} 字"
+                    else -> formatAttachmentBadge(draft.source)
+                },
                 style = MilkText.monoMicro,
                 color = cs.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.width(MilkSpace.xxs))
-        Box(
-            Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .softClickable(onClick = onRemove),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Outlined.Close,
-                contentDescription = "移除附件",
-                modifier = Modifier.size(13.dp),
-                tint = cs.onSurfaceVariant,
-            )
-        }
+        MilkIconButton(
+            imageVector = Icons.Outlined.Close,
+            contentDescription = "移除附件",
+            onClick = onRemove,
+            touchSize = 36.dp,
+            visualSize = 28.dp,
+            iconSize = 13.dp,
+        )
     }
 }
 
@@ -2090,10 +2242,8 @@ private fun ModelSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             state.profiles.filter { profile -> profile.models.any { it.vision } }.forEach { profile ->
-                Text(
-                    profile.title,
-                    style = MilkText.eyebrow,
-                    color = cs.onSurfaceVariant,
+                MilkSectionLabel(
+                    text = profile.title,
                     modifier = Modifier.padding(top = MilkSpace.sm + 2.dp, bottom = MilkSpace.xxs),
                 )
                 profile.models.filter { it.vision }.forEach { m ->
@@ -2126,7 +2276,7 @@ private fun ModelSheet(
             )
         val current = runCatching { ReasoningEffort.valueOf(activeProfile?.reasoningEffort ?: "AUTO") }
             .getOrDefault(ReasoningEffort.AUTO)
-        Text("思考强度", style = MilkText.eyebrow, color = cs.onSurfaceVariant)
+        MilkSectionLabel(text = "思考强度")
         Spacer(Modifier.height(MilkSpace.sm))
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
@@ -2195,143 +2345,32 @@ private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
     MilkChip(label = label, selected = selected, onClick = onClick, small = true)
 }
 
-// ---------------- Markdown 渲染(§6.3 容错子集) ----------------
+// ---------------- Markdown 渲染(统一交给 MilkMarkdownView) ----------------
 
-@OptIn(ExperimentalLayoutApi::class)
+/** 兼容旧调用点:完整 Markdown + LaTeX 渲染统一由 [MilkMarkdownView] 承担 */
 @Composable
 fun MarkdownBlocks(text: String, modifier: Modifier = Modifier, onWikilink: ((String) -> Unit)? = null) {
-    val blocks = remember(text) { MarkdownLite.parse(text) }
-    val cs = MaterialTheme.colorScheme
-    val dark = LocalMilkDark.current
-    val linkColor = cs.primary
-    val bodyStyle = MilkText.body.copy(lineHeight = 21.sp)
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        blocks.forEachIndexed { i, b ->
-            when (b) {
-                is MarkdownLite.Block.Heading -> {
-                    val style = when {
-                        b.level <= 2 -> MilkText.panelTitle
-                        b.level == 3 -> MilkText.cardTitle
-                        else -> MilkText.rowTitle.copy(fontWeight = FontWeight.SemiBold)
-                    }
-                    Box(Modifier.padding(top = if (i > 0) 6.dp else 0.dp)) {
-                        InlineText(b.spans, linkColor, onWikilink, style)
-                    }
-                }
-                is MarkdownLite.Block.ListItem -> Row {
-                    Text(
-                        b.order?.let { "$it." } ?: "•",
-                        style = bodyStyle,
-                        color = cs.primary,
-                        modifier = Modifier.widthIn(min = 18.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    InlineText(b.spans, linkColor, onWikilink, bodyStyle)
-                }
-                is MarkdownLite.Block.Paragraph -> InlineText(b.spans, linkColor, onWikilink, bodyStyle)
-                is MarkdownLite.Block.MathBlock -> Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(MilkRadius.sm))
-                        .background(cs.surfaceVariant.copy(alpha = if (dark) 0.85f else 0.7f))
-                        .border(1.dp, cs.outline.copy(alpha = 0.55f), RoundedCornerShape(MilkRadius.sm))
-                        .drawBehind {
-                            drawRect(
-                                color = cs.primary.copy(alpha = 0.45f),
-                                size = Size(2.5.dp.toPx(), size.height),
-                            )
-                        },
-                ) {
-                    Text(
-                        b.latex,
-                        style = MilkText.monoBody,
-                        color = cs.onSurface,
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .padding(start = 12.dp, end = 12.dp, top = MilkSpace.sm, bottom = MilkSpace.sm),
-                    )
-                }
-                is MarkdownLite.Block.TagLine -> FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
-                    verticalArrangement = Arrangement.spacedBy(MilkSpace.xxs),
-                ) {
-                    b.tags.take(8).forEach { tag ->
-                        Text(
-                            "#$tag",
-                            style = MilkText.monoMicro,
-                            color = cs.primary,
-                            modifier = Modifier
-                                .clip(PillShape)
-                                .background(cs.primary.copy(alpha = 0.09f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
+    MilkMarkdownView(text = text, modifier = modifier, onWikilink = onWikilink)
 }
 
-/** 行内富文本:[[双链]] 渲染为强调色下划线,提供 onWikilink 时可点击跳转 */
-@Composable
-private fun InlineText(
-    spans: List<MarkdownLite.Span>,
-    linkColor: Color,
-    onWikilink: ((String) -> Unit)?,
-    style: TextStyle,
-) {
-    val codeBg = MaterialTheme.colorScheme.onSurface.copy(alpha = if (LocalMilkDark.current) 0.10f else 0.06f)
-    val annotated = remember(spans, linkColor, codeBg) { spansToAnnotated(spans, linkColor, codeBg) }
-    val resolved = style.copy(color = MaterialTheme.colorScheme.onSurface)
-    if (onWikilink != null && annotated.getStringAnnotations("wiki", 0, annotated.length).isNotEmpty()) {
-        ClickableText(
-            text = annotated,
-            style = resolved,
-            onClick = { offset ->
-                annotated.getStringAnnotations("wiki", offset, offset).firstOrNull()?.let { onWikilink(it.item) }
-            },
-        )
-    } else {
-        Text(annotated, style = resolved)
-    }
-}
-
-private val wikilinkRegex = Regex("\\[\\[([^\\]]+)\\]\\]")
-
-private fun spansToAnnotated(spans: List<MarkdownLite.Span>, linkColor: Color, codeBg: Color): AnnotatedString {
-    val builder = AnnotatedString.Builder()
-    for (s in spans) {
-        when (s) {
-            is MarkdownLite.Span.Plain -> {
-                // [[双链]] 在纯文本段内切分为可点击链接
-                var last = 0
-                wikilinkRegex.findAll(s.text).forEach { m ->
-                    if (m.range.first > last) builder.append(s.text.substring(last, m.range.first))
-                    builder.pushStyle(SpanStyle(color = linkColor, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
-                    builder.pushStringAnnotation("wiki", m.groupValues[1])
-                    builder.append(m.groupValues[1])
-                    builder.pop()
-                    builder.pop()
-                    last = m.range.last + 1
-                }
-                if (last < s.text.length) builder.append(s.text.substring(last))
-            }
-            is MarkdownLite.Span.Bold -> {
-                builder.pushStyle(SpanStyle(fontWeight = FontWeight.SemiBold))
-                builder.append(s.text)
-                builder.pop()
-            }
-            is MarkdownLite.Span.Code -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg))
-                builder.append(s.text)
-                builder.pop()
-            }
-            is MarkdownLite.Span.Math -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg))
-                builder.append(s.latex)
-                builder.pop()
-            }
+/**
+ * 输入框 @ 提及高亮:只着色 `@token` 片段,映射保持 1:1(OffsetMapping.Identity),
+ * 因此光标位置与 IME 组合输入完全不受影响。
+ */
+internal class MentionHighlightTransformation(
+    private val highlight: Color,
+    private val fallback: Color,
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val builder = AnnotatedString.Builder(text.text)
+        builder.addStyle(SpanStyle(color = fallback), 0, text.length)
+        mentionPattern.findAll(text.text).forEach { match ->
+            builder.addStyle(
+                SpanStyle(color = highlight, fontWeight = FontWeight.Medium),
+                match.range.first,
+                match.range.last + 1,
+            )
         }
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
     }
-    return builder.toAnnotatedString()
 }

@@ -72,7 +72,7 @@ data class ProviderProfile(
 @Serializable
 data class PageRef(val notebookId: String, val pageId: String)
 
-/** 附件(§4.3):内容寻址落盘 <nb>.milk/agent/att/<sha1>.png */
+/** 附件(§4.3):内容寻址落盘 <nb>.milk/agent/att/<sha1>.png|jpg|md|txt */
 @Serializable
 data class Attachment(
     val id: String,
@@ -83,9 +83,45 @@ data class Attachment(
     val source: Source,
     val logicalName: String,          // snip_1246×742.png(附件卡显示名)
     val redacted: Int = 0,            // 脱敏涂抹处数(M2 恒 0,ML Kit 在 M3 边界外)
+    val mimeType: String = "image/png",
+    val mentionName: String = "",     // @ 提及名(选区/第1页/讲义.pdf;空=不可 @)
+    val pageRangeLabel: String = "",  // 多页附件的页码范围标签(如「第1-3页」)
+    val textContent: String = "",     // 文档正文预览;全文另存 agent/att/<sha1>.md|txt
+    val pageFiles: List<String> = emptyList(),   // 多页文档逐页图(agent/att/<sha1>.png)
 ) {
-    enum class Source { SNIP, FULL_PAGE, EXTRA_PAGE, PROJECTION }
+    enum class Source {
+        SNIP, FULL_PAGE, EXTRA_PAGE, PROJECTION,
+        /** 系统相册/粘贴带入的图片(非页面渲染) */
+        SYSTEM_IMAGE,
+        /** Markdown 文档 */
+        MARKDOWN_DOC,
+        /** PDF(逐页渲染;pageFiles) */
+        PDF_DOC,
+        /** PPT/PPTX(逐页渲染;pageFiles) */
+        PPT_DOC,
+        /** 纯文本文档 */
+        TEXT_DOC,
+    }
+
+    /** 是否图片型附件(计入视觉预算) */
+    val isImage: Boolean get() = mimeType.startsWith("image/")
 }
+
+/**
+ * 模型档位:摘要跟随聊天模型(INHERIT_CHAT)或指定 profile+model(CUSTOM)。
+ * CUSTOM 允许非视觉模型(摘要只需文本能力),失效时静默回退到 INHERIT_CHAT。
+ */
+@Serializable
+enum class SummaryModelMode { INHERIT_CHAT, CUSTOM }
+
+/** 会话摘要配置(随 ProfileBook 落盘,跨设备配置一致) */
+@Serializable
+data class SummaryConfig(
+    val enabled: Boolean = true,
+    val mode: SummaryModelMode = SummaryModelMode.INHERIT_CHAT,
+    val profileId: String? = null,
+    val modelId: String? = null,
+)
 
 // ---- 会话模型(§7.1) ----
 
@@ -103,6 +139,8 @@ data class AgentMessage(
     val completionTokens: Int = 0,
     val phase: String = Phase.DONE.name,         // SENDING/STREAMING/DONE/FAILED/INTERRUPTED
     val insertedAnnotationId: String? = null,    // 插入批注幂等标记(§9)
+    /** 首个内容/思考 token → 完成 的耗时(ms);0=未测量(旧数据) */
+    val generationMs: Long = 0L,
 ) {
     enum class Role { USER, ASSISTANT }
 
@@ -119,6 +157,11 @@ data class AgentSession(
     val providerId: String,
     val modelId: String,
     val messages: List<AgentMessage> = emptyList(),
+    val title: String = "",                      // 会话标题(默认取首条用户消息)
+    val summary: String = "",                    // AI 摘要(会话列表展示)
+    val summaryUpdatedAt: Long = 0L,
+    val summaryMessageCount: Int = 0,            // 生成摘要时的已完成消息数(增量刷新基准)
+    val summaryModelId: String = "",             // 实际生成摘要的模型
 )
 
 // ---- 对话协议(§3.1 / §3.5 OpenAI 兼容) ----

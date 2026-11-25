@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ import com.milknote.agent.Protocol
 import com.milknote.agent.ProviderProfile
 import com.milknote.agent.ProviderRegistry
 import com.milknote.agent.ReasoningEffort
+import com.milknote.agent.SummaryModelMode
 import com.milknote.agent.VisionSource
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkButton
@@ -61,11 +63,14 @@ import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkConfirmDialog
+import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkStatusBadge
 import com.milknote.app.ui.common.MilkStatusTone
+import com.milknote.app.ui.common.MilkSwitch
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkSpace
@@ -110,12 +115,8 @@ fun AgentSettingsSection() {
                     onToggleExpand = { expandedProvider = if (expandedProvider == profile.id) null else profile.id },
                     onToggleModel = { id -> expandedModel = if (expandedModel == id) null else id },
                     onBaseUrlChange = { url ->
-                        // baseUrl 就地保存(整 profile 重写)
-                        val book = com.milknote.agent.AgentStore.ProfileBook(
-                            state.profiles.map { if (it.id == profile.id) it.copy(baseUrl = url) else it },
-                            state.activeProfileId,
-                        )
-                        agent.replaceProfiles(book)
+                        // 只改 baseUrl:整本回传 ProfileBook 会顺手覆盖摘要/自动提及配置
+                        agent.updateBaseUrl(profile.id, url)
                     },
                     onTest = {
                         if (profile.id !in testingIds) {
@@ -201,6 +202,218 @@ fun AgentSettingsSection() {
                 deleteReq = null
             },
         )
+    }
+}
+
+// ==================== 会话总结 / 附件与引用 ====================
+
+/**
+ * 行为配置(模型服务的兄弟分区):会话总结 + 附件自动 @。
+ * 全部即时落盘(经 AgentController,随 ProfileBook 保存),没有「保存」按钮。
+ */
+@Composable
+fun AgentBehaviorSettingsSection() {
+    val agent = ServiceLocator.agentController
+    val state by agent.state.collectAsState()
+    var showSummaryModelPicker by remember { mutableStateOf(false) }
+
+    val cfg = state.summaryConfig
+    val selectedProfile = state.profiles.firstOrNull { it.id == cfg.profileId }
+    val selectedModel = selectedProfile?.models?.firstOrNull { it.id == cfg.modelId }
+
+    SettingsGroup {
+        SettingsSectionHeader("会话总结", "为历史会话生成摘要，便于在会话切换菜单中快速定位")
+        SettingsCard {
+            SettingsRow(
+                title = "自动生成会话总结",
+                onClick = { agent.setSummaryConfig(cfg.copy(enabled = !cfg.enabled)) },
+                trailing = {
+                    MilkSwitch(
+                        checked = cfg.enabled,
+                        onChange = { agent.setSummaryConfig(cfg.copy(enabled = it)) },
+                    )
+                },
+            )
+            Hairline()
+            SettingsRow(
+                title = "总结用模型",
+                trailing = {
+                    MilkSegmented(
+                        options = SUMMARY_MODEL_MODES,
+                        selected = cfg.mode,
+                        label = { if (it == SummaryModelMode.INHERIT_CHAT) "继承对话" else "指定模型" },
+                        onSelect = { mode ->
+                            agent.setSummaryConfig(
+                                cfg.copy(
+                                    mode = mode,
+                                    // 首次切到「指定模型」时预填当前对话模型;切回继承保留原选择便于再切回来
+                                    profileId = if (mode == SummaryModelMode.CUSTOM) {
+                                        cfg.profileId ?: state.activeProfileId
+                                    } else {
+                                        cfg.profileId
+                                    },
+                                    modelId = if (mode == SummaryModelMode.CUSTOM) {
+                                        cfg.modelId ?: state.activeModelId
+                                    } else {
+                                        cfg.modelId
+                                    },
+                                ),
+                            )
+                        },
+                        compact = true,
+                        modifier = Modifier.width(176.dp),
+                    )
+                },
+            )
+            if (cfg.mode == SummaryModelMode.CUSTOM) {
+                Hairline()
+                SettingsRow(
+                    title = "默认总结模型",
+                    subtitle = selectedProfile?.title ?: "未指定",
+                    onClick = { showSummaryModelPicker = true },
+                    trailing = { RowValue(selectedModel?.id ?: "—", mono = true) },
+                )
+            }
+            Hairline()
+            StatusLine("首轮完成后自动生成；每新增 3 轮或切换/新建会话时自动刷新", tone = StatusTone.NEUTRAL)
+        }
+    }
+
+    SettingsGroup {
+        SettingsSectionHeader("附件与引用")
+        SettingsCard {
+            SettingsRow(
+                title = "上传附件时默认 @ 引用",
+                subtitle = "添加图片、文档或笔记页面后，自动在输入框插入 @附件名",
+                onClick = { agent.setAutoMentionAttachments(!state.autoMentionAttachments) },
+                trailing = {
+                    MilkSwitch(
+                        checked = state.autoMentionAttachments,
+                        onChange = { agent.setAutoMentionAttachments(it) },
+                    )
+                },
+            )
+        }
+    }
+
+    if (showSummaryModelPicker) {
+        SummaryModelPickerPanel(
+            profiles = state.profiles,
+            selectedProfileId = cfg.profileId,
+            selectedModelId = cfg.modelId,
+            onPick = { profile, model ->
+                agent.setSummaryConfig(
+                    cfg.copy(
+                        mode = SummaryModelMode.CUSTOM,
+                        profileId = profile.id,
+                        modelId = model.id,
+                    ),
+                )
+                showSummaryModelPicker = false
+            },
+            onDismiss = { showSummaryModelPicker = false },
+        )
+    }
+}
+
+private val SUMMARY_MODEL_MODES = listOf(SummaryModelMode.INHERIT_CHAT, SummaryModelMode.CUSTOM)
+
+/**
+ * 默认总结模型选择器:列出全部 Provider 的全部模型(含纯文本模型——摘要只需文本能力,
+ * 选便宜快的即可)。视觉能力只作为角标信息,不作过滤条件。
+ */
+@Composable
+private fun SummaryModelPickerPanel(
+    profiles: List<ProviderProfile>,
+    selectedProfileId: String?,
+    selectedModelId: String?,
+    onPick: (ProviderProfile, ModelInfo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    var query by remember { mutableStateOf("") }
+    MilkCenterPanel(
+        title = "默认总结模型",
+        subtitle = "纯文本模型即可胜任，优先选响应快的",
+        onDismiss = onDismiss,
+        maxWidth = 420.dp,
+        maxHeight = 600.dp,
+    ) {
+        if (profiles.none { it.models.isNotEmpty() }) {
+            MilkEmptyState(
+                title = "尚未配置模型",
+                description = "先在「模型服务」添加端点与模型",
+                icon = Icons.Outlined.SmartToy,
+            )
+            return@MilkCenterPanel
+        }
+
+        MilkTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "搜索模型 id…",
+            leading = {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(17.dp),
+                )
+            },
+            onClear = { query = "" },
+        )
+        Spacer(Modifier.height(MilkSpace.md))
+
+        val needle = query.trim()
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 440.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            profiles.forEach { profile ->
+                val models = profile.models.filter {
+                    needle.isEmpty() || it.id.contains(needle, true) || it.displayName.contains(needle, true)
+                }
+                if (models.isEmpty()) return@forEach
+                MilkSectionLabel(text = profile.title)
+                models.forEach { model ->
+                    val selected = profile.id == selectedProfileId && model.id == selectedModelId
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(MilkRadius.sm))
+                            .clickable(role = Role.RadioButton) { onPick(profile, model) }
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) cs.primary else Color.Transparent, CircleShape)
+                                .border(1.dp, if (selected) cs.primary else cs.outline, CircleShape),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            model.id,
+                            style = MilkText.monoBody,
+                            color = if (selected) cs.primary else cs.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(Modifier.width(MilkSpace.sm))
+                        MilkStatusBadge(
+                            text = if (model.vision) "视觉" else "纯文本",
+                            tone = if (model.vision) MilkStatusTone.ACCENT else MilkStatusTone.NEUTRAL,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(MilkSpace.xs))
+            }
+        }
     }
 }
 

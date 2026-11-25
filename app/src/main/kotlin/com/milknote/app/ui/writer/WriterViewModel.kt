@@ -84,6 +84,7 @@ data class SnipUiState(
     val rect: Rect4? = null,                  // 视口坐标(overlay 与画布同 bounds)
     val intent: Intents.Id = Intents.Id.EXPLAIN,  // 意图条当前选中(默认讲解)
     val drawerWasOpen: Boolean = false,       // 进入框选前抽屉是否已开
+    val attachOnly: Boolean = false,          // 只加入附件、不立即发送(输入框附件菜单进入)
 )
 
 enum class SnipPhase { IDLE, FROZEN, CONFIRMED }
@@ -126,6 +127,8 @@ class WriterViewModel : ViewModel() {
     private var thumbJob: Job? = null
     private var pageSwitchJob: Job? = null
     private var pendingPageId: String? = null
+    /** 进入「框选加入附件」前的草稿文字(openDrawer 会清空输入框) */
+    private var draftTextBeforeSnip: String? = null
 
     init {
         // 设置 → 压感曲线档(笔宽是样式,换档即时生效)/ 前置缓冲开关
@@ -571,8 +574,64 @@ class WriterViewModel : ViewModel() {
         )
     }
 
+    /**
+     * 从输入框附件菜单进入「框选加入附件」:先收起抽屉让画布完全露出,
+     * 框选结束后不再自动发送,只把选区挂到附件栏(并由开关决定是否自动 @)。
+     */
+    fun enterSnipForAttachment() {
+        controller.disarmLasso()
+        controller.clearSelection()
+        val agent = ServiceLocator.agentController
+        val wasOpen = agent.state.value.drawerOpen
+        draftTextBeforeSnip = agent.state.value.draftText
+        if (wasOpen) agent.closeDrawer()
+        _state.value = _state.value.copy(
+            snip = SnipUiState(
+                phase = SnipPhase.FROZEN,
+                drawerWasOpen = wasOpen,
+                attachOnly = true,
+            ),
+        )
+    }
+
     fun exitSnip() {
+        val s = _state.value.snip
         _state.value = _state.value.copy(snip = SnipUiState())
+        if (s.attachOnly && s.drawerWasOpen) restoreDrawerAfterSnip()
+        draftTextBeforeSnip = null
+    }
+
+    /** 附件模式的选区落地:加进草稿附件与附件栏,不触发发送 */
+    fun snipAttachOnly(viewToPage: (Float, Float) -> Pair<Float, Float>) {
+        val s = _state.value.snip
+        val rect = s.rect ?: return exitSnip()
+        val nb = _state.value.notebook ?: return exitSnip()
+        val pageId = _state.value.currentPageId
+        val reopen = s.drawerWasOpen
+        _state.value = _state.value.copy(snip = SnipUiState())
+        viewModelScope.launch {
+            val agent = ServiceLocator.agentController
+            agent.bindPage(PageRef(nb.id, pageId))
+            if (reopen) restoreDrawerAfterSnip()
+            val rectPage = rect.normalized().let {
+                val (l, t) = viewToPage(it.l, it.t)
+                val (r, b) = viewToPage(it.r, it.b)
+                Rect4(l, t, r, b)
+            }
+            val name = agent.addSnip(rectPage)
+            draftTextBeforeSnip = null
+            if (name == null) toast("框选失败:页面渲染不可用")
+        }
+    }
+
+    /** 重新打开抽屉并恢复进入框选前的草稿文字(openDrawer 会清空输入框) */
+    private fun restoreDrawerAfterSnip() {
+        val nb = _state.value.notebook ?: return
+        val pageId = _state.value.currentPageId
+        if (pageId.isEmpty()) return
+        val agent = ServiceLocator.agentController
+        agent.openDrawer(PageRef(nb.id, pageId))
+        draftTextBeforeSnip?.let { agent.setDraftText(it) }
     }
 
     private fun toggleSnip() {

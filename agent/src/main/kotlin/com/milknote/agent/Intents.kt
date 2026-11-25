@@ -2,8 +2,8 @@ package com.milknote.agent
 
 /**
  * 意图注册表(AGENT-BACKEND §6.1,六意图可扩展)+ PromptEngine(§6.2)。
- * 输出契约与 UI 渲染器(MarkdownLite)能力对齐:标题/列表/加粗/行内代码/$公式$;
- * 禁用表格与图片;不主动要求 #标签(A2.6 起,渲染器仍容错显示)。
+ * 输出契约与 UI 渲染器对齐:完整 Markdown(标题/列表/任务列表/表格/代码块/引用/链接)、
+ * 完整 LaTeX(行内 $…$ 与独立 $$…$$)、可生成 milkdoc 文档块。
  */
 object Intents {
 
@@ -19,21 +19,28 @@ object Intents {
 
     /** 基础 system 前缀(§6.1 六意图共用) */
     const val BASE_SYSTEM =
-        "你在平板手写笔记 App 内工作;用户发来的是手写笔记截图,可能含公式/图示/中文。" +
-            "语气简洁,面向大学生。严格 Markdown 子集:标题/列表/加粗/行内代码/\$公式\$," +
-            "禁用表格与图片。"
+        "你在平板手写笔记 App 内工作;用户发来的是手写笔记截图或文档,可能含公式/图示/中文。" +
+            "语气简洁,面向大学生。\n" +
+            "支持完整 Markdown:标题(#~####)、有序/无序列表、任务列表、表格、代码块、引用块、链接、加粗/斜体。\n" +
+            "支持完整 LaTeX 数学:行内 \$...\$、独立公式块 \$\$...\$\$。\n" +
+            "当用户要求生成可独立保存/导出的文档(如 Markdown 文档、复习提纲、纯文本文档、LaTeX 讲义)时," +
+            "把文档正文整体包进围栏块,首行写 milkdoc 标记:\n" +
+            "```milkdoc title=\"文档标题.md\" type=\"markdown\"\n" +
+            "…文档正文…\n" +
+            "```\n" +
+            "type 取 markdown|text|latex;普通回答直接输出,不要使用该围栏。"
 
     val all: List<Spec> = listOf(
         Spec(
             id = Id.EXPLAIN, label = "讲解",
             systemContract = "你是讲解老师。分步讲解思路,关键概念首次出现时**加粗**," +
-                "公式用 \$…\$ 行内排版;不用表格,不要在结尾堆 #标签。",
+                "公式用 \$…\$ 行内排版、重点结论可用 \$\$…\$\$ 独立成行;对比/分支可用表格或引用块;不要在结尾堆 #标签。",
             userTemplate = "请讲解这道题/这段笔记。{{TEXT}}",
         ),
         Spec(
             id = Id.SUMMARIZE, label = "归纳",
-            systemContract = "你是笔记整理助手。输出结构化要点列表(短句),必要时用 #### 小节分组;" +
-                "不编造图中没有的内容,不要在结尾堆 #标签。",
+            systemContract = "你是笔记整理助手。输出结构化要点列表(短句),必要时用 #### 小节分组," +
+                "对照关系可用表格;不编造图中没有的内容,不要在结尾堆 #标签。",
             userTemplate = "请归纳这段笔记的要点。{{TEXT}}",
         ),
         Spec(
@@ -101,6 +108,31 @@ object PromptEngine {
         val sb = StringBuilder()
         for (i in 1..imageCount) sb.append("[图$i] ")
         if (newUserText.isNotBlank()) sb.append(newUserText)
+        return sb.toString().trim()
+    }
+
+    /**
+     * 富内容组装(保持 `[图N]` 前缀不变,兼容既有解析/断言):
+     * - 图序标注 `[图1] [图2] …` 永远在最前;
+     * - 有命名图时补一句「图片对应」映射(`[图1]=@选区`),让模型知道 @ 提及指哪张图;
+     * - 文档正文整段附在用户文字之后,以 [附件文档 …] … [/附件文档] 包裹。
+     */
+    fun assembleRichUserContent(
+        newUserText: String,
+        imageLabels: List<String>,
+        documentBlocks: List<Pair<String, String>>,
+    ): String {
+        val sb = StringBuilder()
+        for (i in imageLabels.indices) sb.append("[图${i + 1}] ")
+        val named = imageLabels.mapIndexedNotNull { i, label ->
+            if (label.isBlank()) null else "[图${i + 1}]=$label"
+        }
+        if (named.isNotEmpty()) sb.append("(图片对应:").append(named.joinToString(", ")).append(") ")
+        if (newUserText.isNotBlank()) sb.append(newUserText)
+        for ((header, body) in documentBlocks) {
+            if (body.isBlank()) continue
+            sb.append("\n\n").append(header).append("\n").append(body.trim()).append("\n[/附件文档]")
+        }
         return sb.toString().trim()
     }
 }

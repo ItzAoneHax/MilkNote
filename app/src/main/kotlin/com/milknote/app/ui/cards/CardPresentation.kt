@@ -1,6 +1,7 @@
 package com.milknote.app.ui.cards
 
 import com.milknote.app.ui.agent.MarkdownLite
+import com.milknote.app.ui.agent.plainText
 
 private val wikilink = Regex("\\[\\[([^\\]]+)\\]\\]")
 
@@ -20,6 +21,7 @@ internal fun cardPreviewText(title: String, body: String): String {
             is MarkdownLite.Block.Paragraph -> spansText(block.spans)
             is MarkdownLite.Block.MathBlock -> block.latex
             is MarkdownLite.Block.TagLine -> null
+            else -> block.plainText()
         }?.trim()?.takeIf { it.isNotEmpty() }
     }.joinToString("\n")
 }
@@ -37,5 +39,6 @@ private fun spansText(spans: List<MarkdownLite.Span>): String = spans.joinToStri
         is MarkdownLite.Span.Bold -> span.text
         is MarkdownLite.Span.Code -> span.text
         is MarkdownLite.Span.Math -> span.latex
+        else -> span.plainText()
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -63,6 +65,7 @@ import com.milknote.app.ui.theme.OverlaySurfaceDark
 import com.milknote.app.ui.theme.OverlaySurfaceLight
 import com.milknote.app.ui.theme.OverlayText
 import com.milknote.app.ui.theme.PillShape
+import com.milknote.app.ui.theme.SurfaceElevatedDark
 
 /** 笔电量胶囊:线性笔图标 + 单行百分比;<20% 琥珀;未知 --% */
 @Composable
@@ -102,6 +105,41 @@ fun PenBatteryCapsule(
 @Composable
 fun Modifier.softCard(): Modifier =
     this.border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.large)
+
+/**
+ * 标准分组面(全应用唯一的分组卡画法):`MilkRadius.lg` 圆角 + 1dp hairline + 平涂底。
+ * 暗色下底色略抬升一档,让卡片在纸面之上但仍不靠投影分层。
+ */
+@Composable
+fun MilkSurfaceGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val dark = LocalMilkDark.current
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MilkRadius.lg))
+            .background(if (dark) SurfaceElevatedDark.copy(alpha = 0.65f) else cs.surface)
+            .border(1.dp, cs.outline, RoundedCornerShape(MilkRadius.lg)),
+        content = content,
+    )
+}
+
+/** 分组内分隔线:1dp 中性 hairline,可左右缩进对齐行文字 */
+@Composable
+fun MilkHairlineDivider(
+    modifier: Modifier = Modifier,
+    startIndent: Dp = 0.dp,
+    endIndent: Dp = 0.dp,
+) {
+    HorizontalDivider(
+        modifier = modifier.padding(start = startIndent, end = endIndent),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.65f),
+    )
+}
 
 /**
  * 柔和基础设施(A2.8,R2 触控复审收敛):
@@ -288,8 +326,9 @@ fun CommandKeyCapsule(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * 通用线性图标按钮:48dp 命中、内层 [visualSize] 圆角底面承载选中/容器态。
+ * 通用线性图标按钮:默认 48dp 命中、内层 [visualSize] 圆角底面承载选中/容器态。
  * selected = 淡强调底 + 主色图标;container = 淡灰底(浮层关闭钮/次级操作)。
+ * [touchSize] 收窄命中的唯一出口(密集浮层内的次级图标钮),默认值与历史一致。
  */
 @Composable
 fun MilkIconButton(
@@ -304,6 +343,7 @@ fun MilkIconButton(
     selected: Boolean = false,
     visualSize: Dp = 36.dp,
     shape: Shape = RoundedCornerShape(MilkRadius.sm),
+    touchSize: Dp = 48.dp,
 ) {
     val cs = MaterialTheme.colorScheme
     val reduced = LocalMilkMotion.current
@@ -321,7 +361,7 @@ fun MilkIconButton(
     }
     Box(
         modifier
-            .size(48.dp)
+            .size(touchSize)
             .clickable(
                 interactionSource = interaction,
                 indication = null,

@@ -153,7 +153,9 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
             needle.contains("笔") || needle.contains("按键") || needle.contains("蓝牙") || needle.contains("电量") || needle.contains("接管") -> "pen"
             needle.contains("快捷") || needle.contains("键盘") || needle.contains("手势") -> "shortcuts"
             needle.contains("模型") || needle.contains("ai") || needle.contains("key") || needle.contains("provider") ||
-                needle.contains("视觉") || needle.contains("隐私") -> "agent"
+                needle.contains("视觉") || needle.contains("隐私") ||
+                needle.contains("总结") || needle.contains("摘要") || needle.contains("会话") ||
+                needle.contains("附件") || needle.contains("引用") || needle.contains("@") -> "agent"
             needle.contains("更新") || needle.contains("回收站") || needle.contains("存储") -> "storage"
             else -> null
         }
@@ -199,11 +201,12 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                     )
                     "shortcuts" -> ShortcutsPage()
                     "agent" -> {
-                        SettingsPageHeader("模型与隐私", "配置 AI 教师使用的视觉模型，以及内容发送范围")
+                        SettingsPageHeader("模型与隐私", "配置 AI 教师使用的模型服务、会话总结，以及内容发送范围")
                         SettingsGroup {
                             SettingsSectionHeader("模型服务", "预设或自定义端点；Key 只写不读")
                             AgentSettingsSection()
                         }
+                        AgentBehaviorSettingsSection()
                         SettingsGroup {
                             SettingsSectionHeader("隐私")
                             SettingsCard {

@@ -500,6 +500,7 @@ fun <T> MilkSegmented(
 /**
  * 统一输入框:40dp 高、10dp 圆角、hairline 描边;聚焦/脏值时描边变强调色并加粗到 1.5dp。
  * label 以眉标形式置于框上方;mono 用于值/URL/Key;传 onClear 时右侧出现清空钮。
+ * [visualTransformation] 非空时优先于 [mask](自定义遮蔽/格式化),默认 null 保持既有行为。
  */
 @Composable
 fun MilkTextField(
@@ -522,6 +523,7 @@ fun MilkTextField(
     onDone: (() -> Unit)? = null,
     textStyle: TextStyle = MilkText.body,
     onClear: (() -> Unit)? = null,
+    visualTransformation: VisualTransformation? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
@@ -581,7 +583,8 @@ fun MilkTextField(
                     maxLines = maxLines,
                     enabled = enabled,
                     textStyle = textStyle.copy(fontFamily = fontFamily, color = textColor),
-                    visualTransformation = if (mask) PasswordVisualTransformation() else VisualTransformation.None,
+                    visualTransformation = visualTransformation
+                        ?: if (mask) PasswordVisualTransformation() else VisualTransformation.None,
                     cursorBrush = SolidColor(cs.primary),
                     keyboardOptions = KeyboardOptions(imeAction = imeAction),
                     keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
@@ -615,8 +618,96 @@ fun MilkTextField(
     }
 }
 
-// ==================== 开关 ====================
+// ==================== 对话输入框 ====================
 
+/**
+ * AI 输入框(composer):`MilkRadius.xl` 胶囊形、聚焦时描边变强调色并加粗 1→1.5dp、底色淡提亮。
+ * 与 [MilkTextField] 的分工:字段用于设置表单(40dp 单行),本控件用于对话输入(可多行 + 前置/后置插槽)。
+ */
+@Composable
+fun MilkComposerField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    minLines: Int = 1,
+    maxLines: Int = 4,
+    enabled: Boolean = true,
+    dirty: Boolean = false,
+    textStyle: TextStyle = MilkText.body,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    imeAction: ImeAction = ImeAction.Default,
+    onDone: (() -> Unit)? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val cs = MaterialTheme.colorScheme
+    val highlighted = focused || dirty
+    val borderColor by animateColorAsState(
+        if (highlighted) cs.primary else cs.outline,
+        MilkMotion.colorSpec(), label = "milkComposerBorder",
+    )
+    val borderWidth by animateDpAsState(
+        if (highlighted) 1.5.dp else 1.dp,
+        MilkMotion.colorSpec(), label = "milkComposerBorderWidth",
+    )
+    val container by animateColorAsState(
+        if (highlighted) cs.surface else cs.surfaceVariant.copy(alpha = 0.45f),
+        MilkMotion.colorSpec(), label = "milkComposerBg",
+    )
+    val textColor = if (enabled) cs.onBackground else cs.onSurfaceVariant.copy(alpha = 0.5f)
+    val shape = RoundedCornerShape(MilkRadius.xl)
+
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(container)
+            .border(borderWidth, borderColor, shape)
+            .heightIn(min = 44.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = if (maxLines <= 1) Alignment.CenterVertically else Alignment.Bottom,
+    ) {
+        leading?.let {
+            it()
+            Spacer(Modifier.width(10.dp))
+        }
+        Box(
+            Modifier.weight(1f),
+            contentAlignment = if (maxLines <= 1) Alignment.CenterStart else Alignment.TopStart,
+        ) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = textStyle.copy(color = cs.onSurfaceVariant.copy(alpha = 0.6f)),
+                    maxLines = maxLines,
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                minLines = minLines,
+                maxLines = maxLines,
+                textStyle = textStyle.copy(color = textColor),
+                visualTransformation = visualTransformation,
+                cursorBrush = SolidColor(cs.primary),
+                keyboardOptions = KeyboardOptions(imeAction = imeAction),
+                keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focused = it.isFocused },
+            )
+        }
+        trailing?.let {
+            Spacer(Modifier.width(MilkSpace.sm))
+            it()
+        }
+    }
+}
+
+// ==================== 开关 ====================
 /**
  * 苹果风弹性开关:48dp 命中区 + 46×26 胶囊轨道 + 22dp 纯白拇指(2dp 柔影)。
  * 按下未松手拇指横向伸展到 26dp(贴边),松手回弹;切换零过冲弹簧 + TextHandleMove 触感。

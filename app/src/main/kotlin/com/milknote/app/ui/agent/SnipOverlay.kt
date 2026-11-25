@@ -87,6 +87,7 @@ fun SnipOverlay(
     onIntent: (Intents.Id) -> Unit,
     onSend: ((Float, Float) -> Pair<Float, Float>) -> Unit,
     onSaveCard: ((Float, Float) -> Pair<Float, Float>) -> Unit,
+    onAttach: (((Float, Float) -> Pair<Float, Float>) -> Unit)? = null,
 ) {
     val dim = ScrimCanvas
     val current by rememberUpdatedState(state)
@@ -232,20 +233,23 @@ fun SnipOverlay(
         // CONFIRMED:顶部「重新框选 / 全页」深色胶囊 + 底部意图条(讲解/归纳/翻译/出题/LaTeX + 存卡片 + 发送)
         if (state.phase == SnipPhase.CONFIRMED && r != null) {
             val reduced = LocalMilkMotion.current
-            Row(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = MilkSpace.lg)
-                    .clip(PillShape)
-                    .background(OverlaySurfaceLight)
-                    .padding(horizontal = MilkSpace.xxs, vertical = MilkSpace.xxs),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SnipAction("重新框选") { onDrag(r) }
-                SnipAction("全页") {
-                    val b = surface()?.pageBoundsView()
-                    if (b != null) onFullPage(Rect4(b.left, b.top, b.right, b.bottom))
+            // 附件模式只保留一条聚焦动作条(重新框选 / 存卡片 / 加入附件),不叠加顶栏
+            if (!state.attachOnly) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = MilkSpace.lg)
+                        .clip(PillShape)
+                        .background(OverlaySurfaceLight)
+                        .padding(horizontal = MilkSpace.xxs, vertical = MilkSpace.xxs),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SnipAction("重新框选") { onDrag(r) }
+                    SnipAction("全页") {
+                        val b = surface()?.pageBoundsView()
+                        if (b != null) onFullPage(Rect4(b.left, b.top, b.right, b.bottom))
+                    }
                 }
             }
 
@@ -258,58 +262,115 @@ fun SnipOverlay(
                     slideOutVertically(tween(if (reduced) 0 else 120, easing = MilkMotion.EaseOut)) { it / 2 },
             ) {
                 // 意图条:底部深色胶囊(DESIGN-V2 snip-bar);当前意图 = 蓝 22% 淡底 + 浅蓝字
-                Row(
-                    Modifier
-                        .clip(PillShape)
-                        .background(OverlaySurfaceLight)
-                        .padding(5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Intents.all.forEach { spec ->
-                        val active = state.intent == spec.id
+                if (state.attachOnly) {
+                    Row(
+                        Modifier
+                            .clip(PillShape)
+                            .background(OverlaySurfaceLight)
+                            .padding(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SnipAction("重新框选") { onDrag(r) }
+                        Spacer(Modifier.width(MilkSpace.xxs))
                         Box(
                             Modifier
                                 .clip(PillShape)
-                                .background(if (active) AccentBlueDark.copy(alpha = 0.22f) else Color.Transparent)
-                                .clickable { onIntent(spec.id) }
+                                .clickable { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
                                 .defaultMinSize(minHeight = 36.dp)
                                 .padding(horizontal = MilkSpace.md),
                             contentAlignment = Alignment.Center,
                         ) {
+                            Text("存卡片", style = MilkText.label, color = OverlayMuted)
+                        }
+                        Spacer(Modifier.width(MilkSpace.xxs))
+                        Box(
+                            Modifier
+                                .clip(PillShape)
+                                .background(AccentBlue)
+                                .clickable {
+                                    (onAttach ?: onSend) { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) }
+                                }
+                                .defaultMinSize(minHeight = 34.dp)
+                                .padding(horizontal = MilkSpace.lg - 2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(
-                                spec.label,
-                                style = if (active) MilkText.label.copy(fontWeight = FontWeight.SemiBold) else MilkText.label,
-                                color = if (active) AccentBlueDark else OverlayMuted,
+                                "加入附件 ↵",
+                                style = MilkText.label.copy(fontWeight = FontWeight.Medium),
+                                color = Color.White,
                             )
                         }
                     }
-                    Spacer(Modifier.width(MilkSpace.xxs))
-                    Box(
+                } else {
+                    Row(
                         Modifier
                             .clip(PillShape)
-                            .clickable { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
-                            .defaultMinSize(minHeight = 36.dp)
-                            .padding(horizontal = MilkSpace.md),
-                        contentAlignment = Alignment.Center,
+                            .background(OverlaySurfaceLight)
+                            .padding(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("存卡片", style = MilkText.label, color = OverlayMuted)
-                    }
-                    Spacer(Modifier.width(MilkSpace.xxs))
-                    Box(
-                        Modifier
-                            .clip(PillShape)
-                            .background(AccentBlue)
-                            .clickable { onSend { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
-                            .defaultMinSize(minHeight = 34.dp)
-                            .padding(horizontal = MilkSpace.lg - 2.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "发送 ↵",
-                            style = MilkText.label.copy(fontWeight = FontWeight.Medium),
-                            color = Color.White,
-                        )
+                        Intents.all.forEach { spec ->
+                            val active = state.intent == spec.id
+                            Box(
+                                Modifier
+                                    .clip(PillShape)
+                                    .background(if (active) AccentBlueDark.copy(alpha = 0.22f) else Color.Transparent)
+                                    .clickable { onIntent(spec.id) }
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .padding(horizontal = MilkSpace.md),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    spec.label,
+                                    style = if (active) MilkText.label.copy(fontWeight = FontWeight.SemiBold) else MilkText.label,
+                                    color = if (active) AccentBlueDark else OverlayMuted,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(MilkSpace.xxs))
+                        Box(
+                            Modifier
+                                .clip(PillShape)
+                                .clickable { onSaveCard { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
+                                .defaultMinSize(minHeight = 36.dp)
+                                .padding(horizontal = MilkSpace.md),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("存卡片", style = MilkText.label, color = OverlayMuted)
+                        }
+                        if (onAttach != null) {
+                            Spacer(Modifier.width(MilkSpace.xxs))
+                            Box(
+                                Modifier
+                                    .clip(PillShape)
+                                    .clickable {
+                                        onAttach { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) }
+                                    }
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .padding(horizontal = MilkSpace.md),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("加入附件", style = MilkText.label, color = OverlayMuted)
+                            }
+                        }
+                        Spacer(Modifier.width(MilkSpace.xxs))
+                        Box(
+                            Modifier
+                                .clip(PillShape)
+                                .background(AccentBlue)
+                                .clickable { onSend { x, y -> surface()?.viewToPage(x, y) ?: (0f to 0f) } }
+                                .defaultMinSize(minHeight = 34.dp)
+                                .padding(horizontal = MilkSpace.lg - 2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "发送 ↵",
+                                style = MilkText.label.copy(fontWeight = FontWeight.Medium),
+                                color = Color.White,
+                            )
+                        }
                     }
                 }
             }
