@@ -150,6 +150,8 @@ data class AgentMessage(
     val insertedAnnotationId: String? = null,    // 插入批注幂等标记(§9)
     /** 首个内容/思考 token → 完成 的耗时(ms);0=未测量(旧数据) */
     val generationMs: Long = 0L,
+    /** 本轮工具调用轨迹(随消息落盘,重开会话可回看) */
+    val toolTraces: List<ToolTrace> = emptyList(),
 ) {
     enum class Role { USER, ASSISTANT }
 
@@ -175,8 +177,19 @@ data class AgentSession(
 
 // ---- 对话协议(§3.1 / §3.5 OpenAI 兼容) ----
 
-/** 请求 wire 消息(历史仅文字;图片永远只进最后一条 user,§6.2 图不重发) */
-data class WireMessage(val role: String, val content: String)
+/**
+ * 请求 wire 消息(历史仅文字;图片永远只进最后一条 user,§6.2 图不重发)。
+ * 工具调用轮次中:
+ * - assistant 消息携带 [toolCalls];
+ * - tool 消息以 [toolCallId] 关联调用,内容为工具结果。
+ */
+data class WireMessage(
+    val role: String,
+    val content: String,
+    val toolCalls: List<ToolCall> = emptyList(),
+    val toolCallId: String? = null,
+    val toolName: String? = null,
+)
 
 data class ChatRequest(
     val model: String,
@@ -192,6 +205,10 @@ data class ChatRequest(
     val reasoningEffort: ReasoningEffort = ReasoningEffort.AUTO,
     /** 会话标识(OpenCode Go 的 x-opencode-session 头;null=按 profile 派生稳定值) */
     val sessionId: String? = null,
+    /** 本轮可用工具声明(空 = 普通对话,不发起工具调用) */
+    val tools: List<WireToolDef> = emptyList(),
+    /** 多轮工具调用续写:assistant(tool_calls) + tool 结果,追加在当前 user 之后 */
+    val continuationMessages: List<WireMessage> = emptyList(),
 )
 
 sealed interface ChatEvent {
@@ -204,6 +221,8 @@ sealed interface ChatEvent {
      */
     data class Finish(val reason: String) : ChatEvent
     data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatEvent
+    /** 模型请求调用工具(流解析完成一次完整调用后发出;排在 Done 之前) */
+    data class ToolCallReady(val call: ToolCall) : ChatEvent
     data class Done(val finishReason: String?) : ChatEvent
     data class Error(val error: AgentError) : ChatEvent
 }

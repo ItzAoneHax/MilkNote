@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Keyboard
@@ -109,6 +110,7 @@ internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = li
     ),
     "AI 教师" to listOf(
         SettingsNavItem("agent", "模型与隐私", Icons.Outlined.SmartToy),
+        SettingsNavItem("skills_tools", "技能与工具", Icons.Outlined.Extension),
     ),
     "数据" to listOf(
         SettingsNavItem("storage", "存储与更新", Icons.Outlined.SystemUpdate),
@@ -410,13 +412,15 @@ private fun SettingsSearchField(
 
 // ==================== 页面与分区 ====================
 
-/** 页头:页面标题 + 灰说明 */
+/** 页头:页面标题 + 可选灰说明(无说明时不占多余间距) */
 @Composable
-internal fun SettingsPageHeader(title: String, subtitle: String) {
+internal fun SettingsPageHeader(title: String, subtitle: String? = null) {
     Column(Modifier.fillMaxWidth().padding(bottom = MilkSpace.xxs)) {
         Text(title, style = MilkText.pageTitle, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(MilkSpace.xs))
-        Text(subtitle, style = MilkText.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(Modifier.height(MilkSpace.xs))
+            Text(subtitle, style = MilkText.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

@@ -69,6 +69,7 @@ import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkExpandableErrorBox
 import com.milknote.app.ui.common.MilkFilterChip
+import com.milknote.app.ui.common.MilkGroupItemDivider
 import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkInlineAction
@@ -408,11 +409,19 @@ private fun SummaryModelPickerPanel(
                 Spacer(Modifier.height(MilkSpace.xxs))
                 MilkSurfaceGroup {
                     models.forEachIndexed { index, model ->
-                        if (index > 0) MilkHairlineDivider(startIndent = 44.dp)
+                        val selected = profile.id == selectedProfileId && model.id == selectedModelId
+                        if (index > 0) {
+                            val prevSelected = profile.id == selectedProfileId &&
+                                models[index - 1].id == selectedModelId
+                            MilkGroupItemDivider(
+                                visible = !selected && !prevSelected,
+                                startIndent = 44.dp,
+                            )
+                        }
                         MilkModelSelectRow(
                             displayName = model.displayName.ifBlank { model.id },
                             modelId = model.id,
-                            selected = profile.id == selectedProfileId && model.id == selectedModelId,
+                            selected = selected,
                             protocol = model.protocol ?: profile.protocol,
                             protocolOverridden = model.protocol != null,
                             vision = model.vision,

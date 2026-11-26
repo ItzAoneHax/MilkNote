@@ -9,10 +9,16 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.milknote.agent.Intents
+import com.milknote.agent.NotebookWorkspacePort
+import com.milknote.agent.PageDimensions
+import com.milknote.agent.PageElementSummary
+import com.milknote.agent.PageInfo
 import com.milknote.agent.PageRef
 import com.milknote.agent.Rect4
 import com.milknote.app.agent.AgentBridge
 import com.milknote.app.agent.PageRenderer
+import com.milknote.app.agent.WorkspaceElementSummaries
+import com.milknote.app.agent.WorkspaceSidecarOps
 import com.milknote.app.di.ServiceLocator
 import com.milknote.ink.input.InkAction
 import com.milknote.ink.input.InkCommit
@@ -118,6 +124,9 @@ class WriterViewModel : ViewModel() {
     private val _state = MutableStateFlow(WriterUiState())
     val state: StateFlow<WriterUiState> = _state
 
+    /** Agent 工作区端口(页管理 / 画布元素;registerAgentBridge 注册到 [AgentBridge]) */
+    private val workspacePort = WriterWorkspacePort()
+
     /** 页缩略图 */
     val thumbs = MutableStateFlow<Map<String, ImageBitmap>>(emptyMap())
 
@@ -158,6 +167,13 @@ class WriterViewModel : ViewModel() {
         AgentBridge.annotationInserter = { page, anchor, text, latex, cardWidth ->
             insertAnnotationCard(page, anchor, text, latex, cardWidth)
         }
+        AgentBridge.workspaceHandler = workspacePort
+    }
+
+    override fun onCleared() {
+        // 书写页销毁后 agent 不再持有已失效的控制器(工具调用应回退到磁盘或返回未接入)
+        if (AgentBridge.workspaceHandler === workspacePort) AgentBridge.workspaceHandler = null
+        super.onCleared()
     }
 
     private fun currentPageData(pageId: String): AgentBridge.PageData? {
@@ -214,6 +230,235 @@ class WriterViewModel : ViewModel() {
         controller.addAnnotationCard(card)   // 进撤销栈;落盘经 onCommit
         refreshThumbOf(page.pageId)
         id
+    }
+
+    /**
+     * Agent 工作区端口(AGENT-BACKEND 页管理 / 画布工具):
+     * 当前打开的笔记本走内存控制器(撤销栈 + 缩略图),其余页整表重写 sidecar;
+     * 所有 `controller` 与 `_state` 修改都在主线程,磁盘读写在 IO。
+     */
+    private inner class WriterWorkspacePort : NotebookWorkspacePort {
+
+        override suspend fun listPages(notebookId: String): List<PageInfo> = withContext(Dispatchers.IO) {
+            val current = _state.value.currentPageId
+            repo.listPages(notebookId).mapIndexed { index, page ->
+                PageInfo(
+                    pageId = page.pageId,
+                    index = index + 1,
+                    isCurrent = notebookId == this@WriterViewModel.notebookId && page.pageId == current,
+                )
+            }
+        }
+
+        override suspend fun pageDimensions(page: PageRef): PageDimensions? = withContext(Dispatchers.IO) {
+            val meta = repo.getNotebook(page.notebookId) ?: return@withContext null
+            val (width, height) = meta.pageMm(page.pageId, PageRenderer.MM_TO_PX)
+            PageDimensions(width, height)
+        }
+
+        override suspend fun addPage(
+            notebookId: String,
+            position: String,
+            anchorPageId: String?,
+            switchTo: Boolean,
+        ): PageInfo? {
+            val insert = when (position.lowercase()) {
+                "before" -> PageInsertPosition.BEFORE
+                "end" -> PageInsertPosition.END
+                else -> PageInsertPosition.AFTER
+            }
+            val pageId = withContext(Dispatchers.IO) { repo.insertPage(notebookId, insert, anchorPageId) }
+            val pages = withContext(Dispatchers.IO) { repo.listPages(notebookId) }
+            val active = isActiveNotebook(notebookId)
+            if (active) {
+                if (switchTo) {
+                    openPageOnMain(pageId)
+                } else {
+                    withContext(Dispatchers.Main) { _state.value = _state.value.copy(pages = pages) }
+                    refreshThumbFromDisk(PageRef(notebookId, pageId))
+                }
+            }
+            val index = pages.indexOfFirst { it.pageId == pageId } + 1
+            val isCurrent = active && _state.value.currentPageId == pageId
+            return PageInfo(pageId, index.coerceAtLeast(1), isCurrent)
+        }
+
+        override suspend fun deletePage(notebookId: String, pageId: String): Boolean {
+            val before = withContext(Dispatchers.IO) { repo.listPages(notebookId) }
+            val fallback = pageIdAfterDelete(before, pageId)
+            if (!withContext(Dispatchers.IO) { repo.deletePage(notebookId, pageId) }) return false
+            var pages = withContext(Dispatchers.IO) { repo.listPages(notebookId) }
+            if (pages.isEmpty()) {
+                // 与页内删除语义一致:删空后补一张空白页,避免书写页落到无页状态
+                withContext(Dispatchers.IO) { repo.newPage(notebookId) }
+                pages = withContext(Dispatchers.IO) { repo.listPages(notebookId) }
+            }
+            if (!isActiveNotebook(notebookId)) return true
+            val currentBefore = _state.value.currentPageId
+            val currentMissing = pages.none { it.pageId == currentBefore }
+            val target = if (currentMissing) {
+                fallback?.takeIf { id -> pages.any { it.pageId == id } } ?: pages.first().pageId
+            } else {
+                currentBefore
+            }
+            val replacement = if (currentMissing) {
+                withContext(Dispatchers.IO) {
+                    PageContent(
+                        repo.loadPage(notebookId, target),
+                        repo.loadAnnotations(notebookId, target),
+                        repo.loadImages(notebookId, target),
+                        repo.loadMedia(notebookId, target),
+                    )
+                }
+            } else {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(pages = pages, currentPageId = target)
+                replacement?.let {
+                    controller.loadStrokes(it.strokes, it.cards, it.images, it.media)
+                    bindAgent(notebookId, target)
+                }
+                thumbs.value = thumbs.value - pageId
+            }
+            refreshAllThumbs()
+            return true
+        }
+
+        override suspend fun insertMarkdownCard(
+            page: PageRef,
+            markdown: String,
+            xPx: Float,
+            yPx: Float,
+            widthPx: Float,
+        ): String? {
+            val id = UUID.randomUUID().toString().substring(0, 8)
+            val card = AnnotationCard(
+                id = id,
+                x = xPx,
+                y = yPx,
+                width = widthPx.coerceAtLeast(80f),
+                kind = AnnotationCard.Kind.MARKDOWN,
+                text = markdown,
+                createdAt = System.currentTimeMillis(),
+            )
+            if (isCurrentPage(page)) {
+                withContext(Dispatchers.Main) { controller.addAnnotationCard(card) }
+                refreshThumbOf(page.pageId)
+                return id
+            }
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    val cards = repo.loadAnnotations(page.notebookId, page.pageId).toMutableList()
+                    val top = (cards.maxOfOrNull { it.zIndex } ?: 0L) + 1L
+                    cards.add(card.copy(zIndex = top))
+                    repo.saveAnnotations(page.notebookId, page.pageId, cards)
+                }.isSuccess
+            }
+            if (!saved) return null
+            refreshThumbFromDisk(page)
+            return id
+        }
+
+        override suspend fun listElements(page: PageRef): List<PageElementSummary> {
+            val dims = pageDimensions(page) ?: return emptyList()
+            val snapshot = if (isCurrentPage(page)) {
+                withContext(Dispatchers.Main) {
+                    PageContent(
+                        controller.page.strokes.toList(),
+                        controller.annotationCards(),
+                        controller.images(),
+                        controller.media(),
+                    )
+                }
+            } else {
+                withContext(Dispatchers.IO) {
+                    PageContent(
+                        repo.loadPage(page.notebookId, page.pageId),
+                        repo.loadAnnotations(page.notebookId, page.pageId),
+                        repo.loadImages(page.notebookId, page.pageId),
+                        repo.loadMedia(page.notebookId, page.pageId),
+                    )
+                }
+            }
+            // 卡片高度要跑文本排版(含 Markdown 富渲染),放默认线程避免阻塞主线程
+            return withContext(Dispatchers.Default) {
+                WorkspaceElementSummaries.of(
+                    snapshot.strokes, snapshot.cards, snapshot.images, snapshot.media,
+                    dims.widthPx, dims.heightPx,
+                )
+            }
+        }
+
+        override suspend fun moveElement(
+            page: PageRef,
+            elementId: String,
+            elementKind: String?,
+            targetX: Float?,
+            targetY: Float?,
+            dx: Float?,
+            dy: Float?,
+        ): Boolean {
+            val kind = WorkspaceElementSummaries.parseKind(elementKind)
+            if (isCurrentPage(page)) {
+                val moved = withContext(Dispatchers.Main) {
+                    controller.moveElementById(kind, elementId, targetX, targetY, dx, dy)
+                }
+                if (moved) refreshThumbOf(page.pageId)
+                return moved
+            }
+            if (targetX == null && targetY == null && dx == null && dy == null) return false
+            val moved = withContext(Dispatchers.IO) {
+                WorkspaceSidecarOps.move(repo, page, kind, elementId, targetX, targetY, dx, dy)
+            }
+            if (moved) refreshThumbFromDisk(page)
+            return moved
+        }
+
+        override suspend fun deleteElement(page: PageRef, elementId: String, elementKind: String?): Boolean {
+            val kind = WorkspaceElementSummaries.parseKind(elementKind)
+            if (isCurrentPage(page)) {
+                val deleted = withContext(Dispatchers.Main) { controller.deleteElementById(kind, elementId) }
+                if (deleted) refreshThumbOf(page.pageId)
+                return deleted
+            }
+            val deleted = withContext(Dispatchers.IO) {
+                WorkspaceSidecarOps.delete(repo, page, kind, elementId)
+            }
+            if (deleted) refreshThumbFromDisk(page)
+            return deleted
+        }
+
+        private fun isActiveNotebook(target: String): Boolean =
+            target == this@WriterViewModel.notebookId && _state.value.notebook != null
+
+        private fun isCurrentPage(page: PageRef): Boolean =
+            page.notebookId == this@WriterViewModel.notebookId &&
+                page.pageId == _state.value.currentPageId
+    }
+
+    /** 非当前页的改动只落在磁盘 sidecar:从磁盘重绘该页缩略图(不影响当前页内存内容) */
+    private suspend fun refreshThumbFromDisk(page: PageRef) {
+        if (page.notebookId != notebookId) return
+        val nb = withContext(Dispatchers.IO) { repo.getNotebook(page.notebookId) } ?: return
+        val spec = nb.pageSpec(page.pageId)
+        val snapshot = withContext(Dispatchers.IO) {
+            PageContent(
+                repo.loadPage(page.notebookId, page.pageId),
+                repo.loadAnnotations(page.notebookId, page.pageId),
+                repo.loadImages(page.notebookId, page.pageId),
+                repo.loadMedia(page.notebookId, page.pageId),
+            )
+        }
+        val bmp = withContext(Dispatchers.Default) {
+            renderPageThumb(
+                snapshot.strokes, snapshot.cards, spec.paper, nb.pageSize, nb.orientation,
+                images = snapshot.images, media = snapshot.media,
+                imageDir = repo.notebookDir(page.notebookId).absolutePath,
+                paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
+            )
+        }
+        thumbs.value = thumbs.value + (page.pageId to bmp)
     }
 
     /** 手动插入文字框:沿用批注卡的拖动、撤销、落盘与导出链路。 */

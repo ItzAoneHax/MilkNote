@@ -2,7 +2,9 @@ package com.milknote.app.di
 
 import android.content.Context
 import com.milknote.app.agent.AppAnnotationSink
+import com.milknote.app.agent.AppNotebookWorkspacePort
 import com.milknote.app.agent.AppSnipSource
+import com.milknote.app.agent.MarkdownCanvasCardRenderer
 import com.milknote.app.ui.settings.AppSettingsStore
 import com.milknote.app.ui.settings.UpdateController
 import com.milknote.agent.AgentController
@@ -12,6 +14,7 @@ import com.milknote.device.pen.DefaultPenInputPort
 import com.milknote.device.pen.PenActionRouter
 import com.milknote.device.pen.PenBatteryMonitor
 import com.milknote.device.pen.PenInputPort
+import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.notes.storage.CardRepository
 import com.milknote.notes.storage.NotebookRepository
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +72,7 @@ object ServiceLocator {
             snipSource = agentSnipSource,
             annotationSink = AppAnnotationSink(),
             keyFor = { alias -> runCatching { vault.get(alias) }.getOrNull() },
+            workspace = AppNotebookWorkspacePort(),
         )
         c.attachKeyVault(
             put = { alias, key -> vault.put(alias, key) },
@@ -89,6 +93,8 @@ object ServiceLocator {
     fun init(context: Context) {
         if (::appContext.isInitialized) return
         appContext = context.applicationContext
+        // 画布上的 Markdown/LaTeX 卡片走纯矢量渲染(:ink-engine 只认端口,不依赖 UI 解析器)
+        AnnotationCardRenderer.richCardRenderer = MarkdownCanvasCardRenderer()
         penBattery.refresh()
     }
 }

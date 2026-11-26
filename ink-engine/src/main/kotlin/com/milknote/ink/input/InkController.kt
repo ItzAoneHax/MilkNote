@@ -1015,6 +1015,116 @@ class InkController {
         return page.media.firstOrNull { it.id == ref.id }
     }
 
+    // ---- 程序化元素操作(Agent 工作区端口:按 id 移动/删除;与手势同一撤销栈) ----
+
+    /** kind 缺省时按 CARD → IMAGE → MEDIA → STROKE 顺序识别(id 在页面内唯一到类型) */
+    fun elementKindOf(id: String): ElementRef.Kind? = when {
+        page.cards.any { it.id == id } -> ElementRef.Kind.CARD
+        page.images.any { it.id == id } -> ElementRef.Kind.IMAGE
+        page.media.any { it.id == id } -> ElementRef.Kind.MEDIA
+        page.strokes.any { it.id == id } -> ElementRef.Kind.STROKE
+        else -> null
+    }
+
+    /**
+     * 按 id 移动页面元素:绝对目标 [targetX]/[targetY] 优先,其次相对偏移 [dx]/[dy]。
+     * 卡片/图片/媒体保持 id 与层序(Remove+Add 的 Batch);笔迹平移点集后同 id 换新点。
+     * 返回是否命中元素(已在该位置时不再压入撤销栈)。
+     */
+    fun moveElementById(
+        kind: ElementRef.Kind?,
+        id: String,
+        targetX: Float?,
+        targetY: Float?,
+        dx: Float?,
+        dy: Float?,
+    ): Boolean {
+        val resolved = (kind ?: elementKindOf(id)) ?: return false
+        if (targetX == null && targetY == null && dx == null && dy == null) return false
+        val ref = ElementRef(resolved, id)
+        return when (resolved) {
+            ElementRef.Kind.CARD -> {
+                val index = page.cards.indexOfFirst { it.id == id }
+                if (index < 0) return false
+                val old = page.cards[index]
+                val nx = targetX ?: (old.x + (dx ?: 0f))
+                val ny = targetY ?: (old.y + (dy ?: 0f))
+                if (nx == old.x && ny == old.y) return true
+                if (cardDragId == id) cancelCardDrag()
+                commitProgrammatic(
+                    InkOp.Batch(listOf(InkOp.RemoveCard(old, index), InkOp.AddCard(old.copy(x = nx, y = ny)))),
+                    ref,
+                )
+            }
+            ElementRef.Kind.IMAGE -> {
+                val index = page.images.indexOfFirst { it.id == id }
+                if (index < 0) return false
+                val old = page.images[index]
+                val nx = targetX ?: (old.x + (dx ?: 0f))
+                val ny = targetY ?: (old.y + (dy ?: 0f))
+                if (nx == old.x && ny == old.y) return true
+                if (imageDragId == id) cancelImageDrag()
+                commitProgrammatic(
+                    InkOp.Batch(listOf(InkOp.RemoveImage(old, index), InkOp.AddImage(old.copy(x = nx, y = ny)))),
+                    ref,
+                )
+            }
+            ElementRef.Kind.MEDIA -> {
+                val index = page.media.indexOfFirst { it.id == id }
+                if (index < 0) return false
+                val old = page.media[index]
+                val nx = targetX ?: (old.x + (dx ?: 0f))
+                val ny = targetY ?: (old.y + (dy ?: 0f))
+                if (nx == old.x && ny == old.y) return true
+                commitProgrammatic(
+                    InkOp.Batch(listOf(InkOp.RemoveMedia(old, index), InkOp.AddMedia(old.copy(x = nx, y = ny)))),
+                    ref,
+                )
+            }
+            ElementRef.Kind.STROKE -> {
+                val index = page.strokes.indexOfFirst { it.id == id }
+                if (index < 0) return false
+                val old = page.strokes[index]
+                val box = StrokeGeom.bounds(old)
+                val moveDx = targetX?.minus(box.l) ?: (dx ?: 0f)
+                val moveDy = targetY?.minus(box.t) ?: (dy ?: 0f)
+                if (moveDx == 0f && moveDy == 0f) return true
+                val moved = old.copy(points = old.points.map { it.copy(x = it.x + moveDx, y = it.y + moveDy) })
+                commitProgrammatic(InkOp.Batch(listOf(InkOp.Remove(old, index), InkOp.Add(moved))), ref)
+            }
+        }
+    }
+
+    /** 按 id 删除页面元素(卡片/图片/媒体复用既有删除路径,笔迹走 Remove);可撤销 */
+    fun deleteElementById(kind: ElementRef.Kind?, id: String): Boolean {
+        val resolved = kind ?: elementKindOf(id) ?: return false
+        if (isSelected(ElementRef(resolved, id))) clearSelection()
+        return when (resolved) {
+            ElementRef.Kind.CARD -> {
+                if (cardDragId == id) cancelCardDrag()
+                deleteAnnotationCard(id)
+            }
+            ElementRef.Kind.IMAGE -> {
+                if (imageDragId == id) cancelImageDrag()
+                deleteImageElement(id)
+            }
+            ElementRef.Kind.MEDIA -> deleteMediaElement(id)
+            ElementRef.Kind.STROKE -> {
+                val index = page.strokes.indexOfFirst { it.id == id }
+                if (index < 0) return false
+                commitProgrammatic(InkOp.Remove(page.strokes[index], index), ElementRef(ElementRef.Kind.STROKE, id))
+            }
+        }
+    }
+
+    private fun commitProgrammatic(batch: InkOp, ref: ElementRef): Boolean {
+        if (isSelected(ref)) clearSelection()
+        page.apply(batch)
+        emitForward(batch)
+        notifyInvalidate()
+        return true
+    }
+
     // ---- 图片拖动(与批注卡拖动同构:拖动预览由视图渲染,抬起才落 Batch op)----
 
     private var imageDragId: String? = null

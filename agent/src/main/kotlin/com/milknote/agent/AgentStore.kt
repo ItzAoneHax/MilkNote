@@ -9,6 +9,8 @@ import java.security.MessageDigest
 /**
  * 存储(§3.2 / §7.2):
  * - 全局:filesDir/agent/profiles.json(Provider 配置;Key 在 KeyVault,不在此)
+ * - 全局:filesDir/agent/skills.json(技能,内置技能首次加载补齐)
+ * - 全局:filesDir/agent/tools.json(工具用户覆盖:开关/显示名/确认/设置)
  * - 随笔记本:<nb>.milk/agent/sessions/<id>.json + att/<sha1>.png(整本备份带走,§A7)
  * - 写策略:消息完成时整文件重写;流式过程不落盘;附件发送时落盘
  */
@@ -31,7 +33,15 @@ class AgentStore(
         val autoMentionAttachments: Boolean = true,
     )
 
+    @Serializable
+    data class SkillBook(val skills: List<AgentSkill> = emptyList())
+
+    @Serializable
+    data class ToolBook(val configs: List<ToolConfig> = emptyList())
+
     private val profilesFile: File get() = File(filesRoot, "agent/profiles.json")
+    private val skillsFile: File get() = File(filesRoot, "agent/skills.json")
+    private val toolsFile: File get() = File(filesRoot, "agent/tools.json")
 
     @Synchronized
     fun loadProfiles(): ProfileBook = runCatching {
@@ -43,6 +53,63 @@ class AgentStore(
     fun saveProfiles(book: ProfileBook) {
         profilesFile.parentFile?.mkdirs()
         atomicWrite(profilesFile, json.encodeToString(book))
+    }
+
+    // ---- 技能(全局;首次加载补齐内置技能,保留用户编辑与开关状态) ----
+
+    @Synchronized
+    fun loadSkills(): List<AgentSkill> {
+        val stored = runCatching {
+            if (!skillsFile.exists()) emptyList()
+            else json.decodeFromString<SkillBook>(skillsFile.readText()).skills
+        }.getOrDefault(emptyList())
+        val merged = mergeBuiltinSkills(stored)
+        if (merged != stored) {
+            runCatching { saveSkills(merged) }
+        }
+        return merged
+    }
+
+    @Synchronized
+    fun saveSkills(skills: List<AgentSkill>) {
+        skillsFile.parentFile?.mkdirs()
+        atomicWrite(skillsFile, json.encodeToString(SkillBook(skills)))
+    }
+
+    /**
+     * 内置技能补齐:缺失的按默认值补;已存在的保留用户改过的名称/摘要/正文/开关,
+     * 但 id 与 builtin 标记始终归内置定义所有。
+     */
+    private fun mergeBuiltinSkills(stored: List<AgentSkill>): List<AgentSkill> {
+        val byId = stored.associateBy { it.id }
+        val builtins = BuiltinSkills.all.map { base ->
+            val existing = byId[base.id] ?: return@map base
+            base.copy(
+                name = existing.name,
+                summary = existing.summary,
+                content = existing.content,
+                enabled = existing.enabled,
+                updatedAt = existing.updatedAt,
+                builtin = true,
+            )
+        }
+        val builtinIds = BuiltinSkills.all.map { it.id }.toSet()
+        val users = stored.filter { it.id !in builtinIds }.sortedBy { it.name }
+        return builtins + users
+    }
+
+    // ---- 工具配置(只存用户覆盖:显示名/描述/开关/确认/设置键值) ----
+
+    @Synchronized
+    fun loadToolConfigs(): Map<String, ToolConfig> = runCatching {
+        if (!toolsFile.exists()) return emptyMap()
+        json.decodeFromString<ToolBook>(toolsFile.readText()).configs.associateBy { it.id }
+    }.getOrDefault(emptyMap())
+
+    @Synchronized
+    fun saveToolConfigs(configs: Map<String, ToolConfig>) {
+        toolsFile.parentFile?.mkdirs()
+        atomicWrite(toolsFile, json.encodeToString(ToolBook(configs.values.sortedBy { it.id })))
     }
 
     // ---- 会话(每 (notebook,page) 至多恢复最近一个;§7.1 生命周期) ----

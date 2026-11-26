@@ -1,5 +1,7 @@
 package com.milknote.agent
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +25,7 @@ data class UiMessage(
     val insertedAnnotationId: String? = null,
     val anchor: Rect4? = null,          // 首条用户消息的选区(贴批注锚点)
     val generationMs: Long = 0L,        // 首 token → 完成耗时(ms;0=未测量)
+    val toolTraces: List<ToolTrace> = emptyList(),
 )
 
 data class AgentUiState(
@@ -43,6 +46,10 @@ data class AgentUiState(
     val summaryConfig: SummaryConfig = SummaryConfig(),
     val autoMentionAttachments: Boolean = true,
     val summarizingSessionIds: Set<String> = emptySet(), // 正在生成摘要的会话
+    val skills: List<AgentSkill> = emptyList(),
+    val toolSpecs: List<ToolSpec> = emptyList(),
+    val toolConfigs: Map<String, ToolConfig> = emptyMap(),
+    val pendingConfirmation: PendingToolConfirmation? = null,
 )
 
 /** 摘要提示词(短、稳定;只要会话主题,不要复述细节) */
@@ -83,6 +90,10 @@ class AgentController(
     private val providerFactory: (ProviderProfile, () -> String?, (CompatPatch) -> Unit) -> AgentProvider =
         { p, k, onPatch -> ProviderFactory.create(p, k, onPatch) },   // 按 protocol 分发(OpenAI 兼容/Anthropic 原生)
     private val clockMs: () -> Long = System::currentTimeMillis,
+    /** 笔记本工作区(页面/画布工具);null = 相关工具返回「未接入」 */
+    private val workspace: NotebookWorkspacePort? = null,
+    private val webSearch: WebSearchPort = DefaultWebSearchPort(),
+    private val toolRegistry: ToolRegistry = BuiltinTools.createDefaultRegistry(),
 ) {
 
     private val _state = MutableStateFlow(AgentUiState())
@@ -95,6 +106,43 @@ class AgentController(
     private var generationStartedAt = 0L              // 本轮请求开始时刻(手停也可算耗时)
     private var generationFirstTokenAt = 0L
 
+    /** 待确认工具调用:等待 UI 批准/拒绝 */
+    @Volatile private var confirmDeferred: CompletableDeferred<Boolean>? = null
+
+    /** 技能端口:读状态内存,写回 store(工具 create_skill 直接调用) */
+    private val skillManager: SkillManagerPort = object : SkillManagerPort {
+        override fun listSkills(): List<AgentSkill> = _state.value.skills
+
+        override fun findEnabledSkill(idOrName: String): AgentSkill? = _state.value.skills.firstOrNull {
+            it.enabled && (it.id.equals(idOrName, ignoreCase = true) || it.name == idOrName)
+        }
+
+        override fun createOrUpdateSkill(
+            id: String?,
+            name: String,
+            summary: String,
+            content: String,
+            enabled: Boolean,
+        ): AgentSkill {
+            val existing = _state.value.skills.firstOrNull {
+                id != null && it.id.equals(id, ignoreCase = true)
+            }
+            val resolvedId = existing?.id ?: id?.takeIf { it.isNotBlank() }
+                ?: uniqueSkillId(slugifySkillId(name))
+            val skill = AgentSkill(
+                id = resolvedId,
+                name = name.trim().ifBlank { "未命名技能" },
+                summary = summary.trim(),
+                content = content,
+                enabled = enabled,
+                builtin = existing?.builtin ?: false,
+                updatedAt = clockMs(),
+            )
+            persistSkills(_state.value.skills.filterNot { it.id == skill.id } + skill)
+            return skill
+        }
+    }
+
     /** ModelNotVision 连坐计数(§3.4:连续 2 次本地标 vision=false) */
     private val notVisionStrikes = HashMap<String, Int>()
 
@@ -104,6 +152,7 @@ class AgentController(
 
     init {
         refreshUiFromBook(store.loadProfiles())
+        refreshSkillAndToolState()
     }
 
     private fun update(transform: (AgentUiState) -> AgentUiState) {
@@ -141,6 +190,119 @@ class AgentController(
                 autoMentionAttachments = book.autoMentionAttachments,
             )
         }
+    }
+
+    // ==================== 技能 / 工具管理 ====================
+
+    private fun refreshSkillAndToolState() {
+        val skills = store.loadSkills()
+        val configs = store.loadToolConfigs()
+        update {
+            it.copy(
+                skills = skills,
+                toolSpecs = toolRegistry.allSpecs(),
+                toolConfigs = configs,
+            )
+        }
+    }
+
+    private fun persistSkills(skills: List<AgentSkill>) {
+        store.saveSkills(skills)
+        update { it.copy(skills = skills) }
+    }
+
+    /** 新增或更新技能(内置技能保留 builtin 标记;id 为空时按名称生成安全 slug) */
+    fun upsertSkill(skill: AgentSkill) {
+        val existing = _state.value.skills.firstOrNull { it.id == skill.id }
+        val id = skill.id.ifBlank { uniqueSkillId(slugifySkillId(skill.name)) }
+        val builtin = existing?.builtin ?: BuiltinSkills.all.any { it.id == id }
+        val next = skill.copy(
+            id = id,
+            name = skill.name.trim().ifBlank { "未命名技能" },
+            builtin = builtin,
+            updatedAt = clockMs(),
+        )
+        persistSkills(_state.value.skills.filterNot { it.id == next.id } + next)
+    }
+
+    fun toggleSkill(id: String, enabled: Boolean) {
+        val skills = _state.value.skills
+        if (skills.none { it.id == id }) return
+        persistSkills(
+            skills.map { if (it.id == id) it.copy(enabled = enabled, updatedAt = clockMs()) else it },
+        )
+    }
+
+    /** 删除技能:内置技能只可关闭/重置,不可删除 */
+    fun deleteSkill(id: String) {
+        val skill = _state.value.skills.firstOrNull { it.id == id } ?: return
+        if (skill.builtin) {
+            update { it.copy(toast = "内置技能不可删除,可关闭或重置") }
+            return
+        }
+        persistSkills(_state.value.skills.filterNot { it.id == id })
+    }
+
+    /** 恢复内置技能默认内容并重新启用 */
+    fun resetBuiltinSkill(id: String) {
+        val base = BuiltinSkills.all.firstOrNull { it.id == id } ?: return
+        val next = base.copy(enabled = true, updatedAt = clockMs())
+        persistSkills(_state.value.skills.filterNot { it.id == id } + next)
+    }
+
+    fun updateToolConfig(config: ToolConfig) {
+        val next = _state.value.toolConfigs + (config.id to config)
+        store.saveToolConfigs(next)
+        update { it.copy(toolConfigs = next) }
+    }
+
+    fun toggleTool(id: String, enabled: Boolean) {
+        if (toolRegistry.get(id) == null) return
+        val existing = _state.value.toolConfigs[id] ?: ToolConfig(id = id)
+        updateToolConfig(existing.copy(id = id, enabled = enabled))
+    }
+
+    /** 移除用户覆盖,回到工具声明默认值 */
+    fun resetToolConfig(id: String) {
+        val next = _state.value.toolConfigs - id
+        store.saveToolConfigs(next)
+        update { it.copy(toolConfigs = next) }
+    }
+
+    // ---- 高危工具确认 ----
+
+    fun approvePendingTool() {
+        if (_state.value.pendingConfirmation == null) return
+        update { it.copy(pendingConfirmation = null) }
+        confirmDeferred?.complete(true)
+    }
+
+    fun rejectPendingTool() {
+        if (_state.value.pendingConfirmation == null) return
+        update { it.copy(pendingConfirmation = null) }
+        confirmDeferred?.complete(false)
+    }
+
+    private fun effectiveConfigOf(spec: ToolSpec): ToolConfig =
+        toolRegistry.effectiveConfig(spec, _state.value.toolConfigs)
+
+    private fun slugifySkillId(name: String): String {
+        val ascii = name.lowercase().map { c ->
+            if (c in 'a'..'z' || c in '0'..'9' || c == '_') c else '_'
+        }.joinToString("").trim('_')
+        return when {
+            ascii.isBlank() -> "skill"
+            ascii.first().isDigit() -> "skill_$ascii"
+            else -> ascii
+        }
+    }
+
+    private fun uniqueSkillId(base: String): String {
+        val used = _state.value.skills.map { it.id }.toSet()
+        if (base !in used) return base
+        var n = 2
+        while ("${base}_$n" in used) n++
+        return "${base}_$n"
     }
 
     /** 新增 profile(预设或自定义);apiKey 空 = 暂不可用;自定义可指定 Anthropic 原生协议 */
@@ -577,6 +739,7 @@ class AgentController(
         phase = AgentMessage.Phase.valueOf(phase),
         insertedAnnotationId = insertedAnnotationId,
         generationMs = generationMs,
+        toolTraces = toolTraces,
     )
 
     // ==================== 框选(§4.2 → 附件) ====================
@@ -911,6 +1074,11 @@ class AgentController(
     }
 
     fun stop() {
+        // 正在等待高危工具确认:先拒绝并清空,再取消任务(否则确认弹层会残留)
+        if (_state.value.pendingConfirmation != null) {
+            update { it.copy(pendingConfirmation = null) }
+            confirmDeferred?.complete(false)
+        }
         sendJob?.cancel()
         lastProvider?.cancel()
         val s = _state.value
@@ -1066,9 +1234,13 @@ class AgentController(
             val userWire = if (spec != null) PromptEngine.userText(spec, extraText) else extraText
             val mentionsUsed = userWire.contains("@") || extraText.contains("@")
             val labels = finalVisuals.map { if (mentionsUsed) it.label else "" }
+            // 工具与技能:按用户开关生成 wire 声明,技能只注入目录(正文按需 read_skill)
+            val wireTools = toolRegistry.effectiveWireTools(_state.value.toolConfigs)
+            val enabledSkills = _state.value.skills.filter { it.enabled }
+            val promptSpec = Intents.byId(intent ?: lastIntent() ?: Intents.Id.EXPLAIN)
             val req = ChatRequest(
                 model = model.id,
-                system = PromptEngine.systemPrompt(Intents.byId(intent ?: lastIntent() ?: Intents.Id.EXPLAIN)),
+                system = PromptEngine.systemPrompt(promptSpec, enabledSkills, wireTools),
                 history = history,
                 newUserText = PromptEngine.assembleRichUserContent(userWire, labels, docBlocks),
                 images = finalVisuals.map { java.util.Base64.getEncoder().encodeToString(it.bytes) },
@@ -1078,6 +1250,7 @@ class AgentController(
                     .getOrDefault(ReasoningEffort.AUTO),
                 // 会话标识:OpenCode Go 用 x-opencode-session 归集会话(缺省按 profile 派生)
                 sessionId = session?.id ?: "milknote-${profile.id}",
+                tools = wireTools,
             )
             runExchange(profile, model, req, userMsg, asstMsg, intentForChips)
         }
@@ -1093,7 +1266,7 @@ class AgentController(
         return PromptEngine.windowedHistory(msgs)
     }
 
-    /** 流式交换 + §11 重试策略(自动重试仅首 token 前) */
+    /** 流式交换 + §11 重试策略(自动重试仅首 token 前)+ 多轮工具调用(≤ MAX_TOOL_ROUNDS) */
     private fun runExchange(
         profile: ProviderProfile,
         model: ModelInfo,
@@ -1108,7 +1281,11 @@ class AgentController(
             var attempt = 0
             val text = StringBuilder()
             val thinking = StringBuilder()
-            var usage: ChatEvent.Usage? = null
+            val traces = ArrayList<ToolTrace>()
+            var usagePrompt = 0
+            var usageCompletion = 0
+            var request = req
+            var round = 0
             generationStartedAt = clockMs()
             generationFirstTokenAt = 0L
 
@@ -1118,7 +1295,99 @@ class AgentController(
                 }
             }
 
+            fun tracesSnapshot(): List<ToolTrace> = traces.toList()
+
+            fun applyTraces() {
+                val snapshot = tracesSnapshot()
+                replaceAssistant { it.copy(toolTraces = snapshot) }
+            }
+
+            fun accumulatedUsage(): ChatEvent.Usage? =
+                if (usagePrompt > 0 || usageCompletion > 0) {
+                    ChatEvent.Usage(usagePrompt, usageCompletion)
+                } else {
+                    null
+                }
+
+            fun successUsage(): ChatEvent.Usage = accumulatedUsage() ?: ChatEvent.Usage(
+                ImageBudget.estTokens(req.images.size, req.newUserText.length),
+                (text.length / 1.6).toInt(),
+            )
+
+            fun finishDone() {
+                val usage = successUsage()
+                val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, usage.completionTokens)
+                val snapshot = tracesSnapshot()
+                replaceAssistant {
+                    it.copy(
+                        text = text.toString(),
+                        reasoning = thinking.toString(),
+                        streaming = false,
+                        phase = AgentMessage.Phase.DONE,
+                        promptTokens = usage.promptTokens,
+                        completionTokens = usage.completionTokens,
+                        generationMs = genMs,
+                        toolTraces = snapshot,
+                    )
+                }
+                update { it.copy(phase = AgentMessage.Phase.DONE) }
+                persistWith(
+                    userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage,
+                    model.id, thinking.toString(), genMs, usage.promptTokens, usage.completionTokens, snapshot,
+                )
+            }
+
+            fun finishFailed(error: AgentError) {
+                val usage = accumulatedUsage()
+                val genMs = measuredGenerationMs(
+                    generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0,
+                )
+                val snapshot = tracesSnapshot()
+                replaceAssistant {
+                    it.copy(
+                        text = text.toString(),
+                        reasoning = thinking.toString(),
+                        streaming = false,
+                        phase = AgentMessage.Phase.FAILED,
+                        generationMs = genMs,
+                        toolTraces = snapshot,
+                    )
+                }
+                update { it.copy(phase = AgentMessage.Phase.FAILED, error = error) }
+                persistWith(
+                    userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage,
+                    model.id, thinking.toString(), genMs,
+                    usage?.promptTokens ?: 0, usage?.completionTokens ?: 0, snapshot,
+                )
+            }
+
+            fun finishInterrupted() {
+                val usage = accumulatedUsage()
+                val genMs = measuredGenerationMs(
+                    generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0,
+                )
+                val snapshot = tracesSnapshot()
+                replaceAssistant {
+                    it.copy(
+                        text = text.toString(),
+                        reasoning = thinking.toString(),
+                        streaming = false,
+                        phase = AgentMessage.Phase.INTERRUPTED,
+                        generationMs = genMs,
+                        toolTraces = snapshot,
+                    )
+                }
+                update { it.copy(phase = AgentMessage.Phase.INTERRUPTED) }
+                persistWith(
+                    userMsg, asstMsg, text.toString(), AgentMessage.Phase.INTERRUPTED, intent, usage,
+                    model.id, thinking.toString(), genMs,
+                    usage?.promptTokens ?: 0, usage?.completionTokens ?: 0, snapshot,
+                )
+            }
+
             while (true) {
+                val roundStart = text.length
+                val roundCalls = ArrayList<ToolCall>()
                 val provider = providerFactory(effectiveProfile, { keyFor(effectiveProfile.apiKeyAlias) }) { patch ->
                     // 兼容性自适配回写(§3.5:imageStyle / streamOptions),落盘后续不再抖动
                     store.saveProfiles(currentBook().let { b ->
@@ -1135,8 +1404,9 @@ class AgentController(
                 var done: ChatEvent.Done? = null
                 var err: AgentError? = null
                 var gotDelta = false
+                var roundUsage: ChatEvent.Usage? = null
                 try {
-                    provider.chat(req).collect { ev ->
+                    provider.chat(request).collect { ev ->
                         when (ev) {
                             is ChatEvent.Finish -> {}   // 完成信号仅记录;Done 在 [DONE] 或流关闭时发
                             is ChatEvent.Thinking -> {
@@ -1151,85 +1421,68 @@ class AgentController(
                                 text.append(ev.text)
                                 replaceAssistant { it.copy(text = text.toString(), streaming = true) }
                             }
-                            is ChatEvent.Usage -> usage = ev
+                            is ChatEvent.ToolCallReady -> {
+                                gotDelta = true   // 工具调用同样是已计费内容
+                                roundCalls.add(ev.call)
+                            }
+                            is ChatEvent.Usage -> roundUsage = ev
                             is ChatEvent.Done -> done = ev
                             is ChatEvent.Error -> err = ev.error
                         }
                     }
-                } catch (e: kotlinx.coroutines.CancellationException) {
+                } catch (e: CancellationException) {
                     throw e
                 }
 
-                if (done != null) {
-                    val promptTokens = usage?.promptTokens
-                        ?: ImageBudget.estTokens(req.images.size, req.newUserText.length)
-                    val completionTokens = usage?.completionTokens ?: (text.length / 1.6).toInt()
-                    val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, completionTokens)
-                    replaceAssistant {
-                        it.copy(
-                            streaming = false,
-                            phase = AgentMessage.Phase.DONE,
-                            promptTokens = promptTokens,
-                            completionTokens = completionTokens,
-                            generationMs = genMs,
+                val roundText = text.substring(roundStart)
+
+                // 正常收尾(含服务端未发 [DONE] 的防御分支)
+                if (done != null || err == null) {
+                    usagePrompt += roundUsage?.promptTokens ?: 0
+                    usageCompletion += roundUsage?.completionTokens ?: 0
+
+                    if (roundCalls.isEmpty()) {
+                        finishDone()
+                        return@launch
+                    }
+
+                    if (round >= MAX_TOOL_ROUNDS) {
+                        if (text.isEmpty()) text.append("已达到工具调用轮次上限,未能继续完成。")
+                        update { it.copy(toast = "工具调用轮次已达上限") }
+                        finishDone()
+                        return@launch
+                    }
+
+                    round++
+                    attempt = 0
+                    val continuation = ArrayList<WireMessage>(1 + roundCalls.size)
+                    continuation.add(WireMessage("assistant", roundText, toolCalls = roundCalls))
+                    for (call in roundCalls) {
+                        val output = executeToolCall(call, traces) { applyTraces() }
+                        continuation.add(
+                            WireMessage("tool", output, toolCallId = call.id, toolName = call.name),
                         )
                     }
-                    update { it.copy(phase = AgentMessage.Phase.DONE) }
-                    persistWith(
-                        userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage,
-                        model.id, thinking.toString(), genMs, promptTokens, completionTokens,
+                    applyTraces()
+                    replaceAssistant { it.copy(text = text.toString(), streaming = true) }
+                    request = request.copy(
+                        continuationMessages = request.continuationMessages + continuation,
                     )
-                    return@launch
+                    continue
                 }
 
-                val e = err
-                if (e == null) {   // 流自然结束无 [DONE]:按完成处理(防御)
-                    val promptTokens = usage?.promptTokens
-                        ?: ImageBudget.estTokens(req.images.size, req.newUserText.length)
-                    val completionTokens = usage?.completionTokens ?: (text.length / 1.6).toInt()
-                    val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, completionTokens)
-                    replaceAssistant {
-                        it.copy(
-                            streaming = false,
-                            phase = AgentMessage.Phase.DONE,
-                            promptTokens = promptTokens,
-                            completionTokens = completionTokens,
-                            generationMs = genMs,
-                        )
-                    }
-                    persistWith(
-                        userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage,
-                        model.id, thinking.toString(), genMs, promptTokens, completionTokens,
-                    )
-                    return@launch
-                }
+                val e = err ?: return@launch
 
                 // 取消
                 if (e is AgentError.Cancelled) {
-                    val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0)
-                    replaceAssistant {
-                        it.copy(streaming = false, phase = AgentMessage.Phase.INTERRUPTED, generationMs = genMs)
-                    }
-                    update { it.copy(phase = AgentMessage.Phase.INTERRUPTED) }
-                    persistWith(
-                        userMsg, asstMsg, text.toString(), AgentMessage.Phase.INTERRUPTED, intent, usage,
-                        model.id, thinking.toString(), genMs,
-                    )
+                    finishInterrupted()
                     return@launch
                 }
 
                 // 已有内容 → 不自动重试(不重复计费,§11),但保留真实错误:
                 // content_filter / 参数错 / 网络断 一律原样上报,只有真·断流才是 StreamBroken
-                if (gotDelta || text.isNotEmpty()) {
-                    val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0)
-                    replaceAssistant {
-                        it.copy(streaming = false, phase = AgentMessage.Phase.FAILED, generationMs = genMs)
-                    }
-                    update { it.copy(phase = AgentMessage.Phase.FAILED, error = e) }
-                    persistWith(
-                        userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage,
-                        model.id, thinking.toString(), genMs,
-                    )
+                if (gotDelta || roundText.isNotEmpty()) {
+                    finishFailed(e)
                     return@launch
                 }
 
@@ -1266,13 +1519,138 @@ class AgentController(
                     continue
                 }
 
-                replaceAssistant { it.copy(streaming = false, phase = AgentMessage.Phase.FAILED) }
-                update { it.copy(phase = AgentMessage.Phase.FAILED, error = e) }
-                persistWith(userMsg, asstMsg, "", AgentMessage.Phase.FAILED, intent, null, model.id, thinking.toString())
+                finishFailed(e)
                 return@launch
             }
         }
     }
+
+    /**
+     * 执行单个工具调用:未注册/已关闭 → 回传错误;需确认 → 挂起等待 UI;
+     * 拒绝 → DENIED;执行后写 DONE/ERROR 并返回给模型的文本结果。
+     */
+    private suspend fun executeToolCall(
+        call: ToolCall,
+        traces: MutableList<ToolTrace>,
+        onTracesChanged: () -> Unit,
+    ): String {
+        val tool = toolRegistry.get(call.name)
+        if (tool == null) {
+            traces += ToolTrace(
+                callId = call.id,
+                toolName = call.name,
+                displayName = call.name,
+                argumentsJson = call.argumentsJson,
+                status = ToolTrace.Status.ERROR,
+                resultSummary = "未知工具",
+                output = "工具不存在",
+            )
+            onTracesChanged()
+            return "工具 ${call.name} 不存在;可用工具:${toolRegistry.allSpecs().joinToString(", ") { it.id }}。" +
+                "请直接回答,不要重复调用。"
+        }
+
+        val spec = tool.spec
+        val config = effectiveConfigOf(spec)
+        val displayName = toolRegistry.effectiveDisplayName(spec, config)
+        val args = ToolArgs.parse(call.argumentsJson)
+        val normalizedArgs = ToolArgs.encode(args)
+        val action = runCatching { tool.describeAction(args, toolContext(config)) }
+            .getOrDefault(displayName)
+
+        if (!config.enabled) {
+            traces += ToolTrace(
+                callId = call.id,
+                toolName = spec.id,
+                displayName = displayName,
+                argumentsJson = normalizedArgs,
+                status = ToolTrace.Status.ERROR,
+                actionSummary = action,
+                resultSummary = "工具已关闭",
+                output = "工具已关闭",
+            )
+            onTracesChanged()
+            return "工具「$displayName」已被用户关闭,无法使用。请直接回答,不要重复调用。"
+        }
+
+        var approved = !toolRegistry.requiresConfirmation(spec, config)
+        traces += ToolTrace(
+            callId = call.id,
+            toolName = spec.id,
+            displayName = displayName,
+            argumentsJson = normalizedArgs,
+            status = if (approved) ToolTrace.Status.RUNNING else ToolTrace.Status.PENDING_CONFIRM,
+            actionSummary = action,
+        )
+        onTracesChanged()
+
+        if (!approved) {
+            val pending = PendingToolConfirmation(
+                callId = call.id,
+                toolId = spec.id,
+                displayName = displayName,
+                actionSummary = action,
+                argumentsJson = normalizedArgs,
+            )
+            val deferred = CompletableDeferred<Boolean>()
+            confirmDeferred = deferred
+            update { it.copy(pendingConfirmation = pending) }
+            approved = try {
+                deferred.await()
+            } finally {
+                if (confirmDeferred === deferred) confirmDeferred = null
+                update { it.copy(pendingConfirmation = null) }
+            }
+            if (!approved) {
+                updateTrace(traces, call.id) {
+                    it.copy(status = ToolTrace.Status.DENIED, resultSummary = "用户已取消")
+                }
+                onTracesChanged()
+                return "用户取消了「$action」,该操作未执行。不要重复调用同一操作;请说明原因或提供替代方案。"
+            }
+            updateTrace(traces, call.id) { it.copy(status = ToolTrace.Status.RUNNING) }
+            onTracesChanged()
+        }
+
+        val result = try {
+            tool.execute(args, toolContext(config))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            ToolExecResult(false, "工具执行失败:${t.message ?: t::class.simpleName}")
+        }
+
+        updateTrace(traces, call.id) {
+            it.copy(
+                status = if (result.ok) ToolTrace.Status.DONE else ToolTrace.Status.ERROR,
+                resultSummary = result.summary.ifBlank { if (result.ok) "完成" else "失败" },
+                output = result.output.take(TOOL_OUTPUT_MAX),
+            )
+        }
+        onTracesChanged()
+        return if (result.ok) {
+            result.output.take(TOOL_OUTPUT_MAX)
+        } else {
+            "工具执行失败:${result.output.take(TOOL_OUTPUT_MAX)}"
+        }
+    }
+
+    private fun updateTrace(
+        traces: MutableList<ToolTrace>,
+        callId: String,
+        transform: (ToolTrace) -> ToolTrace,
+    ) {
+        val index = traces.indexOfFirst { it.callId == callId }
+        if (index >= 0) traces[index] = transform(traces[index])
+    }
+
+    private fun toolContext(config: ToolConfig) = ToolContext(
+        boundPage = _state.value.boundPage,
+        config = config,
+        workspace = workspace,
+        skillStore = skillManager,
+        webSearch = webSearch,
+    )
 
     /** 首 token → 完成耗时;单块快速返回时按 50ms 兜底(速度不至于除零) */
     private fun measuredGenerationMs(startedAt: Long, firstTokenAt: Long, completionTokens: Int): Long {
@@ -1293,6 +1671,7 @@ class AgentController(
         generationMs: Long = 0L,
         promptTokens: Int = usage?.promptTokens ?: 0,
         completionTokens: Int = usage?.completionTokens ?: 0,
+        toolTraces: List<ToolTrace> = emptyList(),
     ) {
         val s = session ?: return
         val now = clockMs()
@@ -1307,6 +1686,7 @@ class AgentController(
             completionTokens = completionTokens,
             phase = phase.name,
             generationMs = generationMs,
+            toolTraces = toolTraces,
         )
         val messages = (s.messages.filter { it.id != userMsg.id && it.id != asstMsg.id } + u + a)
             .sortedBy { it.sentAt }
@@ -1346,6 +1726,7 @@ class AgentController(
                     attachments = ui.attachments, intent = ui.intent?.name, modelId = ui.modelId,
                     promptTokens = ui.promptTokens, completionTokens = ui.completionTokens,
                     phase = ui.phase.name, generationMs = ui.generationMs,
+                    toolTraces = ui.toolTraces,
                 )
             }
         session = s.copy(messages = messages, updatedAt = clockMs())
@@ -1626,5 +2007,13 @@ class AgentController(
         }
         val text = s.draftText.length + s.draftAttachments.sumOf { it.textContent.length }
         return ImageBudget.estTokens(images, text)
+    }
+
+    companion object {
+        /** 单次发送最多工具轮次(防止模型无限调用) */
+        const val MAX_TOOL_ROUNDS = 8
+
+        /** 回传模型的单个工具输出上限(字符) */
+        const val TOOL_OUTPUT_MAX = 8000
     }
 }

@@ -20,6 +20,21 @@ class OpenAiResponsesProvider(
     keyResolver: () -> String?,
 ) : BaseHttpProvider(profile, keyResolver) {
 
+    private class ResponseCall(
+        val key: String,
+        val callId: String,
+        var name: String,
+        val args: StringBuilder = StringBuilder(),
+    )
+
+    private val responseCalls = LinkedHashMap<String, ResponseCall>()
+    private val emittedCalls = HashSet<String>()
+
+    internal override fun resetStreamState() {
+        responseCalls.clear()
+        emittedCalls.clear()
+    }
+
     internal override fun endpoint(path: String, sse: Boolean): String = when (path) {
         "chat" -> EndpointResolver.resolveChatUrl(profile.baseUrl, Protocol.OPENAI_RESPONSES)
         else -> EndpointResolver.resolveModelsUrl(profile.baseUrl, Protocol.OPENAI_RESPONSES)
@@ -55,6 +70,39 @@ class OpenAiResponsesProvider(
                     put("content", parts)
                 })
             }
+            // 工具续写:assistant 文本项 + function_call 项;tool → function_call_output
+            req.continuationMessages.forEach { m ->
+                when {
+                    m.role == "tool" -> add(buildJsonObject {
+                        put("type", "function_call_output")
+                        put("call_id", m.toolCallId ?: "")
+                        put("output", m.content)
+                    })
+                    m.role == "assistant" -> {
+                        if (m.content.isNotBlank()) {
+                            add(buildJsonObject {
+                                put("type", "message")
+                                put("role", "assistant")
+                                put("content", buildJsonArray {
+                                    add(buildJsonObject {
+                                        put("type", "output_text")
+                                        put("text", m.content)
+                                    })
+                                })
+                            })
+                        }
+                        m.toolCalls.forEach { c ->
+                            add(buildJsonObject {
+                                put("type", "function_call")
+                                put("call_id", c.id)
+                                put("name", c.name)
+                                put("arguments", c.argumentsJson)
+                            })
+                        }
+                    }
+                    else -> add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                }
+            }
         }
         val declared = ThinkingDispatch.parseLevels(
             (profile.models.firstOrNull { it.id == req.model } ?: profile.activeModel())
@@ -65,6 +113,19 @@ class OpenAiResponsesProvider(
             put("stream", req.stream)
             if (req.system.isNotBlank()) put("instructions", req.system)
             put("input", input)
+            // 工具声明(Responses:type=function + name/description/parameters)
+            if (req.tools.isNotEmpty()) {
+                put("tools", buildJsonArray {
+                    req.tools.forEach { t ->
+                        add(buildJsonObject {
+                            put("type", "function")
+                            put("name", t.name)
+                            put("description", t.description)
+                            put("parameters", toolParameterSchema(t.parameters))
+                        })
+                    }
+                })
+            }
             when (req.reasoningEffort) {
                 ReasoningEffort.AUTO -> Unit   // 跟随模型默认
                 ReasoningEffort.OFF ->
@@ -101,6 +162,48 @@ class OpenAiResponsesProvider(
                 obj.nonEmptyStr("delta")?.let { listOf(ChatEvent.Delta(it)) } ?: emptyList()
             "response.reasoning_summary_text.delta", "response.reasoning_text.delta" ->
                 obj.nonEmptyStr("delta")?.let { listOf(ChatEvent.Thinking(it)) } ?: emptyList()
+            "response.output_item.added" -> {
+                val item = obj.objOrNull("item")
+                if (item?.strOrNull("type") == "function_call") {
+                    val acc = callFromItem(item)
+                    if (acc != null) responseCalls[acc.key] = acc
+                }
+                emptyList()
+            }
+            "response.function_call_arguments.delta" -> {
+                val acc = findCall(obj)
+                if (acc != null) obj.nonEmptyStr("delta")?.let { acc.args.append(it) }
+                emptyList()
+            }
+            "response.function_call_arguments.done" -> {
+                val acc = findCall(obj) ?: return emptyList()
+                obj.strOrNull("arguments")?.takeIf { it.isNotBlank() }?.let {
+                    acc.args.clear()
+                    acc.args.append(it)
+                }
+                emitCall(acc)
+            }
+            "response.output_item.done" -> {
+                val item = obj.objOrNull("item")
+                if (item?.strOrNull("type") == "function_call") {
+                    val acc = callFromItem(item) ?: return emptyList()
+                    val existing = responseCalls[acc.key] ?: responseCalls.values
+                        .firstOrNull { it.callId == acc.callId }
+                    if (existing != null) {
+                        if (acc.name.isNotBlank()) existing.name = acc.name
+                        if (acc.args.isNotEmpty()) {
+                            existing.args.clear()
+                            existing.args.append(acc.args)
+                        }
+                        responseCalls.remove(acc.key)
+                        emitCall(existing)
+                    } else {
+                        emitCall(acc)
+                    }
+                } else {
+                    emptyList()
+                }
+            }
             "response.completed" -> {
                 val out = ArrayList<ChatEvent>(3)
                 out += ChatEvent.Finish("completed")
@@ -147,6 +250,41 @@ class OpenAiResponsesProvider(
         val pt = u.intOrNull("input_tokens") ?: 0
         val ct = u.intOrNull("output_tokens") ?: 0
         return if (pt > 0 || ct > 0) ChatEvent.Usage(pt, ct) else null
+    }
+
+    private fun callFromItem(item: kotlinx.serialization.json.JsonObject): ResponseCall? {
+        val itemId = item.strOrNull("id") ?: item.strOrNull("call_id") ?: return null
+        val callId = item.strOrNull("call_id") ?: itemId
+        val acc = ResponseCall(itemId, callId, item.strOrNull("name") ?: "")
+        item.strOrNull("arguments")?.takeIf { it.isNotBlank() }?.let { acc.args.append(it) }
+        return acc
+    }
+
+    /** 参数增量帧按 item_id/call_id 定位;找不到就建一个待补名的累积器 */
+    private fun findCall(obj: kotlinx.serialization.json.JsonObject): ResponseCall? {
+        val key = obj.strOrNull("item_id") ?: obj.strOrNull("call_id") ?: return null
+        responseCalls[key]?.let { return it }
+        val callId = obj.strOrNull("call_id")
+        responseCalls.values.firstOrNull { it.callId == key || (callId != null && it.callId == callId) }
+            ?.let { return it }
+        val acc = ResponseCall(key, callId ?: key, obj.strOrNull("name") ?: "")
+        responseCalls[key] = acc
+        return acc
+    }
+
+    /** 去重后发一次 ToolCallReady(参数 done 与 output_item.done 可能重复到达) */
+    private fun emitCall(acc: ResponseCall): List<ChatEvent> {
+        if (acc.name.isBlank() || acc.callId in emittedCalls) return emptyList()
+        emittedCalls += acc.callId
+        return listOf(
+            ChatEvent.ToolCallReady(
+                ToolCall(
+                    id = acc.callId,
+                    name = acc.name,
+                    argumentsJson = acc.args.toString().ifBlank { "{}" },
+                ),
+            ),
+        )
     }
 
     companion object {

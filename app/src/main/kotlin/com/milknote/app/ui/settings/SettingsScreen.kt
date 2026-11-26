@@ -152,6 +152,10 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                 needle.contains("右滑") || needle.contains("新建页") -> "writing"
             needle.contains("笔") || needle.contains("按键") || needle.contains("蓝牙") || needle.contains("电量") || needle.contains("接管") -> "pen"
             needle.contains("快捷") || needle.contains("键盘") || needle.contains("手势") -> "shortcuts"
+            needle.contains("技能") || needle.contains("skill") || needle.contains("工具") ||
+                needle.contains("tool") || needle.contains("计算") || needle.contains("联网") ||
+                needle.contains("搜索") || needle.contains("markdown") || needle.contains("latex") ||
+                needle.contains("确认") || needle.contains("页面") -> "skills_tools"
             needle.contains("模型") || needle.contains("ai") || needle.contains("key") || needle.contains("provider") ||
                 needle.contains("视觉") || needle.contains("隐私") ||
                 needle.contains("总结") || needle.contains("摘要") || needle.contains("会话") ||
@@ -232,6 +236,7 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
                         }
                     }
                     "storage" -> StoragePage(appSettings = appSettings, onToast = showToast)
+                    "skills_tools" -> SkillsAndToolsPage()
                 }
             }
         }

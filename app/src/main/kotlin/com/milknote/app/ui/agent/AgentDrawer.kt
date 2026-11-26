@@ -161,6 +161,7 @@ import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkComposerField
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkExpandableErrorBox
+import com.milknote.app.ui.common.MilkGroupItemDivider
 import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkInlineAction
@@ -173,6 +174,8 @@ import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSurfaceGroup
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.MilkToast
+import com.milknote.app.ui.common.MilkToolConfirmBar
+import com.milknote.app.ui.common.MilkToolTraceList
 import com.milknote.app.ui.common.milkEdgeHairline
 import com.milknote.app.ui.common.milkGlassRim
 import com.milknote.app.ui.common.softClickable
@@ -524,6 +527,16 @@ private fun AgentDrawer(
                                 onSummarizeChapter = onSummarizeChapter,
                             )
                             Spacer(Modifier.height(MilkSpace.sm))
+                        }
+                        state.pendingConfirmation?.let { pending ->
+                            MilkToolConfirmBar(
+                                confirmation = pending,
+                                onApprove = { ServiceLocator.agentController.approvePendingTool() },
+                                onReject = { ServiceLocator.agentController.rejectPendingTool() },
+                                modifier = Modifier
+                                    .padding(horizontal = MilkSpace.md)
+                                    .padding(bottom = MilkSpace.xs),
+                            )
                         }
                         Composer(state, pageIds, onSnipToAttachment)
                     }
@@ -1179,11 +1192,18 @@ private fun Messages(
     // A-20:条数增加 → 动画贴底一次;同一条流式追加 → 直接贴底,不反复起动画;
     // 流式结束且没有新消息 → 一律不动(展开思考块、复制、阅读都不能被掼回顶部)
     var prevSize by remember { mutableStateOf(-1) }
-    val streamingLength = state.messages.lastOrNull()?.let { it.text.length to it.reasoning.length }
-    LaunchedEffect(state.messages.size, streamingLength) {
+    var prevPendingCallId by remember { mutableStateOf<String?>(null) }
+    val streamingLength = state.messages.lastOrNull()?.let {
+        Triple(it.text.length, it.reasoning.length, it.toolTraces.size)
+    }
+    val pendingCallId = state.pendingConfirmation?.callId
+    LaunchedEffect(state.messages.size, streamingLength, pendingCallId) {
         val n = state.messages.size
         val grew = n > prevSize
         prevSize = n
+        // 工具轨迹或待确认条出现时同样贴底,避免被新增内容推出视口
+        val pendingChanged = pendingCallId != prevPendingCallId
+        prevPendingCallId = pendingCallId
         val last = state.messages.lastOrNull()
         // 目标永远是最末的 1dp 锚点:滚到消息本体只会把它顶到视口顶端
         val anchor = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
@@ -1192,6 +1212,9 @@ private fun Messages(
                 autoFollow = true
                 if (n > 0) listState.animateScrollToItem(anchor)
             }
+
+            pendingChanged && autoFollow && !listState.isScrollInProgress ->
+                listState.animateScrollToItem(anchor)
 
             last?.streaming == true && autoFollow && !listState.isScrollInProgress ->
                 listState.scrollToItem(anchor)
@@ -1581,8 +1604,14 @@ private fun AssistantMessage(
             ReasoningBlock(msg, onExpandChanged = onToggleReasoning)
             Spacer(Modifier.height(10.dp))
         }
+        // 工具调用轨迹:逐条调用与结果,展开看参数与输出
+        if (msg.toolTraces.isNotEmpty()) {
+            MilkToolTraceList(msg.toolTraces)
+            Spacer(Modifier.height(8.dp))
+        }
         when {
-            msg.streaming && msg.text.isBlank() && msg.reasoning.isBlank() -> ThinkingDots()
+            msg.streaming && msg.text.isBlank() && msg.reasoning.isBlank() && msg.toolTraces.isEmpty() ->
+                ThinkingDots()
             else -> {
                 if (msg.text.isNotBlank()) {
                     MilkMarkdownView(
@@ -2284,11 +2313,19 @@ private fun ModelSheet(
                 Spacer(Modifier.height(MilkSpace.xxs))
                 MilkSurfaceGroup {
                     models.forEachIndexed { index, m ->
-                        if (index > 0) MilkHairlineDivider(startIndent = 44.dp)
+                        val selected = profile.id == state.activeProfileId && m.id == state.activeModelId
+                        if (index > 0) {
+                            val prevSelected = profile.id == state.activeProfileId &&
+                                models[index - 1].id == state.activeModelId
+                            MilkGroupItemDivider(
+                                visible = !selected && !prevSelected,
+                                startIndent = 44.dp,
+                            )
+                        }
                         MilkModelSelectRow(
                             displayName = m.displayName.ifBlank { m.id },
                             modelId = m.id,
-                            selected = profile.id == state.activeProfileId && m.id == state.activeModelId,
+                            selected = selected,
                             protocol = m.protocol ?: profile.protocol,
                             protocolOverridden = m.protocol != null,
                             vision = m.vision,

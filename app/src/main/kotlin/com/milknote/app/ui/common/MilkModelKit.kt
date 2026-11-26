@@ -3,6 +3,7 @@ package com.milknote.app.ui.common
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,9 +44,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.EndpointResolver
 import com.milknote.agent.Protocol
+import com.milknote.app.ui.theme.MilkMotion
 import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkSpace
 import com.milknote.app.ui.theme.MilkText
@@ -260,11 +264,15 @@ fun MilkModelSelectRow(
     val title = displayName.ifBlank { modelId }
     val second = subtitle?.takeIf { it.isNotBlank() }
         ?: modelId.takeIf { it.isNotBlank() && it != title }
+    val rowBackground by animateColorAsState(
+        targetValue = if (selected) cs.primary.copy(alpha = 0.09f) else Color.Transparent,
+        animationSpec = MilkMotion.colorSpec(),
+        label = "modelRowBg",
+    )
     Row(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(MilkRadius.sm))
-            .background(if (selected) cs.primary.copy(alpha = 0.09f) else Color.Transparent)
+            .background(rowBackground)
             .softClickable(onClick = onClick)
             .semantics { role = Role.RadioButton }
             .heightIn(min = 52.dp)
@@ -318,6 +326,29 @@ fun MilkModelSelectRow(
             )
         }
     }
+}
+
+/**
+ * 分组行分隔线:选中行上下自动隐去,避免高亮底块被 1dp 线切开。
+ * [visible] 由调用方按「当前行或上一行是否选中」计算,颜色淡入淡出走 [MilkMotion.colorSpec]。
+ */
+@Composable
+fun MilkGroupItemDivider(
+    visible: Boolean,
+    startIndent: Dp = 44.dp,
+    endIndent: Dp = 0.dp,
+    modifier: Modifier = Modifier,
+) {
+    val color by animateColorAsState(
+        targetValue = if (visible) MaterialTheme.colorScheme.outline.copy(alpha = 0.65f) else Color.Transparent,
+        animationSpec = MilkMotion.colorSpec(),
+        label = "milkGroupDivider",
+    )
+    HorizontalDivider(
+        modifier = modifier.padding(start = startIndent, end = endIndent),
+        thickness = 1.dp,
+        color = color,
+    )
 }
 
 /**

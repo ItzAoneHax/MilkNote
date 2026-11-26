@@ -22,6 +22,21 @@ class AnthropicProvider(
     private var stashedInputTokens = 0   // message_start 带 input,message_delta 带 output,拼合
     private var stashedStopReason: String? = null
 
+    private class ToolUseBlock(
+        val index: Int,
+        val id: String,
+        val name: String,
+        val input: StringBuilder = StringBuilder(),
+    )
+
+    private val toolBlocks = LinkedHashMap<Int, ToolUseBlock>()
+
+    internal override fun resetStreamState() {
+        stashedInputTokens = 0
+        stashedStopReason = null
+        toolBlocks.clear()
+    }
+
     internal override fun endpoint(path: String, sse: Boolean): String = when (path) {
         "chat" -> EndpointResolver.resolveChatUrl(profile.baseUrl, Protocol.ANTHROPIC)
         else -> EndpointResolver.resolveModelsUrl(profile.baseUrl, Protocol.ANTHROPIC)
@@ -63,6 +78,8 @@ class AnthropicProvider(
                     put("content", blocks)
                 })
             }
+            // 工具续写:assistant 的 text/tool_use blocks + 连续的 tool 结果合并为一条 user
+            anthropicContinuation(req.continuationMessages).forEach { add(it) }
         }
         // 思考档位 → budget_tokens(AUTO/OFF 不发 thinking,即默认关)
         val budget = ThinkingDispatch.anthropicBudget(req.reasoningEffort)
@@ -74,6 +91,18 @@ class AnthropicProvider(
             put("max_tokens", cap)   // Anthropic 必填
             put("system", req.system)
             put("messages", messages)
+            // 工具声明(Anthropic:input_schema)
+            if (req.tools.isNotEmpty()) {
+                put("tools", buildJsonArray {
+                    req.tools.forEach { t ->
+                        add(buildJsonObject {
+                            put("name", t.name)
+                            put("description", t.description)
+                            put("input_schema", toolParameterSchema(t.parameters))
+                        })
+                    }
+                })
+            }
             if (budget != null) {
                 put("thinking", buildJsonObject {
                     put("type", "enabled")
@@ -95,12 +124,52 @@ class AnthropicProvider(
         val obj = runCatching { BaseHttpProvider.json.parseToJsonElement(p).asObjOrNull() }.getOrNull()
             ?: return emptyList()
         return when (obj.strOrNull("type")) {
+            "content_block_start" -> {
+                val index = obj.intOrNull("index") ?: 0
+                val block = obj.objOrNull("content_block")
+                if (block?.strOrNull("type") == "tool_use") {
+                    val id = block.strOrNull("id") ?: ""
+                    val name = block.strOrNull("name") ?: ""
+                    val acc = ToolUseBlock(index, id, name)
+                    // 少数实现直接在 start 里给完整 input;空对象视为无初始参数
+                    block.objOrNull("input")?.takeIf { it.isNotEmpty() }?.let { input ->
+                        acc.input.append(ToolArgs.encode(input))
+                    }
+                    toolBlocks[index] = acc
+                }
+                emptyList()
+            }
             "content_block_delta" -> {
+                val index = obj.intOrNull("index") ?: 0
+                val delta = obj.objOrNull("delta")
+                val deltaType = delta?.strOrNull("type")
+                // 工具参数增量:绝不能当正文输出
+                if (deltaType == "input_json_delta") {
+                    val block = toolBlocks[index]
+                    delta?.strOrNull("partial_json")?.let { block?.input?.append(it) }
+                    return emptyList()
+                }
                 // 思考块(extended thinking):thinking_delta.thinking;redacted/签名帧忽略
-                obj.objOrNull("delta")?.nonEmptyStr("thinking")?.let { return listOf(ChatEvent.Thinking(it)) }
-                // tool 帧按文本容错
-                val text = obj.objOrNull("delta")?.let { it.nonEmptyStr("text") ?: it.nonEmptyStr("partial_json") }
+                if (deltaType == "thinking_delta" || delta?.nonEmptyStr("thinking") != null) {
+                    delta?.nonEmptyStr("thinking")?.let { return listOf(ChatEvent.Thinking(it)) }
+                    return emptyList()
+                }
+                val text = delta?.nonEmptyStr("text")
                 if (text.isNullOrEmpty()) emptyList() else listOf(ChatEvent.Delta(text))
+            }
+            "content_block_stop" -> {
+                val index = obj.intOrNull("index") ?: 0
+                val block = toolBlocks.remove(index) ?: return emptyList()
+                if (block.name.isBlank()) return emptyList()
+                listOf(
+                    ChatEvent.ToolCallReady(
+                        ToolCall(
+                            id = block.id.ifBlank { "tool_$index" },
+                            name = block.name,
+                            argumentsJson = block.input.toString().ifBlank { "{}" },
+                        ),
+                    ),
+                )
             }
             "message_start" -> {
                 stashedInputTokens = obj.objOrNull("message")?.objOrNull("usage")?.intOrNull("input_tokens") ?: 0
@@ -129,9 +198,65 @@ class AnthropicProvider(
                     ),
                 )
             }
-            else -> emptyList()   // ping / content_block_start / stop / message_start 前置帧
+            else -> emptyList()   // ping / text block start / message_stop 前置帧
         }
     }
+
+    /**
+     * continuation → Anthropic messages:
+     * - assistant(toolCalls) → content blocks(text + tool_use, input 为解析后的对象)
+     * - 连续 role == "tool" → 合并成单个 user 的 tool_result blocks(Anthropic 要求)
+     */
+    private fun anthropicContinuation(messages: List<WireMessage>): List<kotlinx.serialization.json.JsonObject> {
+        val out = ArrayList<kotlinx.serialization.json.JsonObject>()
+        var i = 0
+        while (i < messages.size) {
+            val m = messages[i]
+            when {
+                m.role == "tool" -> {
+                    val blocks = buildJsonArray {
+                        while (i < messages.size && messages[i].role == "tool") {
+                            val t = messages[i]
+                            add(buildJsonObject {
+                                put("type", "tool_result")
+                                put("tool_use_id", t.toolCallId ?: "")
+                                put("content", t.content)
+                            })
+                            i++
+                        }
+                    }
+                    out.add(buildJsonObject { put("role", "user"); put("content", blocks) })
+                }
+                m.role == "assistant" && m.toolCalls.isNotEmpty() -> {
+                    val blocks = buildJsonArray {
+                        if (m.content.isNotBlank()) {
+                            add(buildJsonObject { put("type", "text"); put("text", m.content) })
+                        }
+                        m.toolCalls.forEach { c ->
+                            add(buildJsonObject {
+                                put("type", "tool_use")
+                                put("id", c.id)
+                                put("name", c.name)
+                                put("input", parseArgumentsObject(c.argumentsJson))
+                            })
+                        }
+                    }
+                    out.add(buildJsonObject { put("role", "assistant"); put("content", blocks) })
+                    i++
+                }
+                else -> {
+                    out.add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                    i++
+                }
+            }
+        }
+        return out
+    }
+
+    private fun parseArgumentsObject(json: String): kotlinx.serialization.json.JsonObject =
+        runCatching {
+            BaseHttpProvider.json.parseToJsonElement(json).asObjOrNull()
+        }.getOrNull() ?: ToolArgs.emptyObject()
 
     internal override fun mapHttpError(code: Int, body: String): AgentError = when (code) {
         529 -> AgentError.Server(ErrorMapping.withBody("服务过载(HTTP 529),请稍后重试", body))   // Anthropic 独有过载码

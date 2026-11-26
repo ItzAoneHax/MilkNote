@@ -25,6 +25,26 @@ import com.milknote.ink.model.CardTextStyle
  */
 object AnnotationCardRenderer {
 
+    /**
+     * 富卡片渲染钩子(`:app` 注册纯矢量 Markdown/LaTeX 排版;`ink-engine` 不依赖 UI 层解析器)。
+     * 命中条件由 [contentWidthPx] / [richMeasurement] 统一判定:仅 MARKDOWN 与 LATEX 走钩子。
+     */
+    interface RichCardRenderer {
+        /** 内容高度(px,不含卡片内边距);null = 本渲染器不接管,回退内置 StaticLayout */
+        fun measureHeight(card: AnnotationCard, contentWidthPx: Float, expanded: Boolean): Float?
+
+        /** 内容负责绘制(原点 = 卡片内容左上角);false = 不接管,回退内置 StaticLayout */
+        fun drawContent(
+            canvas: Canvas,
+            card: AnnotationCard,
+            contentWidthPx: Float,
+            dark: Boolean,
+            expanded: Boolean,
+        ): Boolean
+    }
+
+    @Volatile var richCardRenderer: RichCardRenderer? = null
+
     const val TEXT_SIZE_PX = 24f        // 页坐标 ≈144dpi 下约 4.2mm 行高基准
     const val LINE_SPACING = 1.38f
     const val PAD_H_PX = 26f
@@ -38,11 +58,6 @@ object AnnotationCardRenderer {
     private val layoutKeys = HashMap<String, String>()
     private const val CACHE_MAX = 48
 
-    private val textPaint = TextPaint().apply {
-        isAntiAlias = true
-        textSize = TEXT_SIZE_PX
-    }
-
     private fun layoutKey(card: AnnotationCard, expanded: Boolean): String =
         "${card.id}:${card.width.toInt()}:${card.kind}:${expanded}:${card.text.hashCode()}:${card.textStyle.hashCode()}"
 
@@ -55,7 +70,7 @@ object AnnotationCardRenderer {
             textSize = card.textStyle.fontSizePx.coerceIn(12f, 96f)
             typeface = if (card.kind == AnnotationCard.Kind.LATEX) Typeface.MONOSPACE else Typeface.DEFAULT
         }
-        val widthPx = (card.width - PAD_H_PX * 2 - ACCENT_W_PX).toInt().coerceAtLeast(40)
+        val widthPx = contentWidthPx(card).toInt()
         val maxLines = if (expanded) Int.MAX_VALUE else COLLAPSE_LINES
         val content = if (card.kind == AnnotationCard.Kind.LATEX) {
             SpannableStringBuilder(card.text)
@@ -147,8 +162,21 @@ object AnnotationCardRenderer {
         }
     }
 
+    /** 卡片内容区宽度(去内边距与左缘 accent 条;不低于 40px 防布局退化) */
+    fun contentWidthPx(card: AnnotationCard): Float =
+        (card.width - PAD_H_PX * 2 - ACCENT_W_PX).coerceAtLeast(40f)
+
+    /** 富渲染命中即返回其内容高度;null = 内置排版接管(仅 MARKDOWN/LATEX 参与) */
+    internal fun richMeasurement(card: AnnotationCard, expanded: Boolean): Float? =
+        if (card.kind == AnnotationCard.Kind.MARKDOWN || card.kind == AnnotationCard.Kind.LATEX) {
+            richCardRenderer?.measureHeight(card, contentWidthPx(card), expanded)
+        } else {
+            null
+        }
+
     fun cardHeight(card: AnnotationCard, expanded: Boolean): Float =
-        layout(card, expanded).height + PAD_V_PX * 2
+        richMeasurement(card, expanded)?.plus(PAD_V_PX * 2)
+            ?: (layout(card, expanded).height + PAD_V_PX * 2)
 
     fun cardWidthDefault(pageWidthPx: Float): Float = (pageWidthPx * 0.36f).coerceIn(320f, 560f)
 
@@ -156,10 +184,12 @@ object AnnotationCardRenderer {
     fun hit(card: AnnotationCard, x: Float, y: Float, expanded: Boolean): Boolean =
         com.milknote.ink.model.ElementGeom.contains(card, cardHeight(card, expanded), x, y)
 
-    private val bgPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
-    private val borderPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.STROKE; strokeWidth = 1.5f }
-    private val accentPaint = Paint().apply { isAntiAlias = true; style = Paint.Style.FILL }
-    private val rect = RectF()
+    private val bgPaint by lazy { Paint().apply { isAntiAlias = true; style = Paint.Style.FILL } }
+    private val borderPaint by lazy {
+        Paint().apply { isAntiAlias = true; style = Paint.Style.STROKE; strokeWidth = 1.5f }
+    }
+    private val accentPaint by lazy { Paint().apply { isAntiAlias = true; style = Paint.Style.FILL } }
+    private val rect by lazy { RectF() }
 
     fun draw(canvas: Canvas, card: AnnotationCard, dark: Boolean, expanded: Boolean, dx: Float = 0f, dy: Float = 0f) {
         val baseH = cardHeight(card, expanded)
@@ -191,14 +221,19 @@ object AnnotationCardRenderer {
         rect.set(x, y + 6f, x + ACCENT_W_PX, y + baseH - 6f)
         canvas.drawRoundRect(rect, ACCENT_W_PX / 2f, ACCENT_W_PX / 2f, accentPaint)
 
-        val l = layout(card, expanded)
-        (l.paint as TextPaint).color = when {
-            dark && (card.textStyle.colorArgb == 0xFF23221EL || card.textStyle.colorArgb == 0xFF18191BL) ->
-                0xFFECEEF0.toInt()
-            else -> card.textStyle.colorArgb.toInt()
-        }
         canvas.translate(x + PAD_H_PX + ACCENT_W_PX, y + PAD_V_PX)
-        l.draw(canvas)
+        val contentWidth = contentWidthPx(card)
+        val richDrawn = (card.kind == AnnotationCard.Kind.MARKDOWN || card.kind == AnnotationCard.Kind.LATEX) &&
+            richCardRenderer?.drawContent(canvas, card, contentWidth, dark, expanded) == true
+        if (!richDrawn) {
+            val l = layout(card, expanded)
+            (l.paint as TextPaint).color = when {
+                dark && (card.textStyle.colorArgb == 0xFF23221EL || card.textStyle.colorArgb == 0xFF18191BL) ->
+                    0xFFECEEF0.toInt()
+                else -> card.textStyle.colorArgb.toInt()
+            }
+            l.draw(canvas)
+        }
         canvas.restore()
     }
 }

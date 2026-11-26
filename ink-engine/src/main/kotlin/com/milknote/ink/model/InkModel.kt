@@ -131,14 +131,14 @@ data class AnnotationCard(
     val y: Float,               // 左上角 y
     val width: Float,           // 卡宽(px;默认约 74mm)
     val kind: Kind = Kind.TEXT,
-    val text: String,           // markdown-lite 源文(TEXT)/ LaTeX 源码(LATEX)
+    val text: String,           // markdown-lite 源文(TEXT)/ LaTeX 源码(LATEX)/ 全量 Markdown(MARKDOWN)
     val createdAt: Long = 0L,
     val rotationDeg: Float = 0f,
     val scale: Float = 1f,      // 内容整体缩放;保留原宽度用于文本布局缓存
     val zIndex: Long = 0L,
     val textStyle: CardTextStyle = CardTextStyle(),
 ) {
-    enum class Kind { TEXT, LATEX }
+    enum class Kind { TEXT, LATEX, MARKDOWN }
 }
 
 /** 页面墨迹状态:提交的笔迹 + 批注卡 + 图片元素 + 音视频元素 + 撤销/重做栈 */

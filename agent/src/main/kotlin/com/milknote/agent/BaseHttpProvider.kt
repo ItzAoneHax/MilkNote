@@ -55,6 +55,18 @@ abstract class BaseHttpProvider(
     /** HTTP 错误映射(Anthropic 529 等差异) */
     internal open fun mapHttpError(code: Int, body: String): AgentError = ErrorMapping.fromHttp(code, body)
 
+    /**
+     * 每次请求开始前重置流式解析状态(工具调用累积块等);
+     * 子类若在帧解析中跨帧累积状态,必须覆写。
+     */
+    internal open fun resetStreamState() {}
+
+    /**
+     * 流合法收尾前补发尚未发出的工具调用(如 OpenAI 的 delta.tool_calls 需等流尾拼完);
+     * 返回值会被排在 Done 之前 emit。
+     */
+    internal open fun flushStreamEvents(): List<ChatEvent> = emptyList()
+
     /** 图片 MIME(与 imageMediaTypes 对应,缺省 png) */
     protected fun mediaTypeOf(req: ChatRequest, index: Int): String =
         req.imageMediaTypes.getOrNull(index) ?: "image/png"
@@ -81,11 +93,26 @@ abstract class BaseHttpProvider(
      * 3. 既无 finish_reason 也无 Done 但已有内容 → StreamBroken(不伪完成)。
      */
     protected fun runOnce(req: ChatRequest): Flow<ChatEvent> = flow {
+        resetStreamState()
         val conn = open(endpoint("chat", sse = req.stream), "POST", req.stream, req.sessionId)
         active.set(conn)
         var pendingUsage: ChatEvent.Usage? = null
         var finishReason: String? = null
         var finishError: AgentError? = null
+        var gotAnyDelta = false
+        var flushed = false
+
+        // 工具调用必须在 Done 之前发出;只 flush 一次,防重复。
+        // 放在 try 外层:catch 里「已见合法 finish_reason 后断流」也要补发。
+        suspend fun flushTools() {
+            if (flushed) return
+            flushed = true
+            for (ev in runCatching { flushStreamEvents() }.getOrDefault(emptyList())) {
+                if (ev is ChatEvent.ToolCallReady) gotAnyDelta = true
+                emit(ev)
+            }
+        }
+
         try {
             conn.outputStream.use { it.write(buildBody(req).toByteArray(Charsets.UTF_8)) }
 
@@ -106,7 +133,6 @@ abstract class BaseHttpProvider(
             }
 
             val parser = SseParser()
-            var gotAnyDelta = false
             fun noteFinish(reason: String) {
                 finishReason = reason
                 // mapStopReason(pi-ai 同款):content_filter/network_error/未知 → 错误
@@ -127,10 +153,12 @@ abstract class BaseHttpProvider(
                             is ChatEvent.Finish -> noteFinish(ev.reason)   // 只记,继续吃后续帧(usage-only 帧常在 finish 后)
                             is ChatEvent.Delta -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }
                             is ChatEvent.Thinking -> { if (ev.text.isNotEmpty()) gotAnyDelta = true; emit(ev) }   // 思考也是已计费内容(§11 不重复计费)
+                            is ChatEvent.ToolCallReady -> { gotAnyDelta = true; emit(ev) }
                             is ChatEvent.Usage -> pendingUsage = ev
                             is ChatEvent.Done -> {
                                 // [DONE]/message_stop = 流终止符;宽容差异(较 pi-ai 严判略松):
                                 // 它本身也视作完成,兼容只发 [DONE] 不发 finish_reason 的懒中转
+                                flushTools()
                                 emit(ev)
                                 pendingUsage?.let { emit(it) }
                                 return@flow
@@ -148,7 +176,13 @@ abstract class BaseHttpProvider(
                     for (ev in framesOf(payload)) {
                         when (ev) {
                             is ChatEvent.Finish -> noteFinish(ev.reason)
-                            is ChatEvent.Done -> { emit(ev); pendingUsage?.let { emit(it) }; return@flow }
+                            is ChatEvent.ToolCallReady -> { gotAnyDelta = true; emit(ev) }
+                            is ChatEvent.Done -> {
+                                flushTools()
+                                emit(ev)
+                                pendingUsage?.let { emit(it) }
+                                return@flow
+                            }
                             is ChatEvent.Usage -> pendingUsage = ev
                             is ChatEvent.Error -> { emit(ev); return@flow }
                             else -> emit(ev)
@@ -161,6 +195,7 @@ abstract class BaseHttpProvider(
             when {
                 fin != null -> emit(ChatEvent.Error(fin))                       // content_filter 等:文本保留,标失败
                 finishReason != null -> {
+                    flushTools()
                     emit(ChatEvent.Done(finishReason))                          // 合法收尾
                     pendingUsage?.let { emit(it) }
                 }
@@ -174,6 +209,7 @@ abstract class BaseHttpProvider(
                 // 服务端已发合法 finish_reason 才断(关流/RST/读超时):属于正常收尾,不是断流
                 finishError != null -> emit(ChatEvent.Error(finishError!!))
                 finishReason != null -> {
+                    flushTools()
                     emit(ChatEvent.Done(finishReason))
                     pendingUsage?.let { emit(it) }
                 }

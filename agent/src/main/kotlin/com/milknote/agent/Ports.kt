@@ -36,3 +36,95 @@ interface AnnotationSink {
         cardWidth: Float,
     ): String?
 }
+
+// =====================================================================
+// 工具 / 技能端口(纯 Kotlin,装配在 app 层)
+// :agent 不依赖 ink-engine / note-domain,页面与画布操作全部经此端口。
+// =====================================================================
+
+/** 页面元素摘要(kind = card | image | media | stroke) */
+data class PageElementSummary(
+    val id: String,
+    val kind: String,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val xRatio: Float,
+    val yRatio: Float,
+    val preview: String,
+)
+
+/** 页序信息(index 为 1-based) */
+data class PageInfo(val pageId: String, val index: Int, val isCurrent: Boolean)
+
+/** 页面像素尺寸 */
+data class PageDimensions(val widthPx: Float, val heightPx: Float)
+
+/** 笔记本工作区:页管理 + 画布元素操作(由 app 装配层实现) */
+interface NotebookWorkspacePort {
+    suspend fun listPages(notebookId: String): List<PageInfo>
+
+    suspend fun pageDimensions(page: PageRef): PageDimensions?
+
+    /** position: after | before | end;anchorPageId 为 after/before 的锚点 */
+    suspend fun addPage(
+        notebookId: String,
+        position: String,
+        anchorPageId: String?,
+        switchTo: Boolean,
+    ): PageInfo?
+
+    suspend fun deletePage(notebookId: String, pageId: String): Boolean
+
+    /** 插入 Markdown 卡片;返回卡片 id(null = 失败) */
+    suspend fun insertMarkdownCard(
+        page: PageRef,
+        markdown: String,
+        xPx: Float,
+        yPx: Float,
+        widthPx: Float,
+    ): String?
+
+    suspend fun listElements(page: PageRef): List<PageElementSummary>
+
+    /** x/y 为绝对目标坐标(px);dx/dy 为相对偏移(px);均为 null 表示不移动 */
+    suspend fun moveElement(
+        page: PageRef,
+        elementId: String,
+        elementKind: String?,
+        targetX: Float?,
+        targetY: Float?,
+        dx: Float?,
+        dy: Float?,
+    ): Boolean
+
+    suspend fun deleteElement(page: PageRef, elementId: String, elementKind: String?): Boolean
+}
+
+/** 技能管理:读写 AgentSkill(内置技能由 AgentStore 首次加载时补齐) */
+interface SkillManagerPort {
+    fun listSkills(): List<AgentSkill>
+
+    fun findEnabledSkill(idOrName: String): AgentSkill?
+
+    fun createOrUpdateSkill(
+        id: String?,
+        name: String,
+        summary: String,
+        content: String,
+        enabled: Boolean,
+    ): AgentSkill
+}
+
+/** 联网搜索结果条目 */
+data class WebSearchItem(val title: String, val url: String, val snippet: String)
+
+/** 联网搜索端口(默认实现见 DefaultWebSearchPort) */
+interface WebSearchPort {
+    suspend fun search(
+        query: String,
+        maxResults: Int,
+        settings: Map<String, String>,
+    ): Result<List<WebSearchItem>>
+}
