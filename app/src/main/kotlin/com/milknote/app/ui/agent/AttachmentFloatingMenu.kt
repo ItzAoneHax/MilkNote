@@ -65,7 +65,6 @@ import androidx.compose.material.icons.outlined.Crop
 import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Flip
-import androidx.compose.material.icons.outlined.FlipToFront
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.DeleteSweep
@@ -97,6 +96,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -137,10 +137,14 @@ import com.milknote.app.ui.common.MilkActionChip
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonSize
 import com.milknote.app.ui.common.MilkButtonVariant
+import com.milknote.app.ui.common.MilkChip
+import com.milknote.app.ui.common.MilkColorDot
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkInlineAction
+import com.milknote.app.ui.common.MilkInlineTone
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSlider
@@ -881,6 +885,8 @@ fun ImageEditorFloatingPanel(
                                 if (edits.hasEdits()) " · 已调整" else "",
                             style = MilkText.monoMicro,
                             color = cs.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     MilkIconButton(
@@ -927,7 +933,8 @@ fun ImageEditorFloatingPanel(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(MilkSpace.sm))
-                    Box(Modifier.fillMaxWidth().heightIn(min = 92.dp)) {
+                    // 固定高度容器:裁剪 / 调整 / 涂鸦切换时预览图尺寸零变化
+                    Box(Modifier.fillMaxWidth().height(132.dp)) {
                         when (mode) {
                             EditMode.CROP -> CropControls(
                                 aspect = aspect,
@@ -1215,7 +1222,8 @@ private fun CropControls(
             horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
         ) {
             CropAspect.entries.forEach { entry ->
-                MilkFilterChip(
+                // 单选胶囊不带勾选图标:切换纵横比时同一行胶囊宽度不变
+                MilkChip(
                     label = entry.label,
                     selected = entry == aspect,
                     small = true,
@@ -1253,10 +1261,12 @@ private fun CropControls(
                 iconSize = 18.dp,
                 tint = cs.onSurfaceVariant,
             )
+            // 水平翻转图标的 90° 旋转 = 语义清晰的垂直翻转(不再借用「置顶」图标)
             MilkIconButton(
-                imageVector = Icons.Outlined.FlipToFront,
+                imageVector = Icons.Outlined.Flip,
                 contentDescription = "垂直翻转",
                 onClick = onFlipV,
+                modifier = Modifier.graphicsLayer { rotationZ = 90f },
                 touchSize = 40.dp,
                 visualSize = 32.dp,
                 iconSize = 18.dp,
@@ -1275,41 +1285,50 @@ private fun AdjustControls(
 ) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Outlined.Brightness6,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = cs.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(MilkSpace.xs))
-            Text("亮度", style = MilkText.monoMeta, color = cs.onSurfaceVariant)
-            Spacer(Modifier.weight(1f))
-            Text(
-                formatSignedPercent(edits.brightness),
-                style = MilkText.monoMicro,
-                color = cs.onSurfaceVariant,
-            )
+        // 双列排布:滑条保持原生命中高度,整体仍能装进 132dp 固定容器
+        Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.lg)) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Brightness6,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = cs.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(MilkSpace.xs))
+                    Text("亮度", style = MilkText.monoMeta, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(
+                        formatSignedPercent(edits.brightness),
+                        style = MilkText.monoMicro,
+                        color = cs.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.widthIn(min = 44.dp),
+                    )
+                }
+                MilkSlider(
+                    value = edits.brightness,
+                    onValueChange = onBrightness,
+                    valueRange = -50f..50f,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("对比度", style = MilkText.monoMeta, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(
+                        String.format(java.util.Locale.US, "%.2f", edits.contrast),
+                        style = MilkText.monoMicro,
+                        color = cs.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.widthIn(min = 44.dp),
+                    )
+                }
+                MilkSlider(
+                    value = edits.contrast,
+                    onValueChange = onContrast,
+                    valueRange = 0.5f..1.5f,
+                )
+            }
         }
-        MilkSlider(
-            value = edits.brightness,
-            onValueChange = onBrightness,
-            valueRange = -50f..50f,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("对比度", style = MilkText.monoMeta, color = cs.onSurfaceVariant)
-            Spacer(Modifier.weight(1f))
-            Text(
-                String.format(java.util.Locale.US, "%.2f", edits.contrast),
-                style = MilkText.monoMicro,
-                color = cs.onSurfaceVariant,
-            )
-        }
-        MilkSlider(
-            value = edits.contrast,
-            onValueChange = onContrast,
-            valueRange = 0.5f..1.5f,
-        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Outlined.Crop,
@@ -1344,62 +1363,36 @@ private fun DoodleControls(
                 tint = cs.onSurfaceVariant,
             )
             Spacer(Modifier.width(MilkSpace.xs))
+            // 统一色点选择器:16dp 色点 + 选中光环,与设置页纸色/墨色同一画法
             DOODLE_COLORS.forEach { argb ->
-                Box(
-                    Modifier
-                        .padding(end = MilkSpace.xs)
-                        .size(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(Color(argb.toInt()))
-                            .border(
-                                width = if (color == argb) 2.dp else 1.dp,
-                                color = if (color == argb) cs.primary else cs.outline,
-                                shape = CircleShape,
-                            )
-                            .clickable { onColor(argb) },
-                    )
-                }
+                MilkColorDot(
+                    color = Color(argb.toInt()),
+                    selected = color == argb,
+                    onClick = { onColor(argb) },
+                    dotSize = 18.dp,
+                    contentDescription = "笔迹色 ${doodleColorLabel(argb)}",
+                )
             }
             Spacer(Modifier.weight(1f))
-            MilkActionChip(
+            MilkInlineAction(
                 label = "撤销",
-                small = true,
-                enabled = canUndo,
                 onClick = onUndo,
-                leading = {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.Undo,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (canUndo) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f),
-                    )
-                },
+                icon = Icons.AutoMirrored.Outlined.Undo,
+                enabled = canUndo,
             )
             Spacer(Modifier.width(MilkSpace.xs))
-            MilkActionChip(
+            MilkInlineAction(
                 label = "清空",
-                small = true,
-                enabled = canUndo,
                 onClick = onClear,
-                leading = {
-                    Icon(
-                        Icons.Outlined.DeleteSweep,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (canUndo) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f),
-                    )
-                },
+                icon = Icons.Outlined.DeleteSweep,
+                enabled = canUndo,
             )
         }
         Spacer(Modifier.height(MilkSpace.xxs))
         Row(verticalAlignment = Alignment.CenterVertically) {
             DOODLE_WIDTHS.forEachIndexed { index, fraction ->
-                MilkFilterChip(
+                // 单选胶囊不带勾选图标:切换笔宽时同一行胶囊宽度不变
+                MilkChip(
                     label = listOf("细", "中", "粗")[index],
                     selected = width == fraction,
                     small = true,
@@ -1409,6 +1402,15 @@ private fun DoodleControls(
             }
         }
     }
+}
+
+/** 涂鸦色点的读屏名称(与色值一一对应,顺序即面板顺序) */
+private fun doodleColorLabel(argb: Long): String = when (argb) {
+    0xFFFFD54FL -> "高亮黄"
+    0xFFEF5350L -> "红"
+    0xFF42A5F5L -> "蓝"
+    0xFF1B1B1BL -> "墨黑"
+    else -> "白"
 }
 
 private fun formatSignedPercent(value: Float): String =
@@ -1916,6 +1918,9 @@ fun DocumentPagePreviewFloatingPanel(
                         "第 $focused / ${doc.pageCount} 页",
                         style = MilkText.monoMeta,
                         color = cs.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        // 定宽:页码位数变化(9 → 10)不推动左右箭头
+                        modifier = Modifier.widthIn(min = 96.dp),
                     )
                     MilkIconButton(
                         imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -1927,23 +1932,17 @@ fun DocumentPagePreviewFloatingPanel(
                         iconSize = 18.dp,
                     )
                     Spacer(Modifier.weight(1f))
-                    MilkActionChip(
+                    // 与「取消本页」同宽:选中/取消本页不推动左侧页码与右侧留白
+                    MilkInlineAction(
                         label = if (focused in selected) "取消本页" else "选中本页",
-                        small = true,
-                        selected = focused in selected,
                         onClick = {
                             applySelection(
                                 if (focused in selected) selected - focused else selected + focused,
                             )
                         },
-                        leading = {
-                            Icon(
-                                if (focused in selected) Icons.Outlined.Check else Icons.Outlined.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = if (focused in selected) cs.primary else cs.onSurfaceVariant,
-                            )
-                        },
+                        icon = if (focused in selected) Icons.Outlined.Check else Icons.Outlined.Add,
+                        tone = if (focused in selected) MilkInlineTone.ACCENT else MilkInlineTone.NEUTRAL,
+                        minWidth = 96.dp,
                     )
                 }
 
@@ -1956,6 +1955,7 @@ fun DocumentPagePreviewFloatingPanel(
                             doc = doc,
                             page = page,
                             rendered = rendered,
+                            landscape = slideCapable,
                             selected = page in selected,
                             focused = page == focused,
                             onClick = {
@@ -1988,32 +1988,39 @@ fun DocumentPagePreviewFloatingPanel(
                         mono = true,
                         onClear = { applySelection(emptySet()) },
                     )
-                    if (rangeError != null) {
-                        Text(
-                            rangeError!!,
-                            style = MilkText.monoMicro,
-                            color = cs.error,
-                            modifier = Modifier.padding(top = MilkSpace.xxs, start = 2.dp),
-                        )
+                    // 常驻 18dp 错误行:输入 "1-" → "1-5" 期间面板高度零变化
+                    Box(
+                        Modifier.fillMaxWidth().height(18.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        val error = rangeError
+                        if (error != null) {
+                            Text(
+                                error,
+                                style = MilkText.monoMicro,
+                                color = cs.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(MilkSpace.xs))
                     Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs)) {
-                        MilkActionChip(
+                        MilkInlineAction(
                             label = "当前页",
-                            small = true,
                             onClick = { applySelection(setOf(focused)) },
+                            minWidth = 58.dp,
                         )
-                        MilkActionChip(
+                        MilkInlineAction(
                             label = "全部",
-                            small = true,
                             onClick = { applySelection((1..doc.pageCount).toSet()) },
+                            minWidth = 58.dp,
                         )
-                        MilkActionChip(
+                        MilkInlineAction(
                             label = "反选",
-                            small = true,
-                            onClick = {
-                                applySelection((1..doc.pageCount).toSet() - selected)
-                            },
+                            onClick = { applySelection((1..doc.pageCount).toSet() - selected) },
+                            minWidth = 58.dp,
                         )
                     }
                 }
@@ -2027,6 +2034,8 @@ fun DocumentPagePreviewFloatingPanel(
                         PageRangeParser.formatChineseLabel(selected).ifBlank { "未选择页码" },
                         style = MilkText.monoMicro,
                         color = cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                     MilkButton(
@@ -2071,6 +2080,7 @@ private fun DocumentPageStripItem(
     selected: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
+    landscape: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
@@ -2080,12 +2090,23 @@ private fun DocumentPageStripItem(
         thumb = doc.renderPageBitmap(page - 1, DOC_THUMB_PX)?.asImageBitmap()
     }
     val shape = RoundedCornerShape(MilkRadius.xs)
+    // 横版演示文稿用 16:10 取景框,纵向文档用竖版取景框——缩略图一律 Fit,不裁掉内容
+    val frameWidth = if (landscape) 86.dp else 56.dp
+    val frameHeight = if (landscape) 54.dp else 72.dp
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(width = 52.dp, height = 68.dp)
+                .size(width = frameWidth, height = frameHeight)
                 .clip(shape)
-                .background(if (dark) SurfaceElevatedDark else cs.surfaceVariant.copy(alpha = 0.5f))
+                .background(
+                    if (thumb != null) {
+                        Color.White
+                    } else if (dark) {
+                        SurfaceElevatedDark
+                    } else {
+                        cs.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                )
                 .border(
                     width = if (focused) 1.5.dp else 0.75.dp,
                     color = when {
@@ -2104,7 +2125,7 @@ private fun DocumentPageStripItem(
                     bitmap = bitmap,
                     contentDescription = "第 $page 页",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                 )
             } else {
                 Text("$page", style = MilkText.monoMeta, color = cs.onSurfaceVariant)
@@ -2211,25 +2232,24 @@ private fun NotebookPagesPanel(
             horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MilkActionChip(
+            MilkInlineAction(
                 label = if (currentIndex >= 0) "当前页 · 第 ${currentIndex + 1} 页" else "当前页",
-                small = true,
-                enabled = currentIndex >= 0,
-                selected = currentIndex >= 0 && selection == setOf(currentIndex + 1),
                 onClick = {
                     if (currentIndex >= 0) applySelection(setOf(currentIndex + 1))
                 },
+                enabled = currentIndex >= 0,
+                selected = currentIndex >= 0 && selection == setOf(currentIndex + 1),
             )
-            MilkActionChip(
+            MilkInlineAction(
                 label = "全部页",
-                small = true,
                 onClick = { applySelection((1..pages.size).toSet()) },
+                minWidth = 58.dp,
             )
-            MilkActionChip(
+            MilkInlineAction(
                 label = "清空",
-                small = true,
-                enabled = selection.isNotEmpty(),
                 onClick = { applySelection(emptySet()) },
+                enabled = selection.isNotEmpty(),
+                minWidth = 58.dp,
             )
         }
 
@@ -2272,8 +2292,8 @@ private fun NotebookPagesPanel(
                             Image(
                                 bitmap = thumb,
                                 contentDescription = formatPageDisplayLabel(page.pageId, pages.map { it.pageId }),
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().background(Color.White),
+                                contentScale = ContentScale.Fit,
                             )
                         } else {
                             NotebookPageThumb(
@@ -2331,13 +2351,22 @@ private fun NotebookPagesPanel(
                 mono = true,
                 onClear = { applySelection(emptySet()) },
             )
-            if (rangeError != null) {
-                Text(
-                    rangeError!!,
-                    style = MilkText.monoMicro,
-                    color = cs.error,
-                    modifier = Modifier.padding(top = MilkSpace.xxs, start = 2.dp),
-                )
+            // 常驻 18dp 错误行:输入过程中面板高度零变化
+            Box(
+                Modifier.fillMaxWidth().height(18.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                val error = rangeError
+                if (error != null) {
+                    Text(
+                        error,
+                        style = MilkText.monoMicro,
+                        color = cs.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 2.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(MilkSpace.sm))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2381,13 +2410,18 @@ private fun NotebookPagesPanel(
                     busy = adding,
                 )
             }
-            if (selection.isNotEmpty()) {
-                Spacer(Modifier.height(MilkSpace.xxs))
-                Text(
-                    PageRangeParser.formatChineseLabel(selection),
-                    style = MilkText.monoMicro,
-                    color = cs.onSurfaceVariant,
-                )
+            // 常驻 16dp 汇总行:选择变化只换文案,popover 高度不变
+            Spacer(Modifier.height(MilkSpace.xxs))
+            Box(Modifier.fillMaxWidth().height(16.dp), contentAlignment = Alignment.CenterStart) {
+                if (selection.isNotEmpty()) {
+                    Text(
+                        PageRangeParser.formatChineseLabel(selection),
+                        style = MilkText.monoMicro,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

@@ -2,6 +2,7 @@ package com.milknote.app.ui.agent
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -11,19 +12,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.PageRef
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkInlineAction
+import com.milknote.app.ui.common.MilkInlineStatus
+import com.milknote.app.ui.common.MilkInlineTone
+import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.theme.MilkTheme
 import com.milknote.notes.model.NoteCard
 import com.milknote.notes.model.NotebookMeta
@@ -361,5 +369,166 @@ class AgentDrawerTrustTest {
         } finally {
             ServiceLocator.agentController.closeDrawer()
         }
+    }
+
+    // ---------------------------------------------------------------- 零位移回归
+
+    /** 根因 A:单行输入框在「空 → 有内容」时必须严格等高手(清空钮槽位常驻) */
+    @Test
+    fun milkTextField_typingDoesNotChangeHeight() {
+        var value by mutableStateOf("")
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(320.dp)) {
+                    Column {
+                        Box(Modifier.testTag("field")) {
+                            MilkTextField(
+                                value = value,
+                                onValueChange = { value = it },
+                                placeholder = "页码",
+                                onClear = { value = "" },
+                            )
+                        }
+                        Box(Modifier.testTag("field-noclear")) {
+                            MilkTextField(value = value, onValueChange = { value = it }, placeholder = "页码")
+                        }
+                    }
+                }
+            }
+        }
+
+        val empty = rule.onNodeWithTag("field").getUnclippedBoundsInRoot()
+        val emptyNoClear = rule.onNodeWithTag("field-noclear").getUnclippedBoundsInRoot()
+        val emptyHeight = empty.bottom - empty.top
+
+        rule.runOnUiThread { value = "1-79" }
+        rule.waitForIdle()
+
+        val filled = rule.onNodeWithTag("field").getUnclippedBoundsInRoot()
+        val filledNoClear = rule.onNodeWithTag("field-noclear").getUnclippedBoundsInRoot()
+        val filledHeight = filled.bottom - filled.top
+
+        assertTrue(
+            "输入前后高度必须一致：空=${emptyHeight.value}dp 有值=${filledHeight.value}dp",
+            kotlin.math.abs(emptyHeight.value - filledHeight.value) < 0.5f,
+        )
+        assertTrue(
+            "清空钮槽位不得改变字段宽度：${empty.right.value - empty.left.value}dp vs ${filled.right.value - filled.left.value}dp",
+            kotlin.math.abs((empty.right - empty.left).value - (filled.right - filled.left).value) < 0.5f,
+        )
+        assertEquals(
+            "有无清空钮的字段高度必须一致",
+            emptyHeight.value,
+            emptyNoClear.bottom.value - emptyNoClear.top.value,
+            0.5f,
+        )
+        assertEquals(
+            "有值状态下有无清空钮的字段高度必须一致",
+            filledHeight.value,
+            filledNoClear.bottom.value - filledNoClear.top.value,
+            0.5f,
+        )
+        assertTrue("单行字段高度应为 42dp 量级", emptyHeight.value >= 41f && emptyHeight.value <= 44f)
+    }
+
+    /** 根因 C:模型选择器必须占满右侧三个图标钮之外的宽度，并给出明确的展开语义 */
+    @Test
+    fun headerModelSelector_fillsAvailableWidthAndShowsClearAffordance() {
+        val profileId = configureVisionModel()
+        try {
+            showDrawer()
+            val row = rule.onNodeWithTag("agent-model-row").getUnclippedBoundsInRoot()
+            val selector = rule.onNodeWithTag("agent-model-selector").getUnclippedBoundsInRoot()
+            val rowWidth = row.right - row.left
+            val selectorWidth = selector.right - selector.left
+            assertTrue(
+                "模型选择器应占满可用宽度：选择器=${selectorWidth.value}dp 行=${rowWidth.value}dp",
+                selectorWidth > rowWidth * 0.6f,
+            )
+            assertTrue(
+                "模型选择器高度应锁定在 36dp：${selector.bottom.value - selector.top.value}dp",
+                kotlin.math.abs((selector.bottom - selector.top).value - 36f) < 0.5f,
+            )
+            rule.onNodeWithContentDescription("切换模型与思考设置").assertIsDisplayed()
+            rule.onNodeWithText("demo-vision").assertIsDisplayed()
+        } finally {
+            ServiceLocator.agentController.closeDrawer()
+            ServiceLocator.agentController.removeProfile(profileId)
+        }
+    }
+
+    /** 根因 D:状态与动作共用同一几何，复制/贴回前后宽度严格不变 */
+    @Test
+    fun milkInlineStatusAndAction_shareUnifiedHeightAndStableCopyWidth() {
+        var copied by mutableStateOf(false)
+        var pinned by mutableStateOf(false)
+        rule.setContent {
+            MilkTheme {
+                Column {
+                    Row {
+                        Box(Modifier.testTag("inline-status")) {
+                            MilkInlineStatus("已中断", showDot = true, tone = MilkInlineTone.WARNING)
+                        }
+                        Box(Modifier.testTag("inline-action")) {
+                            MilkInlineAction("重试", onClick = {}, tone = MilkInlineTone.ACCENT)
+                        }
+                    }
+                    Box(Modifier.testTag("inline-copy")) {
+                        MilkInlineAction(
+                            label = if (copied) "已复制" else "复制",
+                            onClick = { copied = !copied },
+                            minWidth = 74.dp,
+                        )
+                    }
+                    Box(Modifier.testTag("inline-pin")) {
+                        if (pinned) {
+                            MilkInlineStatus("已贴回", tone = MilkInlineTone.SUCCESS, minWidth = 86.dp)
+                        } else {
+                            MilkInlineAction("贴回纸面", onClick = { pinned = true }, minWidth = 86.dp)
+                        }
+                    }
+                }
+            }
+        }
+
+        val status = rule.onNodeWithTag("inline-status").getUnclippedBoundsInRoot()
+        val action = rule.onNodeWithTag("inline-action").getUnclippedBoundsInRoot()
+        assertEquals(
+            "状态与动作必须同高",
+            status.bottom.value - status.top.value,
+            action.bottom.value - action.top.value,
+            0.5f,
+        )
+
+        val copyBefore = rule.onNodeWithTag("inline-copy").getUnclippedBoundsInRoot()
+        val pinBefore = rule.onNodeWithTag("inline-pin").getUnclippedBoundsInRoot()
+
+        rule.runOnUiThread {
+            copied = true
+            pinned = true
+        }
+        rule.waitForIdle()
+
+        val copyAfter = rule.onNodeWithTag("inline-copy").getUnclippedBoundsInRoot()
+        val pinAfter = rule.onNodeWithTag("inline-pin").getUnclippedBoundsInRoot()
+
+        assertEquals(
+            "复制 → 已复制 不得改变宽度",
+            (copyBefore.right - copyBefore.left).value,
+            (copyAfter.right - copyAfter.left).value,
+            0.5f,
+        )
+        assertEquals(
+            "贴回纸面 → 已贴回 不得改变宽度",
+            (pinBefore.right - pinBefore.left).value,
+            (pinAfter.right - pinAfter.left).value,
+            0.5f,
+        )
+        assertEquals(
+            "贴回纸面 → 已贴回 不得改变高度",
+            (pinBefore.bottom - pinBefore.top).value,
+            (pinAfter.bottom - pinAfter.top).value,
+            0.5f,
+        )
     }
 }

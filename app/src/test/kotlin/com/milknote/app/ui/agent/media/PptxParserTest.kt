@@ -212,6 +212,60 @@ class PptxParserTest {
         assertNotNull(document.warning)
     }
 
+    // ---------------------------------------------------------------- Symbol 字体 PUA 归一
+
+    @Test
+    fun `Symbol 私有区码位归一为标准 Unicode 数学符号`() {
+        // α(F061) β(F062) ≤(F0A3) Σ(F053) ∫(F0F2) −(F02D)
+        assertEquals("α β ≤ Σ ∫ −", PptxParser.normalizeSymbolPua("\uF061 \uF062 \uF0A3 \uF053 \uF0F2 \uF02D"))
+    }
+
+    @Test
+    fun `项目符号映射为圆点 未收录字形直接丢弃`() {
+        // •(F0B7) 保留为圆点;F0A7(♣ 装饰符)**不**进入文本;普通中文不受影响
+        assertEquals("• 集合", PptxParser.normalizeSymbolPua("\uF0B7 集合"))
+        // 未收录字形(F0A7 装饰符)在映射阶段直接消失,不残留豆腐块
+        assertEquals("Δ=b²-4ac", PptxParser.normalizeSymbolPua("\uF044=b²\uF0A7-4ac"))
+    }
+
+    @Test
+    fun `希腊字母 ν 与 υ 不会被当作项目符号抹掉`() {
+        assertEquals("ν = υ / t", PptxParser.normalizeSymbolPua("\uF06E = \uF075 / t"))
+    }
+
+    @Test
+    fun `没有私有区码位的文本原样返回`() {
+        val text = "第四章 插值法 · 拉格朗日 (n=3)"
+        assertEquals(text, PptxParser.normalizeSymbolPua(text))
+    }
+
+    @Test
+    fun `解析 pptx 时标题 要点 表格 备注都经过符号归一`() {
+        val document = PptxParser.parse(
+            writeZip(
+                mapOf(
+                    "ppt/presentation.xml" to presentationXml("rId1"),
+                    "ppt/_rels/presentation.xml.rels" to presentationRels("rId1" to "slides/slide1.xml"),
+                    "ppt/slides/slide1.xml" to slideXml(
+                        title = "\uF044\uF061\uF062",
+                        bullets = listOf("\uF0B7 α=\uF0B1\uF0B1", "λ\uF0A3 1"),
+                        table = listOf(listOf("\uF073", "σ²")),
+                    ),
+                    "ppt/slides/_rels/slide1.xml.rels" to relationshipsXml(
+                        Triple("rId1", "$REL_BASE/notesSlide", "../notesSlides/notesSlide1.xml"),
+                    ),
+                    "ppt/notesSlides/notesSlide1.xml" to notesXml("", "讲义 \uF053\uF06E"),
+                ),
+            ),
+        )
+        val slide = document.slides.single()
+        assertEquals("Δαβ", slide.title)
+        assertEquals(listOf("• α=±±", "λ≤ 1"), slide.bullets)
+        assertEquals(listOf(listOf(listOf("σ", "σ²"))), slide.tables)
+        assertEquals("讲义 Σν", slide.notes)
+        assertTrue("归一后不应残留任何 PUA 码位", slide.toPlainText().none { it in '\uF020'..'\uF0FF' })
+    }
+
     // ---------------------------------------------------------------- 构造工具
 
     private val REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"

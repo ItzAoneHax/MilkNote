@@ -23,10 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,15 +57,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.milknote.app.ui.common.MilkActionChip
-import com.milknote.app.ui.common.MilkButton
-import com.milknote.app.ui.common.MilkButtonSize
-import com.milknote.app.ui.common.MilkButtonVariant
-import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkInlineAction
+import com.milknote.app.ui.common.MilkInlineTone
 import com.milknote.app.ui.common.MilkStatusBadge
 import com.milknote.app.ui.common.MilkStatusTone
 import com.milknote.app.ui.theme.LocalMilkDark
-import com.milknote.app.ui.theme.LocalMilkSuccess
 import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkSpace
 import com.milknote.app.ui.theme.MilkText
@@ -75,7 +75,7 @@ import kotlin.math.max
  * GFM 表格(列对齐 + 横向滚动)、围栏代码块(语言角标 + 一键复制)、引用、嵌套/任务列表、
  * 分隔线、块级公式([LatexDisplayBlock])、生成文档卡(预览/写入/导出/存卡片)。
  *
- * 样式只取 MilkNote Gen2 token(MilkText/MilkRadius/MilkSpace/MilkButton/MilkActionChip/MilkStatusBadge),
+ * 样式只取 MilkNote Gen2 token(MilkText/MilkRadius/MilkSpace/MilkInlineAction/MilkStatusBadge),
  * 不再出现页面里散写的字号与裸胶囊。
  */
 @Composable
@@ -462,7 +462,6 @@ private fun CodeBlockView(block: MarkdownLite.Block.CodeBlock) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
     val clipboard = LocalClipboardManager.current
-    val success = LocalMilkSuccess.current
     var copied by remember(block.code) { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
@@ -479,7 +478,7 @@ private fun CodeBlockView(block: MarkdownLite.Block.CodeBlock) {
             .background(cs.surfaceVariant.copy(alpha = if (dark) 0.3f else 0.45f)),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = MilkSpace.md, end = MilkSpace.xxs),
+            Modifier.fillMaxWidth().padding(start = MilkSpace.md, end = MilkSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -489,16 +488,15 @@ private fun CodeBlockView(block: MarkdownLite.Block.CodeBlock) {
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            MilkIconButton(
-                imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
-                contentDescription = if (copied) "已复制" else "复制代码",
+            MilkInlineAction(
+                label = if (copied) "已复制" else "复制",
                 onClick = {
                     clipboard.setText(AnnotatedString(block.code))
                     copied = true
                 },
-                tint = if (copied) success else cs.onSurfaceVariant,
-                iconSize = 16.dp,
-                visualSize = 30.dp,
+                icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                tone = if (copied) MilkInlineTone.SUCCESS else MilkInlineTone.NEUTRAL,
+                minWidth = 74.dp,
             )
         }
         HorizontalDivider(color = cs.outline.copy(alpha = 0.5f))
@@ -592,21 +590,33 @@ private fun GeneratedDocumentCard(
             Spacer(Modifier.height(MilkSpace.sm))
             FlowRowCompact {
                 actions.onPreviewDocument?.let { preview ->
-                    MilkButton(
+                    MilkInlineAction(
                         label = "悬浮预览",
                         onClick = { preview(doc) },
-                        variant = MilkButtonVariant.PRIMARY,
-                        size = MilkButtonSize.SMALL,
+                        icon = Icons.Outlined.OpenInFull,
+                        tone = MilkInlineTone.ACCENT,
                     )
                 }
                 actions.onSaveDocumentToNotes?.let { save ->
-                    MilkActionChip(label = "写入笔记", onClick = { save(doc) }, small = true)
+                    MilkInlineAction(
+                        label = "写入笔记",
+                        onClick = { save(doc) },
+                        icon = Icons.Outlined.PostAdd,
+                    )
                 }
                 actions.onExportDocument?.let { export ->
-                    MilkActionChip(label = "导出", onClick = { export(doc) }, small = true)
+                    MilkInlineAction(
+                        label = "导出",
+                        onClick = { export(doc) },
+                        icon = Icons.Outlined.FileDownload,
+                    )
                 }
                 actions.onSaveDocumentCard?.let { card ->
-                    MilkActionChip(label = "存卡片", onClick = { card(doc) }, small = true)
+                    MilkInlineAction(
+                        label = "存卡片",
+                        onClick = { card(doc) },
+                        icon = Icons.Outlined.BookmarkBorder,
+                    )
                 }
             }
         }

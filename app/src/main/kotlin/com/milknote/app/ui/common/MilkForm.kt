@@ -498,8 +498,9 @@ fun <T> MilkSegmented(
 // ==================== 输入框 ====================
 
 /**
- * 统一输入框:40dp 高、10dp 圆角、hairline 描边;聚焦/脏值时描边变强调色并加粗到 1.5dp。
- * label 以眉标形式置于框上方;mono 用于值/URL/Key;传 onClear 时右侧出现清空钮。
+ * 统一输入框:单行恒为 42dp 高、10dp 圆角、hairline 描边;聚焦/脏值时描边变强调色并加粗到 1.5dp。
+ * label 以眉标形式置于框上方;mono 用于值/URL/Key;传 onClear 时右侧常驻清空钮槽位
+ * (无内容时只占位不显示图标),因此输入与清空不会改变字段高度或宽度。
  * [visualTransformation] 非空时优先于 [mask](自定义遮蔽/格式化),默认 null 保持既有行为。
  */
 @Composable
@@ -528,6 +529,7 @@ fun MilkTextField(
     var focused by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
     val highlighted = focused || dirty
+    val compact = singleLine || minLines <= 1
     val borderColor by animateColorAsState(
         if (highlighted) cs.primary else cs.outline,
         MilkMotion.colorSpec(), label = "milkFieldBorder",
@@ -556,9 +558,17 @@ fun MilkTextField(
                 .clip(shape)
                 .background(container)
                 .border(borderWidth, borderColor, shape)
-                .heightIn(min = 40.dp * minLines.coerceAtLeast(1))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = if (singleLine || minLines <= 1) Alignment.CenterVertically else Alignment.Top,
+                .then(
+                    if (compact) {
+                        // 28dp 清空钮 + 6dp*2 = 40dp ≤ 42dp:单行字段高度恒为 42dp,填空不改高
+                        Modifier.heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 6.dp)
+                    } else {
+                        Modifier
+                            .heightIn(min = 40.dp * minLines.coerceAtLeast(1))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    },
+                ),
+            verticalAlignment = if (compact) Alignment.CenterVertically else Alignment.Top,
         ) {
             leading?.let {
                 it()
@@ -593,21 +603,30 @@ fun MilkTextField(
                         .onFocusChanged { focused = it.isFocused },
                 )
             }
-            if (onClear != null && value.isNotEmpty() && enabled) {
+            if (onClear != null) {
+                // 槽位常驻:图标只在有内容可清时出现,但 28dp 宽度与间距始终占位——输入/清空零位移
                 Spacer(Modifier.width(MilkSpace.xs))
+                val clearable = value.isNotEmpty() && enabled
                 Box(
                     Modifier
                         .size(28.dp)
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClick = onClear),
+                        .then(
+                            if (clearable) {
+                                Modifier.clip(CircleShape).clickable(role = Role.Button, onClick = onClear)
+                            } else {
+                                Modifier
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Outlined.Close,
-                        contentDescription = "清空",
-                        tint = cs.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp),
-                    )
+                    if (clearable) {
+                        Icon(
+                            Icons.Outlined.Close,
+                            contentDescription = "清空",
+                            tint = cs.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
                 }
             }
             trailing?.let {
@@ -622,7 +641,8 @@ fun MilkTextField(
 
 /**
  * AI 输入框(composer):`MilkRadius.xl` 胶囊形、聚焦时描边变强调色并加粗 1→1.5dp、底色淡提亮。
- * 与 [MilkTextField] 的分工:字段用于设置表单(40dp 单行),本控件用于对话输入(可多行 + 前置/后置插槽)。
+ * 与 [MilkTextField] 的分工:字段用于设置表单(42dp 单行),本控件用于对话输入(可多行 + 前后插槽)。
+ * 内层文本区固定 40dp 起,单行时与两侧 40dp 图标垂直同轴,多行时向上生长。
  */
 @Composable
 fun MilkComposerField(
@@ -665,17 +685,22 @@ fun MilkComposerField(
             .clip(shape)
             .background(container)
             .border(borderWidth, borderColor, shape)
-            .heightIn(min = 44.dp)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = if (maxLines <= 1) Alignment.CenterVertically else Alignment.Bottom,
     ) {
         leading?.let {
             it()
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(4.dp))
         }
+        // 内层固定 40dp 起(20dp 行高 + 10dp 上下留白):单行文字与两侧 40dp 图标严格同轴;
+        // 2–4 行时文本向上生长,图标贴底,不再出现单行贴底边的错位。
         Box(
-            Modifier.weight(1f),
-            contentAlignment = if (maxLines <= 1) Alignment.CenterStart else Alignment.TopStart,
+            Modifier
+                .weight(1f)
+                .heightIn(min = 40.dp)
+                .padding(horizontal = 6.dp, vertical = 10.dp),
+            contentAlignment = Alignment.CenterStart,
         ) {
             if (value.isEmpty()) {
                 Text(
@@ -701,7 +726,7 @@ fun MilkComposerField(
             )
         }
         trailing?.let {
-            Spacer(Modifier.width(MilkSpace.sm))
+            Spacer(Modifier.width(4.dp))
             it()
         }
     }

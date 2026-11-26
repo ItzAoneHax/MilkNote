@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -76,6 +77,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -687,6 +689,9 @@ private fun DocumentPreviewBody(
                     "第 ${pageIndex + 1} / ${pages.size} 页",
                     style = MilkText.monoMeta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    // 定宽:页码位数变化不推动左右箭头
+                    modifier = Modifier.widthIn(min = 88.dp),
                 )
                 MilkIconButton(
                     imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -746,6 +751,7 @@ private fun DocumentPreviewBody(
             verticalArrangement = Arrangement.spacedBy(MilkSpace.xs),
         ) {
             MilkButton(
+                minWidth = 96.dp,
                 label = if (copied) "已复制" else "复制文本",
                 onClick = {
                     if (hasText) {
@@ -901,6 +907,7 @@ private fun MarkdownPreviewBody(
             verticalArrangement = Arrangement.spacedBy(MilkSpace.xs),
         ) {
             MilkButton(
+                minWidth = 74.dp,
                 label = if (copied) "已复制" else "复制",
                 onClick = {
                     clipboard.setText(AnnotatedString(target.content))
@@ -1052,12 +1059,17 @@ private fun ZoomableImage(
             horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MilkStatusBadge(text = "${(scale * 100).roundToInt()}%", tone = MilkStatusTone.NEUTRAL, mono = true)
+            // 定宽居中的等比标签:缩放数值位数变化不推动相邻徽标
+            Box(Modifier.widthIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                MilkStatusBadge(text = "${(scale * 100).roundToInt()}%", tone = MilkStatusTone.NEUTRAL, mono = true)
+            }
             bitmap?.let {
                 MilkStatusBadge(text = "${it.width}×${it.height}", tone = MilkStatusTone.NEUTRAL, mono = true)
             }
             if (rotation != 0) {
-                MilkStatusBadge(text = "$rotation°", tone = MilkStatusTone.NEUTRAL, mono = true)
+                Box(Modifier.widthIn(min = 40.dp), contentAlignment = Alignment.Center) {
+                    MilkStatusBadge(text = "$rotation°", tone = MilkStatusTone.NEUTRAL, mono = true)
+                }
             }
         }
 

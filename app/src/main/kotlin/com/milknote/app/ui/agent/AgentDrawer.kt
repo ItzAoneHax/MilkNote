@@ -92,6 +92,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -125,6 +126,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -148,7 +150,6 @@ import com.milknote.agent.ReasoningEffort
 import com.milknote.agent.UiMessage
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.cards.cardPreviewText
-import com.milknote.app.ui.common.MilkActionChip
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonSize
 import com.milknote.app.ui.common.MilkButtonVariant
@@ -158,11 +159,12 @@ import com.milknote.app.ui.common.MilkComposerField
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkInlineAction
+import com.milknote.app.ui.common.MilkInlineStatus
+import com.milknote.app.ui.common.MilkInlineTone
 import com.milknote.app.ui.common.MilkRadioRow
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
-import com.milknote.app.ui.common.MilkStatusBadge
-import com.milknote.app.ui.common.MilkStatusTone
 import com.milknote.app.ui.common.MilkSurfaceGroup
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.MilkToast
@@ -178,7 +180,6 @@ import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkSpace
 import com.milknote.app.ui.theme.MilkText
 import com.milknote.app.ui.theme.PaperBorder
-import com.milknote.app.ui.theme.PillShape
 import com.milknote.app.ui.theme.SurfaceElevatedDark
 import kotlin.math.PI
 import kotlin.math.abs
@@ -561,10 +562,8 @@ private fun StudioMarkdownPane(
                 color = cs.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            MilkActionChip(
+            MilkInlineAction(
                 label = "悬浮预览",
-                small = true,
-                enabled = markdown.isNotBlank(),
                 onClick = {
                     preview = AgentPreviewTarget.Markdown(
                         title = pageLabel.ifBlank { "当前页" },
@@ -572,28 +571,22 @@ private fun StudioMarkdownPane(
                         canSaveToNotes = false,
                     )
                 },
-                leading = {
-                    Icon(
-                        Icons.Outlined.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (markdown.isNotBlank()) cs.primary else cs.onSurfaceVariant.copy(alpha = 0.4f),
-                    )
-                },
-            )
-            Spacer(Modifier.width(MilkSpace.xs))
-            MilkActionChip(
-                label = if (editSource) "预览" else "源码",
-                small = true,
-                selected = editSource,
-                onClick = { editSource = !editSource },
-            )
-            Spacer(Modifier.width(MilkSpace.xs))
-            MilkActionChip(
-                label = "存卡片",
-                small = true,
+                icon = Icons.Outlined.Description,
                 enabled = markdown.isNotBlank(),
+            )
+            Spacer(Modifier.width(MilkSpace.xs))
+            // 定宽:源码/预览切换不推动右侧「存卡片」
+            MilkInlineAction(
+                label = if (editSource) "预览" else "源码",
+                onClick = { editSource = !editSource },
+                selected = editSource,
+                minWidth = 56.dp,
+            )
+            Spacer(Modifier.width(MilkSpace.xs))
+            MilkInlineAction(
+                label = "存卡片",
                 onClick = onSaveCard,
+                enabled = markdown.isNotBlank(),
             )
         }
 
@@ -865,55 +858,67 @@ private fun DrawerHeader(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .padding(start = 12.dp, end = 6.dp, bottom = MilkSpace.sm),
+                    .padding(start = 10.dp, end = 6.dp, top = 2.dp, bottom = MilkSpace.sm)
+                    .testTag("agent-model-row"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 模型与思考选择器:占满右侧三个 36dp 动作钮之外的全部宽度,
+                // 与下方分段控件、右侧图标钮共用 8dp 圆角与 36dp 高度。
                 Row(
                     Modifier
-                        .weight(1f, fill = false)
-                        .heightIn(min = 30.dp)
-                        .clip(PillShape)
-                        .background(if (dark) SurfaceElevatedDark else cs.surfaceVariant.copy(alpha = 0.6f))
-                        .border(0.75.dp, cs.outline, PillShape)
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(MilkRadius.sm))
+                        .background(if (dark) SurfaceElevatedDark else cs.surfaceVariant.copy(alpha = 0.55f))
+                        .border(1.dp, cs.outline, RoundedCornerShape(MilkRadius.sm))
                         .softClickable { showModels = true }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp)
+                        .testTag("agent-model-selector"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PulsingDot(color = statusColor, active = streaming)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        activeModel?.displayName?.ifBlank { activeModel.id } ?: state.activeModelId.orEmpty(),
-                        style = MilkText.monoMeta,
-                        color = cs.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (effort != ReasoningEffort.AUTO) {
+                    PulsingDot(color = statusColor, active = streaming, size = 7.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            " · ${effortLabel(effort)}",
-                            style = MilkText.monoMicro,
-                            color = cs.primary,
+                            activeModel?.displayName?.ifBlank { activeModel.id }
+                                ?: state.activeModelId.orEmpty(),
+                            style = MilkText.label.copy(fontWeight = FontWeight.Medium),
+                            color = cs.onSurface,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
+                        if (effort != ReasoningEffort.AUTO) {
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "思考·${effortLabel(effort)}",
+                                style = MilkText.monoMicro,
+                                color = cs.primary,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(MilkRadius.xs))
+                                    .background(cs.primary.copy(alpha = 0.11f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                            )
+                        }
                     }
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(6.dp))
                     Icon(
-                        Icons.Outlined.KeyboardArrowDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
+                        Icons.Outlined.UnfoldMore,
+                        contentDescription = "切换模型与思考设置",
+                        modifier = Modifier.size(16.dp),
                         tint = cs.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(MilkSpace.xs))
                 MilkIconButton(
                     imageVector = Icons.Outlined.FolderOpen,
                     contentDescription = "文件与文档预览",
                     onClick = { showHub = true },
                     touchSize = 36.dp,
-                    visualSize = 30.dp,
+                    visualSize = 36.dp,
                     iconSize = 17.dp,
+                    shape = RoundedCornerShape(MilkRadius.sm),
                 )
                 MilkIconButton(
                     imageVector = Icons.Outlined.History,
@@ -921,8 +926,9 @@ private fun DrawerHeader(
                     onClick = { showSessions = !showSessions },
                     selected = showSessions,
                     touchSize = 36.dp,
-                    visualSize = 30.dp,
+                    visualSize = 36.dp,
                     iconSize = 17.dp,
+                    shape = RoundedCornerShape(MilkRadius.sm),
                 )
                 MilkIconButton(
                     imageVector = Icons.Outlined.Add,
@@ -930,8 +936,9 @@ private fun DrawerHeader(
                     onClick = { agent.clearSession() },
                     enabled = !streaming,
                     touchSize = 36.dp,
-                    visualSize = 30.dp,
+                    visualSize = 36.dp,
                     iconSize = 18.dp,
+                    shape = RoundedCornerShape(MilkRadius.sm),
                 )
             }
         }
@@ -1578,19 +1585,12 @@ private fun AssistantMessage(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MilkStatusBadge("失败", MilkStatusTone.DANGER)
-                    MilkActionChip(
+                    MilkInlineStatus("失败", icon = Icons.Outlined.ErrorOutline, tone = MilkInlineTone.DANGER)
+                    MilkInlineAction(
                         label = "重试",
-                        small = true,
                         onClick = { agent.retry() },
-                        leading = {
-                            Icon(
-                                Icons.Outlined.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = cs.primary,
-                            )
-                        },
+                        icon = Icons.Outlined.Refresh,
+                        tone = MilkInlineTone.ACCENT,
                     )
                 }
             }
@@ -1601,19 +1601,12 @@ private fun AssistantMessage(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MilkStatusBadge("已中断", MilkStatusTone.NEUTRAL)
-                    MilkActionChip(
+                    MilkInlineStatus("已中断", showDot = true, tone = MilkInlineTone.WARNING)
+                    MilkInlineAction(
                         label = "重试",
-                        small = true,
                         onClick = { agent.retry() },
-                        leading = {
-                            Icon(
-                                Icons.Outlined.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = cs.primary,
-                            )
-                        },
+                        icon = Icons.Outlined.Refresh,
+                        tone = MilkInlineTone.ACCENT,
                     )
                 }
             }
@@ -1622,30 +1615,28 @@ private fun AssistantMessage(
                 Spacer(Modifier.height(MilkSpace.xs))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     if (msg.insertedAnnotationId == null) {
-                        MilkActionChip(
+                        // 与「已贴回」同宽同高:贴回前后相邻控件不移动
+                        MilkInlineAction(
                             label = "贴回纸面",
-                            small = true,
                             onClick = { agent.insertAnnotation(msg.id) },
-                            leading = {
-                                Icon(
-                                    Icons.Outlined.PushPin,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = cs.primary,
-                                )
-                            },
+                            icon = Icons.Outlined.PushPin,
+                            tone = MilkInlineTone.ACCENT,
+                            minWidth = 86.dp,
                         )
                     } else {
-                        // 已贴回是状态不是操作:静态胶囊,不注册点击
-                        MilkStatusBadge("已贴回", MilkStatusTone.SUCCESS)
+                        // 已贴回是状态不是操作:同一几何的无点击状态胶囊
+                        MilkInlineStatus(
+                            label = "已贴回",
+                            icon = Icons.Outlined.Check,
+                            tone = MilkInlineTone.SUCCESS,
+                            minWidth = 86.dp,
+                        )
                     }
-                    MilkActionChip(
+                    MilkInlineAction(
                         label = "预览",
-                        small = true,
-                        enabled = msg.text.isNotBlank(),
                         onClick = {
                             onPreview(
                                 AgentPreviewTarget.Markdown(
@@ -1655,46 +1646,25 @@ private fun AssistantMessage(
                                 ),
                             )
                         },
-                        leading = {
-                            Icon(
-                                Icons.Outlined.Description,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = if (msg.text.isNotBlank()) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f),
-                            )
-                        },
-                    )
-                    MilkActionChip(
-                        label = "存卡片",
-                        small = true,
+                        icon = Icons.Outlined.Description,
                         enabled = msg.text.isNotBlank(),
-                        onClick = { onSaveCard(msg.text) },
-                        leading = {
-                            Icon(
-                                Icons.Outlined.BookmarkBorder,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = cs.onSurfaceVariant,
-                            )
-                        },
                     )
-                    MilkActionChip(
+                    MilkInlineAction(
+                        label = "存卡片",
+                        onClick = { onSaveCard(msg.text) },
+                        icon = Icons.Outlined.BookmarkBorder,
+                        enabled = msg.text.isNotBlank(),
+                    )
+                    MilkInlineAction(
                         label = if (copied) "已复制" else "复制",
-                        small = true,
-                        selected = copied,
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("agent", msg.text))
                             copied = true
                         },
-                        leading = {
-                            Icon(
-                                if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = if (copied) LocalMilkSuccess.current else cs.onSurfaceVariant,
-                            )
-                        },
+                        icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        tone = if (copied) MilkInlineTone.SUCCESS else MilkInlineTone.NEUTRAL,
+                        minWidth = 74.dp,
                     )
                 }
             }
@@ -2053,7 +2023,7 @@ private fun Composer(
                         },
                         touchSize = 40.dp,
                         visualSize = 32.dp,
-                        iconSize = 18.dp,
+                        iconSize = 17.dp,
                     )
                 },
                 trailing = {
@@ -2065,7 +2035,7 @@ private fun Composer(
                             tint = cs.error,
                             touchSize = 40.dp,
                             visualSize = 32.dp,
-                            iconSize = 16.dp,
+                            iconSize = 17.dp,
                         )
                     } else {
                         MilkIconButton(
@@ -2075,9 +2045,8 @@ private fun Composer(
                             enabled = canSend,
                             selected = canSend,
                             tint = if (canSend) cs.primary else cs.onSurfaceVariant,
-                            shape = CircleShape,
-                            touchSize = 44.dp,
-                            visualSize = 34.dp,
+                            touchSize = 40.dp,
+                            visualSize = 32.dp,
                             iconSize = 17.dp,
                         )
                     }

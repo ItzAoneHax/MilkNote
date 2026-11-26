@@ -292,7 +292,54 @@ object PptxParser {
                 else -> sb.append(ch)
             }
         }
+        return normalizeSymbolPua(sb.toString())
+    }
+
+    // ---------------------------------------------------------------- 符号字体
+
+    /**
+     * Windows Symbol 字体的私有使用区(`\uF020..\uF0FF`)→ 标准 Unicode。
+     *
+     * 中文课件里的数学/工程公式常用 Symbol 字体排版,PDF/PPTX 里存的是 PUA 码位;
+     * 直接渲染会变成一排 `□`。这里按 Symbol 的码表做无损映射,未收录的字形丢弃,
+     * 避免残留豆腐块。映射在文本抽取出口统一执行,标题、要点、表格、备注都覆盖。
+     */
+    internal fun normalizeSymbolPua(text: String): String {
+        if (text.none { it in SYMBOL_PUA_RANGE }) return text
+        val sb = StringBuilder(text.length)
+        for (ch in text) {
+            if (ch in SYMBOL_PUA_RANGE) {
+                SYMBOL_PUA[ch]?.let { sb.append(it) }
+            } else {
+                sb.append(ch)
+            }
+        }
         return sb.toString()
+    }
+
+    private val SYMBOL_PUA_RANGE = '\uF020'..'\uF0FF'
+
+    private val SYMBOL_PUA: Map<Char, String> = buildMap {
+        // 小写希腊字母
+        put('\uF061', "α"); put('\uF062', "β"); put('\uF063', "χ"); put('\uF064', "δ")
+        put('\uF065', "ε"); put('\uF066', "φ"); put('\uF067', "γ"); put('\uF068', "η")
+        put('\uF069', "ι"); put('\uF06A', "ϕ"); put('\uF06B', "κ"); put('\uF06C', "λ")
+        put('\uF06D', "μ"); put('\uF06E', "ν"); put('\uF06F', "ο"); put('\uF070', "π")
+        put('\uF071', "θ"); put('\uF072', "ρ"); put('\uF073', "σ"); put('\uF074', "τ")
+        put('\uF075', "υ"); put('\uF077', "ω"); put('\uF078', "ξ"); put('\uF079', "ψ")
+        put('\uF07A', "ζ")
+        // 大写希腊字母
+        put('\uF044', "Δ"); put('\uF047', "Γ"); put('\uF04C', "Λ"); put('\uF050', "Π")
+        put('\uF053', "Σ"); put('\uF057', "Ω")
+        // 关系符与运算
+        put('\uF02D', "−"); put('\uF0A3', "≤"); put('\uF0B3', "≥"); put('\uF0B1', "±")
+        put('\uF0B4', "×"); put('\uF0B8', "÷"); put('\uF0B9', "≠"); put('\uF0BB', "≈")
+        put('\uF0A5', "∞"); put('\uF0B6', "∂"); put('\uF0D1', "∇"); put('\uF0D6', "√")
+        put('\uF0E5', "∑"); put('\uF0F2', "∫")
+        // 箭头与分隔
+        put('\uF0AE', "→"); put('\uF0DE', "⇒"); put('\uF0D7', "·")
+        // 项目符号:中文课件的高频「•」,保留为真实圆点
+        put('\uF0B7', "•")
     }
 
     private fun isOle2(bytes: ByteArray): Boolean {
@@ -467,7 +514,7 @@ object PptxParser {
         for (node in descendants(paragraph, "t")) {
             sb.append(node.textContent.orEmpty())
         }
-        return sb.toString().replace(Regex("\\s+"), " ").trim()
+        return normalizeSymbolPua(sb.toString()).replace(Regex("\\s+"), " ").trim()
     }
 
     private fun readTable(table: Element): List<List<String>>? {
