@@ -17,19 +17,25 @@ data class ProviderPreset(
 
 object ProviderRegistry {
 
+    /** OpenCode Go 预设 id(装配层与本模块共享;决定 x-opencode-session 头与端点形态) */
+    const val PRESET_OPENCODE_GO = "opencode_go"
+
     private fun m(
         id: String,
         maxImages: Int = 8,
         thinking: List<ReasoningEffort> = emptyList(),
         ctxK: Int = 0,
         outK: Int = 0,
+        displayName: String = id,
+        protocol: Protocol? = null,
     ) = ModelInfo(
-        id = id, displayName = id, vision = true,
+        id = id, displayName = displayName, vision = true,
         visionSource = VisionSource.PRESET.name, maxImages = maxImages,
         // 思考档位按 pi-ai 目录核验值声明(每家不同;§3.8);空=该模型不可调(仅 AUTO)
         thinkingLevels = thinking.map { it.name },
         contextWindowK = ctxK,   // 千 tokens(§3.3/各家公开规格;0=未知)
         maxTokensK = outK,
+        protocol = protocol,     // 一家多协议(OpenCode Go):null=跟随 profile 默认
     )
 
     // DeepSeek V4.1-Flash:low/high/max(pi-ai DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP,medium=null)
@@ -50,6 +56,15 @@ object ProviderRegistry {
     private val CLAUDE = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
     // Gemini 兼容层 reasoning_effort
     private val GEMINI = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+    // OpenCode Go · gpt-6-luna(Responses):六档全开
+    private val GPT6_LUNA = listOf(
+        ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX,
+    )
+    // OpenCode Go · grok-4.7(Responses):最小档 LOW,无 OFF
+    private val GROK_47 = listOf(
+        ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH, ReasoningEffort.XHIGH,
+    )
     // 自定义模型默认按 OpenAI 标准透传(声明四档)
     private val CUSTOM_DEFAULT = listOf(ReasoningEffort.OFF, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
 
@@ -138,6 +153,32 @@ object ProviderRegistry {
             ),
             imageStyle = ImageStyle.DATA_URI,
             note = "一个 Key 通吃全部厂商;拉取列表自动标视觉(元数据)",
+        ),
+        ProviderPreset(
+            id = PRESET_OPENCODE_GO, title = "OpenCode Go",
+            baseUrl = "https://opencode.ai/inference/go",
+            // 一家多协议:每个模型自带协议覆盖(chat-completions / messages / responses),
+            // 请求路径由 EndpointResolver 按模型展开,不再「一家一个协议」。
+            models = listOf(
+                m("deepseek-v4.1-flash", thinking = DS_FLASH, ctxK = 1000, outK = 384,
+                    displayName = "DeepSeek V4.1 Flash", protocol = Protocol.OPENAI_COMPATIBLE),
+                m("glm-5.3-flash", thinking = GLM, ctxK = 1000, outK = 128,
+                    displayName = "GLM-5.3 Flash", protocol = Protocol.OPENAI_COMPATIBLE),
+                m("kimi-k3.1-pro", thinking = KIMI_K3, ctxK = 1000, outK = 131,
+                    displayName = "Kimi K3.1 Pro", protocol = Protocol.OPENAI_COMPATIBLE),
+                m("mimo-v2.6-flash", thinking = MIMO, ctxK = 1048, outK = 131,
+                    displayName = "MiMo V2.6 Flash", protocol = Protocol.OPENAI_COMPATIBLE),
+                m("claude-haiku-5-5", thinking = CLAUDE, ctxK = 1000, outK = 64,
+                    displayName = "Claude Haiku 5.5", protocol = Protocol.ANTHROPIC),
+                m("qwen3.8-flash", thinking = QWEN, ctxK = 1000, outK = 64,
+                    displayName = "Qwen3.8 Flash", protocol = Protocol.ANTHROPIC),
+                m("gpt-6-luna", thinking = GPT6_LUNA, ctxK = 1050, outK = 128,
+                    displayName = "GPT-6 Luna", protocol = Protocol.OPENAI_RESPONSES),
+                m("grok-4.7", thinking = GROK_47, ctxK = 500, outK = 500,
+                    displayName = "Grok 4.7", protocol = Protocol.OPENAI_RESPONSES),
+            ),
+            imageStyle = ImageStyle.DATA_URI,
+            note = "一个 Key 通吃;按模型自动选 ChatCompletions / Messages / Responses",
         ),
         ProviderPreset(
             id = "custom", title = "自定义(OpenAI 兼容)",

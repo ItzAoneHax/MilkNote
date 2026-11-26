@@ -100,4 +100,56 @@ class NotebookDialogRefinementTest {
         assertEquals("#EAF2F8", saved?.paperColor)
         assertEquals("阅读摘录", saved?.purpose)
     }
+
+    @Test
+    fun manageNotebook_picksFolderFromDropdownWithoutTyping() {
+        var saved: NotebookMeta? = null
+        val meta = NotebookMeta(
+            id = "manage-folder",
+            name = "线性代数",
+            createdAt = 0L,
+            updatedAt = 0L,
+        )
+        rule.setContent {
+            MilkTheme {
+                NotebookManagePanel(
+                    meta = meta,
+                    folders = listOf("数学", "英语"),
+                    onDismiss = {},
+                    onSave = { saved = it },
+                    onDelete = {},
+                )
+            }
+        }
+
+        // 未分组 → 下拉列表里点「数学」:全程不敲键盘,也不存在拼错文件夹名的可能
+        rule.onNodeWithText("未分组").performClick()
+        rule.onNodeWithText("数学").performClick()
+        rule.onNodeWithText("未分组").assertDoesNotExist()
+        rule.onNodeWithText("保存").performClick()
+
+        assertEquals("数学", saved?.folder)
+    }
+
+    @Test
+    fun manageNotebook_folderDropdownOffersCreateFolderEntry() {
+        rule.setContent {
+            MilkTheme {
+                NotebookManagePanel(
+                    meta = NotebookMeta(id = "manage-create-folder", name = "笔记", createdAt = 0L, updatedAt = 0L),
+                    folders = emptyList(),
+                    onDismiss = {},
+                    onSave = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        rule.onNodeWithText("未分组").performClick()
+        rule.onNodeWithText("新建文件夹").performClick()
+
+        // 底部动作行把「新建文件夹」叠成第二层浮层,并要求先给名字才能创建
+        rule.onNodeWithText("文件夹名称").assertIsDisplayed()
+        rule.onNodeWithText("创建").assertIsDisplayed()
+    }
 }

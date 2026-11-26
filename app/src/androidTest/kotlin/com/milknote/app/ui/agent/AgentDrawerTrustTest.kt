@@ -1,5 +1,7 @@
 package com.milknote.app.ui.agent
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.PageRef
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkExpandableErrorBox
 import com.milknote.app.ui.common.MilkInlineAction
 import com.milknote.app.ui.common.MilkInlineStatus
 import com.milknote.app.ui.common.MilkInlineTone
@@ -455,6 +458,37 @@ class AgentDrawerTrustTest {
             ServiceLocator.agentController.closeDrawer()
             ServiceLocator.agentController.removeProfile(profileId)
         }
+    }
+
+    /** Bug 2:长错误永不永久截断——折叠只给 3 行摘要,展开读全文,复制一次拿走标题 + 完整原文 */
+    @Test
+    fun expandableErrorBox_expandsToFullDetailAndCopiesIt() {
+        val detail = "HTTP 500 upstream error: " + "x".repeat(240) + "\n第二行:模型不存在"
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(360.dp)) {
+                    MilkExpandableErrorBox(title = "服务方故障", detail = detail)
+                }
+            }
+        }
+
+        rule.onNodeWithText("服务方故障").assertIsDisplayed()
+        rule.onNodeWithText("展开详情").assertIsDisplayed().performClick()
+        rule.onNodeWithText("收起详情").assertIsDisplayed()
+        // 展开态整段原文可见(不做任何截断)
+        rule.onNodeWithText(detail).assertExists()
+
+        rule.onNodeWithText("复制").assertIsDisplayed().performClick()
+        rule.onNodeWithText("已复制").assertIsDisplayed()
+        var clipboardText: String? = null
+        rule.runOnUiThread {
+            val manager = rule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboardText = manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+        }
+        assertEquals("复制必须拿到标题 + 完整原文", "服务方故障\n$detail", clipboardText)
+
+        rule.onNodeWithText("收起详情").performClick()
+        rule.onNodeWithText("展开详情").assertIsDisplayed()
     }
 
     /** 根因 D:状态与动作共用同一几何，复制/贴回前后宽度严格不变 */

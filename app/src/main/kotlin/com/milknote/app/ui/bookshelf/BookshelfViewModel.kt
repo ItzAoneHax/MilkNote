@@ -128,7 +128,13 @@ class BookshelfViewModel : ViewModel() {
         _railCollapsed.value = !_railCollapsed.value
     }
 
-    fun addFolder(name: String? = null) {
+    /**
+     * 新建文件夹并[可选]立即切到该文件夹。
+     * 侧栏「+」按钮沿用默认 navigate = true;从笔记本下拉或「创建与导入」来的调用用
+     * navigate = false——只是登记一个新位置,不该把当前页面拽走。
+     * @return 最终采用的文件夹名(去空白后)。
+     */
+    fun addFolder(name: String? = null, navigate: Boolean = true): String {
         val existing = folders()
         val target = name?.trim()?.takeIf { it.isNotBlank() } ?: run {
             var idx = existing.size + 1
@@ -138,7 +144,35 @@ class BookshelfViewModel : ViewModel() {
         if (target !in _customFolders.value) {
             _customFolders.value = _customFolders.value + target
         }
-        setNav(BookshelfNav.Folder(target))
+        if (navigate) setNav(BookshelfNav.Folder(target))
+        return target
+    }
+
+    /** 重命名文件夹:搬运其中的笔记本、同步侧栏与当前导航;只改归属,不动笔记本内容 */
+    fun renameFolder(oldName: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank() || trimmed == oldName) return
+        loaded.filter { it.folder == oldName }.forEach { nb ->
+            // updatedAt 保持原值:重命名文件夹不是一次编辑,不该把笔记本顶到「最近编辑」最前
+            repo.updateMeta(nb.copy(folder = trimmed, updatedAt = nb.updatedAt))
+        }
+        _customFolders.value = _customFolders.value
+            .map { if (it == oldName) trimmed else it }
+            .distinct()
+        if (_nav.value == BookshelfNav.Folder(oldName)) _nav.value = BookshelfNav.Folder(trimmed)
+        refresh()
+        events.tryEmit(BookshelfEvent.Message("已重命名为「$trimmed」"))
+    }
+
+    /** 删除文件夹:其中笔记本一律退回未分组(绝不删除笔记本),随后回到「全部」 */
+    fun deleteFolder(name: String) {
+        loaded.filter { it.folder == name }.forEach { nb ->
+            repo.updateMeta(nb.copy(folder = ""))
+        }
+        _customFolders.value = _customFolders.value.filterNot { it == name }
+        if (_nav.value == BookshelfNav.Folder(name)) _nav.value = BookshelfNav.All
+        refresh()
+        events.tryEmit(BookshelfEvent.Message("已删除文件夹，笔记本已移至未分组"))
     }
 
     /** 首页缩略图在 Default 线程逐本渲染、逐本发布,书架先出卡片再补封面 */

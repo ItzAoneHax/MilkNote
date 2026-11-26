@@ -11,7 +11,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -89,12 +88,12 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.VerticalSplit
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -111,6 +110,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -119,6 +119,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -157,12 +160,14 @@ import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkComposerField
 import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkExpandableErrorBox
 import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkInlineAction
 import com.milknote.app.ui.common.MilkInlineStatus
 import com.milknote.app.ui.common.MilkInlineTone
-import com.milknote.app.ui.common.MilkRadioRow
+import com.milknote.app.ui.common.MilkModelProviderHeader
+import com.milknote.app.ui.common.MilkModelSelectRow
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkSurfaceGroup
@@ -944,18 +949,11 @@ private fun DrawerHeader(
         }
     }
     if (showModels) {
-        MilkCenterPanel(
-            title = "模型与思考",
-            subtitle = null,
+        ModelSheet(
+            state = state,
             onDismiss = { showModels = false },
-            maxWidth = 400.dp,
-        ) {
-            ModelSheet(
-                state,
-                onDismiss = { showModels = false },
-                onOpenSettings = onOpenSettings,
-            )
-        }
+            onOpenSettings = onOpenSettings,
+        )
     }
     SessionSwitcherMenu(
         expanded = showSessions,
@@ -1153,29 +1151,57 @@ private fun Messages(
     var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    // 贴底跟随;用户上滑即解除(A-20)
-    val atBottom by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
+    // 「真的在底部」= 一像素都滚不动了;列表项自己变高变矮不再被误判成「离开底部」
+    val isAtBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    // A-20:自动跟随由用户意图独占——上滑阅读、展开思考块都会关掉它,只有滚回真底部才恢复
+    var autoFollow by remember(state.currentSessionId) { mutableStateOf(true) }
+    var userScrolled by remember(state.currentSessionId) { mutableStateOf(false) }
+    val nestedScrollConnection = remember(state.currentSessionId) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    userScrolled = true
+                    // y > 0:手指下拖 = 往历史方向翻 → 立即停止自动跟随
+                    if (available.y > 0f) autoFollow = false
+                }
+                return Offset.Zero
+            }
         }
     }
-    // A-20:新消息(条数变化)→ 动画滚动一次;同一条流式追加 → 直接贴底,不反复起动画
+    // 用户松手后按真实位置裁决是否恢复跟随(滚到底才恢复)
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress && userScrolled) {
+            userScrolled = false
+            autoFollow = !listState.canScrollForward
+        }
+    }
+
+    // A-20:条数增加 → 动画贴底一次;同一条流式追加 → 直接贴底,不反复起动画;
+    // 流式结束且没有新消息 → 一律不动(展开思考块、复制、阅读都不能被掼回顶部)
     var prevSize by remember { mutableStateOf(-1) }
-    LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.text?.length) {
+    val streamingLength = state.messages.lastOrNull()?.let { it.text.length to it.reasoning.length }
+    LaunchedEffect(state.messages.size, streamingLength) {
         val n = state.messages.size
-        val animate = n != prevSize
+        val grew = n > prevSize
         prevSize = n
-        if (atBottom && n > 0) {
-            if (animate) listState.animateScrollToItem(n - 1)
-            else listState.scrollToItem(n - 1)
+        val last = state.messages.lastOrNull()
+        // 目标永远是最末的 1dp 锚点:滚到消息本体只会把它顶到视口顶端
+        val anchor = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+        when {
+            grew -> {
+                autoFollow = true
+                if (n > 0) listState.animateScrollToItem(anchor)
+            }
+
+            last?.streaming == true && autoFollow && !listState.isScrollInProgress ->
+                listState.scrollToItem(anchor)
         }
     }
 
     Box(modifier.fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(nestedScrollConnection),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -1195,16 +1221,19 @@ private fun Messages(
                         onWriteToNotes = onWriteToNotes,
                         onPreview = { preview = it },
                         onToast = { toast = it },
+                        onToggleReasoning = { expanded -> if (expanded) autoFollow = false },
                     )
                 }
             }
             if (state.error != null) {
                 item(key = "err") { ErrorBanner(state.error!!) }
             }
+            // 1dp 底部锚点:滚到它才是真的贴底,滚到消息本体只会把消息顶到视口顶部
+            item(key = "__bottom_anchor__") { Spacer(Modifier.height(1.dp)) }
         }
         // 流式中用户上滑后:仅图标浮球「回到底部」(A-20)
         AnimatedVisibility(
-            visible = !atBottom && state.messages.isNotEmpty(),
+            visible = !isAtBottom && state.messages.isNotEmpty(),
             enter = fadeIn(tween(if (reduced) MilkMotion.reduced else 150, easing = MilkMotion.EaseOut)) +
                 if (reduced) EnterTransition.None else scaleIn(
                     initialScale = 0.9f,
@@ -1219,7 +1248,12 @@ private fun Messages(
                 imageVector = Icons.Outlined.KeyboardArrowDown,
                 contentDescription = "回到底部",
                 onClick = {
-                    scope.launch { listState.animateScrollToItem(state.messages.size - 1) }
+                    autoFollow = true
+                    scope.launch {
+                        listState.animateScrollToItem(
+                            (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0),
+                        )
+                    }
                 },
                 container = true,
                 shape = CircleShape,
@@ -1254,7 +1288,7 @@ private fun Messages(
 
 /** 思考过程折叠(DESIGN-V2 msg-think):默认收起,矢量箭头 + mono 灰字「思考过程 · N 字」,展开后纯文本 + 细竖线 */
 @Composable
-private fun ReasoningBlock(msg: UiMessage) {
+private fun ReasoningBlock(msg: UiMessage, onExpandChanged: (Boolean) -> Unit = {}) {
     var expanded by remember(msg.id) { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
     val reduced = LocalMilkMotion.current
@@ -1264,11 +1298,17 @@ private fun ReasoningBlock(msg: UiMessage) {
         animationSpec = if (reduced) snap() else MilkMotion.uiSpring(),
         label = "reasoningChevron",
     )
-    Column(Modifier.fillMaxWidth().animateContentSize(tween(if (reduced) MilkMotion.reduced else MilkMotion.enter))) {
+    // 高度动画只由 AnimatedVisibility 一家负责:再叠 animateContentSize 会与 LazyColumn
+    // 的重测量互相追高,表现为展开瞬间整段消息被反复顶回视口顶部。
+    Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .softClickable { expanded = !expanded }
+                .softClickable {
+                    val next = !expanded
+                    expanded = next
+                    onExpandChanged(next)
+                }
                 .defaultMinSize(minHeight = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1522,6 +1562,7 @@ private fun AssistantMessage(
     onWriteToNotes: (String) -> Unit,
     onPreview: (AgentPreviewTarget) -> Unit,
     onToast: (String) -> Unit,
+    onToggleReasoning: (Boolean) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
     val context = LocalContext.current
@@ -1537,7 +1578,7 @@ private fun AssistantMessage(
     Column(Modifier.fillMaxWidth()) {
         // 思考过程:默认折叠;流式中(答案未出)显示「思考中」,完成后显示字数
         if (msg.reasoning.isNotBlank()) {
-            ReasoningBlock(msg)
+            ReasoningBlock(msg, onExpandChanged = onToggleReasoning)
             Spacer(Modifier.height(10.dp))
         }
         when {
@@ -1760,39 +1801,8 @@ private fun ThinkingDots(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ErrorBanner(error: AgentError) {
-    val cs = MaterialTheme.colorScheme
     val title = errorTitle(error)
-    val detail = errorDetailOrNull(title, error.detail)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(MilkRadius.md))
-            .background(cs.error.copy(alpha = 0.08f))
-            .border(0.75.dp, cs.error.copy(alpha = 0.24f), RoundedCornerShape(MilkRadius.md))
-            .padding(horizontal = 10.dp, vertical = MilkSpace.sm),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            Icons.Outlined.ErrorOutline,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = cs.error,
-        )
-        Spacer(Modifier.width(MilkSpace.sm))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MilkText.label, color = cs.error)
-            if (detail != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    detail,
-                    style = MilkText.micro,
-                    color = cs.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
+    MilkExpandableErrorBox(title = title, detail = errorDetailOrNull(title, error.detail))
 }
 
 private fun errorTitle(e: AgentError): String = when (e) {
@@ -2194,6 +2204,7 @@ private fun DraftAttachmentCard(
 
 // ---------------- 模型切换 sheet(仅视觉) ----------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModelSheet(
     state: AgentUiState,
@@ -2202,54 +2213,105 @@ private fun ModelSheet(
 ) {
     val agent = ServiceLocator.agentController
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().padding(top = MilkSpace.md)) {
-        // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉);行 = 共享单选行
+    var query by remember { mutableStateOf("") }
+    // 只列有视觉模型的 Provider;搜索只在一屏放不下时出现(短列表不给多余控件)
+    val profiles = remember(state.profiles) {
+        state.profiles.filter { profile -> profile.models.any { it.vision } }
+    }
+    val visionCount = remember(profiles) { profiles.sumOf { profile -> profile.models.count { it.vision } } }
+    val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
+    val activeModel = activeProfile?.models?.firstOrNull { it.id == state.activeModelId }
+        ?: activeProfile?.activeModel()
+    val declared = activeModel?.thinkingLevels
+        ?.mapNotNull { runCatching { ReasoningEffort.valueOf(it) }.getOrNull() }
+        ?: listOf(
+            // 自定义模型未声明:按 OpenAI 标准给通用四档
+            ReasoningEffort.OFF,
+            ReasoningEffort.LOW,
+            ReasoningEffort.MEDIUM,
+            ReasoningEffort.HIGH,
+        )
+    val current = runCatching { ReasoningEffort.valueOf(activeProfile?.reasoningEffort ?: "AUTO") }
+        .getOrDefault(ReasoningEffort.AUTO)
+
+    MilkCenterPanel(
+        title = "模型与思考",
+        onDismiss = onDismiss,
+        maxWidth = 440.dp,
+    ) {
+        if (visionCount > 6) {
+            MilkTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "搜索模型或服务…",
+                leading = {
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp),
+                    )
+                },
+                onClear = { query = "" },
+            )
+            Spacer(Modifier.height(MilkSpace.md))
+        }
+        // 模型列表:超限内部滚动(A-18,防多 Provider 长列表撑爆抽屉)
         Column(
             Modifier
                 .fillMaxWidth()
                 .heightIn(max = 320.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            state.profiles.filter { profile -> profile.models.any { it.vision } }.forEach { profile ->
-                MilkSectionLabel(
-                    text = profile.title,
-                    modifier = Modifier.padding(top = MilkSpace.sm + 2.dp, bottom = MilkSpace.xxs),
-                )
-                profile.models.filter { it.vision }.forEach { m ->
-                    val active = profile.id == state.activeProfileId && m.id == state.activeModelId
-                    MilkRadioRow(
-                        selected = active,
-                        label = m.displayName.ifBlank { m.id },
-                        onClick = {
-                            agent.selectModel(profile.id, m.id)
-                            onDismiss()
-                        },
-                    )
+            val needle = query.trim()
+            profiles.forEach { profile ->
+                val models = profile.models.filter {
+                    it.vision && (
+                        needle.isEmpty() ||
+                            it.id.contains(needle, true) ||
+                            it.displayName.contains(needle, true) ||
+                            profile.title.contains(needle, true)
+                        )
                 }
+                if (models.isEmpty()) return@forEach
+                MilkModelProviderHeader(
+                    title = profile.title,
+                    protocol = profile.protocol,
+                    missingKey = !agent.hasKey(profile),
+                    trailingText = "${models.size} 模型",
+                    modifier = Modifier.padding(top = MilkSpace.sm),
+                )
+                Spacer(Modifier.height(MilkSpace.xxs))
+                MilkSurfaceGroup {
+                    models.forEachIndexed { index, m ->
+                        if (index > 0) MilkHairlineDivider(startIndent = 44.dp)
+                        MilkModelSelectRow(
+                            displayName = m.displayName.ifBlank { m.id },
+                            modelId = m.id,
+                            selected = profile.id == state.activeProfileId && m.id == state.activeModelId,
+                            protocol = m.protocol ?: profile.protocol,
+                            protocolOverridden = m.protocol != null,
+                            vision = m.vision,
+                            contextWindowK = m.contextWindowK,
+                            onClick = {
+                                agent.selectModel(profile.id, m.id)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(MilkSpace.sm))
             }
         }
         Spacer(Modifier.height(MilkSpace.md))
-        HorizontalDivider(color = cs.outline.copy(alpha = 0.7f))
+        MilkHairlineDivider()
         Spacer(Modifier.height(MilkSpace.md))
         // ---- 思考强度(§3.8:每家档位不同,按当前模型声明显示) ----
-        val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
-        val activeModel = activeProfile?.activeModel()
-        val declared = activeModel?.thinkingLevels
-            ?.mapNotNull { runCatching { ReasoningEffort.valueOf(it) }.getOrNull() }
-            ?: listOf(
-                // 自定义模型未声明:按 OpenAI 标准给通用四档
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-            )
-        val current = runCatching { ReasoningEffort.valueOf(activeProfile?.reasoningEffort ?: "AUTO") }
-            .getOrDefault(ReasoningEffort.AUTO)
         MilkSectionLabel(text = "思考强度")
         Spacer(Modifier.height(MilkSpace.sm))
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(MilkSpace.xs),
+            verticalArrangement = Arrangement.spacedBy(MilkSpace.xs),
         ) {
             EffortChip("自动", current == ReasoningEffort.AUTO) {
                 agent.setReasoningEffort(ReasoningEffort.AUTO)
@@ -2261,7 +2323,7 @@ private fun ModelSheet(
             }
         }
         Spacer(Modifier.height(MilkSpace.md))
-        HorizontalDivider(color = cs.outline.copy(alpha = 0.7f))
+        MilkHairlineDivider()
         // A-17:真正进入 设置 · Agent(此前只关面板不导航)
         Row(
             Modifier

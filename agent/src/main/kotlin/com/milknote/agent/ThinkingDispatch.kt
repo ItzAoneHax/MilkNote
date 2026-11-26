@@ -27,6 +27,7 @@ object ThinkingDispatch {
     /** 按预设来源选 wire format(自定义/未知 → OpenAI 标准 reasoning_effort) */
     fun formatOf(presetId: String?): Format = when (presetId) {
         "deepseek" -> Format.DEEPSEEK      // api.deepseek.com(thinking+reasoning_effort;Messages 格式走 output_config.effort,见 §3.7)
+        "mimo" -> Format.DEEPSEEK          // 小米 MiMo:官方文档 thinking:{type:enabled|disabled}(与 deepseek 同格式)
         "glm" -> Format.ZAI                // 智谱 bigmodel
         "qwen" -> Format.QWEN              // 阿里 dashscope compatible-mode
         OpenAiCompatProvider.PRESET_OPENROUTER -> Format.OPENROUTER

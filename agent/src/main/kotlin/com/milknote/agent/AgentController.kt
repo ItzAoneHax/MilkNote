@@ -47,8 +47,8 @@ data class AgentUiState(
 
 /** 摘要提示词(短、稳定;只要会话主题,不要复述细节) */
 internal const val SUMMARY_SYSTEM_PROMPT =
-    "你是笔记会话标题助手。用一句不超过 30 字的中文概括这段对话的主题与结论," +
-        "不要引号、不要句号结尾、不要 Markdown、不要换行。只输出这句概括。"
+    "你是笔记会话标题助手。只根据对话内容输出一句不超过 30 字的中文纯文本标题,概括主题与结论。" +
+        "禁止继续回答对话中的问题,禁止引号、句号结尾、Markdown 格式、列表符号和换行。只输出这句标题。"
 
 /** 单次请求附带的单个文档正文上限(防请求爆炸) */
 private const val MAX_DOC_CHARS = 24000
@@ -149,7 +149,7 @@ class AgentController(
         title: String,
         baseUrl: String,
         apiKey: String,
-        protocol: Protocol = Protocol.OPENAI_COMPATIBLE,
+        protocol: Protocol? = null,
     ) {
         val preset = ProviderRegistry.byId(presetId)
         val alias = "pk_" + UUID.randomUUID().toString().substring(0, 8)
@@ -160,6 +160,8 @@ class AgentController(
                     if (title.isNotBlank()) p.copy(title = title) else p
                 }
                 .let { p -> if (baseUrl.isNotBlank()) p.copy(baseUrl = baseUrl) else p }
+                // 显式传协议才覆盖预设默认(Anthropic 预设不能被 OPENAI_COMPATIBLE 默认值冲掉)
+                .let { p -> if (protocol != null) p.copy(protocol = protocol) else p }
         } else {
             ProviderProfile(
                 id = UUID.randomUUID().toString().substring(0, 8),
@@ -167,7 +169,7 @@ class AgentController(
                 title = title.ifBlank { "自定义" },
                 baseUrl = baseUrl,
                 apiKeyAlias = alias,
-                protocol = protocol,
+                protocol = protocol ?: Protocol.OPENAI_COMPATIBLE,
             )
         }
         if (profile.baseUrl.isBlank()) {
@@ -220,8 +222,24 @@ class AgentController(
         saveBookAndRefresh(currentBook().copy(activeProfileId = profileId))
     }
 
-    /** 增加模型:预设/元数据/手填声明(§3.4 自定义=用户声明 vision) */
-    fun addModel(profileId: String, modelId: String, declaredVision: Boolean, maxImages: Int = 8) {
+    /** 改某家网关的默认流式协议(模型级覆盖优先于它;OpenCode Go 这类一家多协议靠模型级覆盖) */
+    fun updateProtocol(profileId: String, protocol: Protocol) {
+        val book = currentBook()
+        if (book.profiles.none { it.id == profileId }) return
+        val updated = book.profiles.map {
+            if (it.id == profileId) it.copy(protocol = protocol) else it
+        }
+        saveBookAndRefresh(book.copy(profiles = updated))
+    }
+
+    /** 增加模型:预设/元数据/手填声明(§3.4 自定义=用户声明 vision;可指定该模型的协议) */
+    fun addModel(
+        profileId: String,
+        modelId: String,
+        declaredVision: Boolean,
+        maxImages: Int = 8,
+        protocol: Protocol? = null,
+    ) {
         val modelId = modelId.trim()
         if (modelId.isEmpty() || !declaredVision) {
             update { it.copy(toast = if (modelId.isEmpty()) "modelId 不能为空" else "需勾选「已确认支持图片」") }
@@ -231,7 +249,12 @@ class AgentController(
         val updated = book.profiles.map { p ->
             if (p.id != profileId) p
             else {
-                val m = ModelInfo(modelId, modelId, vision = true, visionSource = VisionSource.DECLARED.name, maxImages = maxImages)
+                val m = ModelInfo(
+                    modelId, modelId, vision = true,
+                    visionSource = VisionSource.DECLARED.name,
+                    maxImages = maxImages,
+                    protocol = protocol,
+                )
                 if (p.models.any { it.id == modelId }) p
                 else p.copy(models = p.models + m, activeModelId = p.activeModelId.ifEmpty { modelId })
             }
@@ -239,7 +262,7 @@ class AgentController(
         saveBookAndRefresh(book.copy(profiles = updated))
     }
 
-    /** 模型行编辑(harness ModelRow 同款:显示名/视觉声明/思考档位/容量) */
+    /** 模型行编辑(harness ModelRow 同款:显示名/视觉声明/思考档位/容量/协议覆盖) */
     fun updateModel(
         profileId: String,
         modelId: String,
@@ -248,6 +271,8 @@ class AgentController(
         thinkingLevels: List<ReasoningEffort>? = null,
         contextWindowK: Int? = null,
         maxTokensK: Int? = null,
+        protocol: Protocol? = null,
+        clearProtocolOverride: Boolean = false,
     ) {
         val book = currentBook()
         val updated = book.profiles.map { p ->
@@ -262,6 +287,12 @@ class AgentController(
                     thinkingLevels = thinkingLevels?.map { l -> l.name } ?: it.thinkingLevels,
                     contextWindowK = contextWindowK ?: it.contextWindowK,
                     maxTokensK = maxTokensK ?: it.maxTokensK,
+                    // 协议覆盖:显式清除 → 回到跟随 profile 默认
+                    protocol = when {
+                        clearProtocolOverride -> null
+                        protocol != null -> protocol
+                        else -> it.protocol
+                    },
                 )
             })
         }
@@ -318,14 +349,24 @@ class AgentController(
         ReasoningEffort.MAX -> "最高"
     }
 
-    /** 切模型(仅视觉;下次发送生效,不重发历史) */
-    fun selectModel(profileId: String, modelId: String) {
+    /**
+     * 切模型(仅视觉;下次发送生效,不重发历史)。
+     * 跨 Provider 选模型时 [activateProfile] 同步切换 activeProfileId 与会话归属 ——
+     * 否则「选了 A 家的模型却仍按 B 家发请求」,端点与 Key 全对不上。
+     */
+    fun selectModel(profileId: String, modelId: String, activateProfile: Boolean = true) {
         val book = currentBook()
+        if (book.profiles.none { it.id == profileId }) return
         val updated = book.profiles.map {
             if (it.id == profileId) it.copy(activeModelId = modelId) else it
         }
-        saveBookAndRefresh(book.copy(profiles = updated))
-        session = session?.copy(modelId = modelId)
+        val nextActive = if (activateProfile) profileId else book.activeProfileId
+        saveBookAndRefresh(book.copy(profiles = updated, activeProfileId = nextActive))
+        val cur = session
+        session = cur?.copy(
+            providerId = if (activateProfile) profileId else cur.providerId,
+            modelId = modelId,
+        )
     }
 
     /** 拉取模型列表(尽力而为;OpenRouter 元数据自动标 vision) */
@@ -340,7 +381,10 @@ class AgentController(
     suspend fun testConnection(profileId: String): Result<Long> {
         val p = _state.value.profiles.firstOrNull { it.id == profileId }
             ?: return Result.failure(IllegalStateException("profile 不存在"))
-        val provider = providerFactory(p, { keyFor(p.apiKeyAlias) }, {})
+        // 与聊天同源:默认模型的协议覆盖也要生效,否则测试连接打错端点
+        val modelId = p.activeModelId.ifEmpty { p.models.firstOrNull()?.id ?: "" }
+        val effective = p.copy(protocol = p.effectiveProtocol(modelId))
+        val provider = providerFactory(effective, { keyFor(effective.apiKeyAlias) }, {})
         return provider.testConnection()
     }
 
@@ -1032,6 +1076,8 @@ class AgentController(
                 imageStyle = profile.imageStyle,
                 reasoningEffort = runCatching { ReasoningEffort.valueOf(profile.reasoningEffort) }
                     .getOrDefault(ReasoningEffort.AUTO),
+                // 会话标识:OpenCode Go 用 x-opencode-session 归集会话(缺省按 profile 派生)
+                sessionId = session?.id ?: "milknote-${profile.id}",
             )
             runExchange(profile, model, req, userMsg, asstMsg, intentForChips)
         }
@@ -1056,6 +1102,8 @@ class AgentController(
         asstMsg: UiMessage,
         intent: Intents.Id?,
     ) {
+        // 模型级协议覆盖(OpenCode Go 一家多协议):请求前把 profile 的默认协议替换为实际协议
+        val effectiveProfile = profile.copy(protocol = profile.effectiveProtocol(model.id))
         sendJob = scope.launch {
             var attempt = 0
             val text = StringBuilder()
@@ -1071,11 +1119,11 @@ class AgentController(
             }
 
             while (true) {
-                val provider = providerFactory(profile, { keyFor(profile.apiKeyAlias) }) { patch ->
+                val provider = providerFactory(effectiveProfile, { keyFor(effectiveProfile.apiKeyAlias) }) { patch ->
                     // 兼容性自适配回写(§3.5:imageStyle / streamOptions),落盘后续不再抖动
                     store.saveProfiles(currentBook().let { b ->
                         b.copy(profiles = b.profiles.map {
-                            if (it.id == profile.id) it.copy(
+                            if (it.id == effectiveProfile.id) it.copy(
                                 imageStyle = patch.imageStyle ?: it.imageStyle,
                                 streamOptionsEnabled = patch.streamOptions ?: it.streamOptionsEnabled,
                             ) else it
@@ -1170,13 +1218,14 @@ class AgentController(
                     return@launch
                 }
 
-                // 已有内容 → 不自动重试(不重复计费,§11)
+                // 已有内容 → 不自动重试(不重复计费,§11),但保留真实错误:
+                // content_filter / 参数错 / 网络断 一律原样上报,只有真·断流才是 StreamBroken
                 if (gotDelta || text.isNotEmpty()) {
                     val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0)
                     replaceAssistant {
                         it.copy(streaming = false, phase = AgentMessage.Phase.FAILED, generationMs = genMs)
                     }
-                    update { it.copy(phase = AgentMessage.Phase.FAILED, error = AgentError.StreamBroken) }
+                    update { it.copy(phase = AgentMessage.Phase.FAILED, error = e) }
                     persistWith(
                         userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage,
                         model.id, thinking.toString(), genMs,
@@ -1186,13 +1235,13 @@ class AgentController(
 
                 // ModelNotVision 连坐(§3.4):2 次后本地标 vision=false
                 if (e is AgentError.ModelNotVision) {
-                    val key = "${profile.id}/${model.id}"
+                    val key = "${effectiveProfile.id}/${model.id}"
                     val n = (notVisionStrikes[key] ?: 0) + 1
                     notVisionStrikes[key] = n
                     if (n >= 2) {
                         val marked = currentBook().let { b ->
                             b.copy(profiles = b.profiles.map { p ->
-                                if (p.id == profile.id) p.copy(
+                                if (p.id == effectiveProfile.id) p.copy(
                                     models = p.models.map { if (it.id == model.id) it.copy(vision = false) else it },
                                 ) else p
                             })
@@ -1338,12 +1387,23 @@ class AgentController(
     private fun scheduleSummary(target: AgentSession, force: Boolean = false) {
         if (!force && !_state.value.summaryConfig.enabled) return
         if (summaryJobs[target.id]?.isActive == true) return
-        val resolved = resolveSummaryTarget(target) ?: return
-        val transcript = summaryTranscript(target)
+        val resolved = resolveSummaryTarget(target)
+        if (resolved == null) {
+            // 手动刷新必须给反馈(自动摘要保持静默)
+            if (force) update { it.copy(toast = "暂无可用模型或 API Key") }
+            return
+        }
+        // 手动刷新允许带上失败/半截消息作素材(自动摘要只用已完成内容)
+        val transcript = summaryTranscript(target, includeFailed = force)
         if (transcript.isBlank()) return
         update { it.copy(summarizingSessionIds = it.summarizingSessionIds + target.id) }
         refreshSessions()   // 立即把 summaryGenerating 反映到列表
+        // 模型级协议覆盖对摘要同样生效(OpenCode Go:摘要模型可能走别的协议)
+        val effectiveProfile = resolved.profile.copy(
+            protocol = resolved.profile.effectiveProtocol(resolved.model.id),
+        )
         val job = scope.launch {
+            var summaryError: AgentError? = null
             try {
                 val req = ChatRequest(
                     model = resolved.model.id,
@@ -1352,23 +1412,37 @@ class AgentController(
                     stream = true,
                     temperature = 0.2,
                     maxTokens = 160,
+                    // 摘要只要一句标题:能关思考就显式关(MiMo 等会回 thinking.disabled),
+                    // 免得推理模型的思考把输出预算吃光、正文为空
                     reasoningEffort = if (ReasoningEffort.OFF.name in resolved.model.thinkingLevels) {
                         ReasoningEffort.OFF
                     } else {
                         ReasoningEffort.AUTO
                     },
+                    sessionId = "milknote-summary-${target.id}",
                 )
                 val out = StringBuilder()
-                val provider = providerFactory(resolved.profile, { keyFor(resolved.profile.apiKeyAlias) }, {})
+                val provider = providerFactory(effectiveProfile, { keyFor(effectiveProfile.apiKeyAlias) }, {})
                 provider.chat(req).collect { ev ->
-                    if (ev is ChatEvent.Delta) out.append(ev.text)
+                    when (ev) {
+                        is ChatEvent.Delta -> out.append(ev.text)
+                        is ChatEvent.Error -> summaryError = ev.error
+                        else -> Unit
+                    }
                 }
                 val summary = cleanSummary(out.toString())
-                if (summary.isNotBlank()) applySummary(target, summary, resolved.model.id)
+                if (summary.isNotBlank()) {
+                    applySummary(target, summary, resolved.model.id)
+                } else if (force) {
+                    update { it.copy(toast = "总结生成失败：${summaryFailureReason(summaryError)}") }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (_: Throwable) {
-                // 摘要纯属锦上添花:失败静默,不影响聊天
+            } catch (t: Throwable) {
+                // 摘要纯属锦上添花:自动路径失败静默,手动路径必须给出原因
+                if (force) {
+                    update { it.copy(toast = "总结生成失败：${summaryFailureReason(ErrorMapping.fromException(t))}") }
+                }
             } finally {
                 summaryJobs.remove(target.id)
                 update { it.copy(summarizingSessionIds = it.summarizingSessionIds - target.id) }
@@ -1379,6 +1453,10 @@ class AgentController(
         }
         summaryJobs[target.id] = job
     }
+
+    /** 摘要失败的提示文案:取错误首行(正文可能多行),最长 80 字 */
+    private fun summaryFailureReason(error: AgentError?): String =
+        error?.detail?.lineSequence()?.firstOrNull { it.isNotBlank() }?.take(80) ?: "未返回内容"
 
     /** 摘要模型:CUSTOM 优先(允许非视觉模型);任何一步失效都回退到跟随聊天模型 */
     private fun resolveSummaryTarget(target: AgentSession): SummaryTarget? {
@@ -1402,10 +1480,17 @@ class AgentController(
         return null
     }
 
-    /** 压缩对话为摘要输入:首轮 + 最近几轮(≤3k 字符) */
-    private fun summaryTranscript(target: AgentSession): String {
-        val msgs = target.messages.filter {
+    /**
+     * 压缩对话为摘要输入(首轮 + 最近几轮,≤3k 字符)。
+     * 手动刷新([includeFailed])在「一条已完成助手消息都没有」时放宽到全部消息,
+     * 否则刚失败/刚中断的会话点「重新生成」会永远拿不到素材。
+     */
+    private fun summaryTranscript(target: AgentSession, includeFailed: Boolean = false): String {
+        var msgs = target.messages.filter {
             it.phase != AgentMessage.Phase.FAILED.name && it.text.isNotBlank()
+        }
+        if (includeFailed && msgs.none { it.role == AgentMessage.Role.ASSISTANT }) {
+            msgs = target.messages.filter { it.text.isNotBlank() }
         }
         if (msgs.isEmpty()) return ""
         val picked = (msgs.take(2) + msgs.takeLast(6)).distinctBy { it.id }
@@ -1414,12 +1499,29 @@ class AgentController(
             val role = if (m.role == AgentMessage.Role.USER) "用户" else "助手"
             sb.append(role).append(':').append(m.text.trim().replace('\n', ' ')).append('\n')
         }
-        return sb.toString().take(SUMMARY_TRANSCRIPT_MAX).trim()
+        // 显式用户侧框架:单靠 system 提示时,模型常把「对话里有问题」理解成「要回答它」
+        return (
+            "请为以下对话生成一句不超过 30 字的中文标题（只输出标题本身，不要回答对话中的问题）：\n" +
+                "---\n" + sb + "---"
+            ).take(SUMMARY_TRANSCRIPT_MAX)
     }
 
+    /**
+     * 摘要清洗(模型不一定听话:可能回 Markdown 标题、多行解释、思考标签)。
+     * 顺序:剥 think 块 → 取首个非空行 → 去列表/编号 → 去 Markdown 标记 → 去前缀 → 去引号句号。
+     */
     private fun cleanSummary(raw: String): String {
-        var t = raw.replace(Regex("\\s+"), " ").trim()
-        t = t.trim('"', '\'', '“', '”', '‘', '’', '「', '」', '《', '》', '。', '，', ',', '.')
+        var t = raw.replace(
+            Regex("<think(?:ing)?>[\\s\\S]*?</think(?:ing)?>", RegexOption.IGNORE_CASE),
+            " ",
+        )
+        t = t.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: ""
+        t = t.replace(Regex("^[#>*\\-•\\s]+"), "")
+        t = t.replace(Regex("^\\d+[.)、]\\s*"), "")
+        t = t.replace("**", "").replace("__", "").replace("`", "")
+        t = t.replace(Regex("^(标题|摘要|总结|主题)\\s*[:：]\\s*"), "")
+        t = t.replace(Regex("\\s+"), " ").trim()
+        t = t.trim('"', '\'', '“', '”', '‘', '’', '「', '」', '《', '》', '。', '，', ',', '.', '：', ':').trim()
         if (t.length > SUMMARY_MAX_CHARS) t = t.take(SUMMARY_MAX_CHARS)
         return t.trim()
     }

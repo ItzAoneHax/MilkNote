@@ -51,4 +51,40 @@ class BookshelfHeaderAdaptTest {
         rule.onNodeWithText("新建").assertIsDisplayed().performClick()
         assertTrue(createClicked)
     }
+
+    @Test
+    fun folderHeader_offersBackToAll() {
+        var backClicked = false
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(900.dp)) {
+                    BookshelfHeaderBar(
+                        title = "数学",
+                        railCollapsed = false,
+                        isCards = false,
+                        isTrash = false,
+                        hasTrash = false,
+                        listView = false,
+                        onExpandRail = {},
+                        onSearch = {},
+                        onToggleListView = {},
+                        onSortToggle = {},
+                        sortExpanded = false,
+                        onSortDismiss = {},
+                        sortContent = {},
+                        onPrimaryNew = {},
+                        onPrimaryMoreCreate = {},
+                        onEmptyTrash = {},
+                        showBack = true,
+                        onBack = { backClicked = true },
+                    )
+                }
+            }
+        }
+
+        // 文件夹内:标题可读,返回位在标题左侧且可点回「全部」
+        rule.onNodeWithText("数学").assertIsDisplayed()
+        rule.onNodeWithContentDescription("返回全部").assertIsDisplayed().performClick()
+        assertTrue(backClicked)
+    }
 }

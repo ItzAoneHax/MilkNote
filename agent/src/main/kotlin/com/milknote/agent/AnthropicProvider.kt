@@ -2,16 +2,14 @@ package com.milknote.agent
 
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
  * Anthropic Messages 原生协议(AGENT-BACKEND §3.7,A2 增补):
  * 部分 Claude 系端点/中转站仅有 Anthropic 格式 —— POST {base}/v1/messages,
  * `x-api-key` + `anthropic-version` 头,图片走 content block `source.base64`。
- * baseUrl 兼容三种写法:`…/v1`、裸域、`…/anthropic`(中转前缀),末尾自动补 /v1/messages。
+ * baseUrl 兼容三种写法:`…/v1`、裸域、`…/anthropic`(中转前缀),末尾自动补 /v1/messages
+ * (OpenCode Go 的 `/inference/go/anthropic/v1/messages` 也由 [EndpointResolver] 归一)。
  */
 class AnthropicProvider(
     profile: ProviderProfile,
@@ -24,13 +22,9 @@ class AnthropicProvider(
     private var stashedInputTokens = 0   // message_start 带 input,message_delta 带 output,拼合
     private var stashedStopReason: String? = null
 
-    internal override fun endpoint(path: String, sse: Boolean): String {
-        val base = profile.baseUrl.trimEnd('/')
-        val prefix = if (base.endsWith("/v1")) base else "$base/v1"
-        return when (path) {
-            "chat" -> "$prefix/messages"
-            else -> "$prefix/models"
-        }
+    internal override fun endpoint(path: String, sse: Boolean): String = when (path) {
+        "chat" -> EndpointResolver.resolveChatUrl(profile.baseUrl, Protocol.ANTHROPIC)
+        else -> EndpointResolver.resolveModelsUrl(profile.baseUrl, Protocol.ANTHROPIC)
     }
 
     internal override fun applyHeaders(conn: java.net.HttpURLConnection, sse: Boolean) {
@@ -98,38 +92,30 @@ class AnthropicProvider(
     internal override fun parseFrame(payload: String): List<ChatEvent> {
         val p = payload.trim()
         if (p.isEmpty()) return emptyList()
-        val obj = runCatching { BaseHttpProvider.json.parseToJsonElement(p).jsonObject }.getOrNull() ?: return emptyList()
-        return when (obj["type"]?.jsonPrimitive?.content) {
+        val obj = runCatching { BaseHttpProvider.json.parseToJsonElement(p).asObjOrNull() }.getOrNull()
+            ?: return emptyList()
+        return when (obj.strOrNull("type")) {
             "content_block_delta" -> {
-                // JsonNull 守卫(与 OpenAI 路径同源问题):null 值不得变字面量 "null"
-                fun txt(field: String): String? {
-                    val el = obj["delta"]?.jsonObject?.get(field) ?: return null
-                    if (el is kotlinx.serialization.json.JsonNull) return null
-                    return el.jsonPrimitive.content
-                }
                 // 思考块(extended thinking):thinking_delta.thinking;redacted/签名帧忽略
-                txt("thinking")?.let { return listOf(ChatEvent.Thinking(it)) }
-                val text = txt("text") ?: txt("partial_json")  // tool 帧按文本容错
+                obj.objOrNull("delta")?.nonEmptyStr("thinking")?.let { return listOf(ChatEvent.Thinking(it)) }
+                // tool 帧按文本容错
+                val text = obj.objOrNull("delta")?.let { it.nonEmptyStr("text") ?: it.nonEmptyStr("partial_json") }
                 if (text.isNullOrEmpty()) emptyList() else listOf(ChatEvent.Delta(text))
             }
             "message_start" -> {
-                stashedInputTokens = obj["message"]?.jsonObject?.get("usage")?.jsonObject
-                    ?.get("input_tokens")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                stashedInputTokens = obj.objOrNull("message")?.objOrNull("usage")?.intOrNull("input_tokens") ?: 0
                 emptyList()
             }
             "message_delta" -> {
                 // stop_reason(end_turn/stop_sequence/max_tokens/tool_use)权威完成信号
-                obj["delta"]?.jsonObject?.get("stop_reason")?.let { sr ->
-                    if (sr !is kotlinx.serialization.json.JsonNull) stashedStopReason = sr.jsonPrimitive.content
-                }
-                val out = obj["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                obj.objOrNull("delta")?.nonEmptyStr("stop_reason")?.let { stashedStopReason = it }
+                val out = obj.objOrNull("usage")?.intOrNull("output_tokens") ?: 0
                 if (stashedInputTokens > 0 || out > 0) listOf(ChatEvent.Usage(stashedInputTokens, out)) else emptyList()
             }
             "message_stop" -> listOf(ChatEvent.Done(stashedStopReason ?: "end_turn"))
             "error" -> {
-                val err = obj["error"]?.jsonObject
-                val type = err?.get("type")?.jsonPrimitive?.content ?: "api_error"
-                val msg = err?.get("message")?.jsonPrimitive?.content ?: type
+                val type = obj.objOrNull("error")?.strOrNull("type") ?: "api_error"
+                val msg = obj.objOrNull("error")?.strOrNull("message") ?: type
                 listOf(
                     ChatEvent.Error(
                         when {
@@ -148,7 +134,7 @@ class AnthropicProvider(
     }
 
     internal override fun mapHttpError(code: Int, body: String): AgentError = when (code) {
-        529 -> AgentError.Server("服务过载(HTTP 529),请稍后重试")   // Anthropic 独有过载码
+        529 -> AgentError.Server(ErrorMapping.withBody("服务过载(HTTP 529),请稍后重试", body))   // Anthropic 独有过载码
         else -> ErrorMapping.fromHttp(code, body)
     }
 

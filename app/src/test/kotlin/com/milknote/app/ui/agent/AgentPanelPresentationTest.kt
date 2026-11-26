@@ -1,6 +1,9 @@
 package com.milknote.app.ui.agent
 
 import com.milknote.agent.Attachment
+import com.milknote.agent.Protocol
+import com.milknote.app.ui.common.protocolDisplayLabel
+import com.milknote.app.ui.common.protocolShortLabel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -146,6 +149,27 @@ class AgentPanelPresentationTest {
         assertNull(errorDetailOrNull("未配置视觉模型", "未配置视觉模型"))
         assertNull(errorDetailOrNull("网络超时", "   "))
         assertEquals("HTTP 401 invalid key", errorDetailOrNull("Key 无效或额度不足", "HTTP 401 invalid key"))
+    }
+
+    /** Bug 2:错误原文是排障的全部依据,展示层绝不截断(展开详情与复制都用同一份原文) */
+    @Test
+    fun `错误详情保留完整原文不截断`() {
+        val raw = "HTTP 400 upstream error: " + "x".repeat(400) + "\n第二行:模型不存在"
+        val detail = errorDetailOrNull("请求失败", raw)
+        assertEquals(raw, detail)
+        assertEquals(raw.length, detail?.length)
+        assertTrue(detail!!.contains('\n'))
+    }
+
+    /** 协议标签:设置/面板一律显示产品名,不用 schema id */
+    @Test
+    fun `协议标签按产品名映射`() {
+        assertEquals("ChatCompletions", protocolDisplayLabel(Protocol.OPENAI_COMPATIBLE))
+        assertEquals("Anthropic", protocolDisplayLabel(Protocol.ANTHROPIC))
+        assertEquals("Responses", protocolDisplayLabel(Protocol.OPENAI_RESPONSES))
+        assertEquals("Chat", protocolShortLabel(Protocol.OPENAI_COMPATIBLE))
+        assertEquals("Anthropic", protocolShortLabel(Protocol.ANTHROPIC))
+        assertEquals("Responses", protocolShortLabel(Protocol.OPENAI_RESPONSES))
     }
 
     @Test

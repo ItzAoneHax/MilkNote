@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.Sort
@@ -62,6 +63,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreHoriz
@@ -88,7 +90,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -96,6 +106,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.milknote.app.R
@@ -114,6 +127,7 @@ import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkHairlineDivider
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkKeyCap
 import com.milknote.app.ui.common.MilkMenuRow
@@ -136,6 +150,7 @@ import com.milknote.app.ui.theme.MilkSpace
 import com.milknote.app.ui.theme.MilkText
 import com.milknote.app.ui.theme.PillShape
 import com.milknote.app.ui.theme.RedPen
+import com.milknote.app.ui.theme.SurfaceElevatedDark
 import com.milknote.notes.model.NoteCard
 import com.milknote.notes.model.NotebookMeta
 import com.milknote.notes.storage.CardTagFilter
@@ -187,6 +202,10 @@ fun BookshelfScreen(
     var deleteTarget by remember { mutableStateOf<NotebookMeta?>(null) }
     var showEmptyTrashConfirm by remember { mutableStateOf(false) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
+    // 文件夹行/块上的「…」只记录文件夹名;重命名与删除各自独立弹窗
+    var folderMenuTarget by remember { mutableStateOf<String?>(null) }
+    var renameFolderTarget by remember { mutableStateOf<String?>(null) }
+    var deleteFolderTarget by remember { mutableStateOf<String?>(null) }
 
     // 卡片内联弹窗状态
     var creatingCard by remember { mutableStateOf(false) }
@@ -237,6 +256,12 @@ fun BookshelfScreen(
 
     val battery by ServiceLocator.penBattery.level.collectAsState()
     val folders = remember(liveNotebooks, customFolders) { vm.folders() }
+    // 每个文件夹的内容(按最近编辑倒序):文件夹块用它画 2×2 迷你封面与「N 本 · 最近」摘要
+    val folderBooks = remember(liveNotebooks, folders) {
+        folders.associateWith { folder ->
+            liveNotebooks.filter { it.folder == folder }.sortedByDescending { it.updatedAt }
+        }
+    }
 
     // 排序:锚定在排序钮下方的弹出菜单(当前项 ✓)
     val sortContent: @Composable ColumnScope.() -> Unit = {
@@ -273,6 +298,24 @@ fun BookshelfScreen(
                 MilkPanelAction(label = "移入回收站", icon = Icons.Outlined.DeleteOutline, destructive = true, onClick = { actionMenuTarget = null; vm.moveToTrash(target.id) }),
             )
         }
+    }
+
+    // 文件夹操作:打开 / 重命名 / 删除(删除只移除位置,笔记本退回未分组)
+    val folderActions: (String) -> List<MilkPanelAction> = { folderName ->
+        listOf(
+            MilkPanelAction(label = "打开文件夹", icon = Icons.Outlined.FolderOpen, onClick = {
+                folderMenuTarget = null
+                vm.setNav(BookshelfNav.Folder(folderName))
+            }),
+            MilkPanelAction(label = "重命名文件夹", icon = Icons.Outlined.Edit, onClick = {
+                folderMenuTarget = null
+                renameFolderTarget = folderName
+            }),
+            MilkPanelAction(label = "删除文件夹", icon = Icons.Outlined.Delete, destructive = true, onClick = {
+                folderMenuTarget = null
+                deleteFolderTarget = folderName
+            }),
+        )
     }
 
     // ---- 滚动边缘(Scroll Edge)----
@@ -381,6 +424,9 @@ fun BookshelfScreen(
                     onPrimaryMoreCreate = { showCreateActions = true },
                     onEmptyTrash = { showEmptyTrashConfirm = true },
                     scrolled = scrolled,
+                    // 进入文件夹后顶栏给一枚固定返回位:标题左侧、无位移动画,点了回「全部」
+                    showBack = nav is BookshelfNav.Folder,
+                    onBack = { vm.setNav(BookshelfNav.All) },
                 )
 
                 when (val current = nav) {
@@ -396,6 +442,11 @@ fun BookshelfScreen(
                         )
                     }
                     else -> {
+                        // 「全部」在有文件夹时:文件夹自己排在最前,未分组笔记本随后——
+                        // 已归档的笔记本不重复出现在这一层,否则「全部」会变成同一本书出现两次
+                        val showFolders = current is BookshelfNav.All && folders.isNotEmpty()
+                        val displayedNotebooks =
+                            if (showFolders) notebooks.filter { it.folder.isBlank() } else notebooks
                         val isEmptyView = notebooks.isEmpty() &&
                             (current is BookshelfNav.Trash || current is BookshelfNav.Pinned || current is BookshelfNav.Folder)
                         if (isEmptyView) {
@@ -431,7 +482,27 @@ fun BookshelfScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("bookshelf-list"),
                             ) {
-                                items(notebooks, key = { it.id }) { nb ->
+                                if (showFolders) {
+                                    items(folders, key = { "__folder_row__$it" }) { folderName ->
+                                        MilkFolderListRow(
+                                            name = folderName,
+                                            count = folderBooks[folderName]?.size ?: 0,
+                                            onOpen = { vm.setNav(BookshelfNav.Folder(folderName)) },
+                                            menuExpanded = folderMenuTarget == folderName,
+                                            onMore = {
+                                                folderMenuTarget = if (folderMenuTarget == folderName) null else folderName
+                                            },
+                                            onDismissMenu = { folderMenuTarget = null },
+                                            menu = { folderActions(folderName).forEach { MilkMenuRow(it) } },
+                                        )
+                                    }
+                                    if (displayedNotebooks.isNotEmpty()) {
+                                        item(key = "__folder_sep__") {
+                                            MilkHairlineDivider(Modifier.padding(vertical = MilkSpace.xs))
+                                        }
+                                    }
+                                }
+                                items(displayedNotebooks, key = { it.id }) { nb ->
                                     PortraitBookListRow(
                                         meta = nb,
                                         pageCount = vm.pageCountOf(nb.id),
@@ -473,7 +544,24 @@ fun BookshelfScreen(
                                 verticalArrangement = Arrangement.spacedBy(34.dp),
                                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("bookshelf-grid"),
                             ) {
-                                items(notebooks, key = { it.id }) { nb ->
+                                if (showFolders) {
+                                    items(folders, key = { "__folder__$it" }) { folderName ->
+                                        Box(Modifier.animateItem()) {
+                                            MilkFolderGridTile(
+                                                name = folderName,
+                                                books = folderBooks[folderName].orEmpty(),
+                                                onOpen = { vm.setNav(BookshelfNav.Folder(folderName)) },
+                                                menuExpanded = folderMenuTarget == folderName,
+                                                onMore = {
+                                                    folderMenuTarget = if (folderMenuTarget == folderName) null else folderName
+                                                },
+                                                onDismissMenu = { folderMenuTarget = null },
+                                                menu = { folderActions(folderName).forEach { MilkMenuRow(it) } },
+                                            )
+                                        }
+                                    }
+                                }
+                                items(displayedNotebooks, key = { it.id }) { nb ->
                                     Box(Modifier.animateItem()) {
                                         PortraitBookItem(
                                             meta = nb,
@@ -534,6 +622,9 @@ fun BookshelfScreen(
                 MilkPanelAction("新建笔记本", icon = Icons.Outlined.Add, onClick = {
                     showCreateActions = false; showCreate = true
                 }),
+                MilkPanelAction("新建文件夹", icon = Icons.Outlined.Folder, onClick = {
+                    showCreateActions = false; showNewFolderDialog = true
+                }),
                 MilkPanelAction("导入 PDF / .milk.zip 备份", icon = Icons.Outlined.FileOpen, onClick = {
                     showCreateActions = false
                     importLauncher.launch(arrayOf("application/pdf", "application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*"))
@@ -581,6 +672,58 @@ fun BookshelfScreen(
             onDelete = {
                 manageTarget = null
                 if (target.trashed) deleteTarget = target else vm.moveToTrash(target.id)
+            },
+            // 从这里新建的文件夹只登记位置,不把用户从当前面板/页面拽走
+            onCreateFolder = { vm.addFolder(it, navigate = false) },
+        )
+    }
+
+    renameFolderTarget?.let { target ->
+        var renamed by remember(target) { mutableStateOf(target) }
+        MilkCenterPanel(
+            title = "重命名文件夹",
+            onDismiss = { renameFolderTarget = null },
+            maxWidth = 420.dp,
+            footer = {
+                Spacer(Modifier.weight(1f))
+                MilkButton("取消", onClick = { renameFolderTarget = null }, variant = MilkButtonVariant.SECONDARY)
+                Spacer(Modifier.width(MilkSpace.sm))
+                MilkButton(
+                    label = "保存",
+                    enabled = renamed.isNotBlank(),
+                    onClick = {
+                        vm.renameFolder(target, renamed)
+                        renameFolderTarget = null
+                    },
+                )
+            },
+        ) {
+            Spacer(Modifier.height(MilkSpace.md))
+            MilkTextField(
+                value = renamed,
+                onValueChange = { renamed = it },
+                placeholder = "文件夹名称",
+                label = "文件夹名称",
+                mono = false,
+                onDone = {
+                    vm.renameFolder(target, renamed)
+                    renameFolderTarget = null
+                },
+                onClear = { renamed = "" },
+            )
+            Spacer(Modifier.height(MilkSpace.md))
+        }
+    }
+
+    deleteFolderTarget?.let { target ->
+        MilkConfirmDialog(
+            title = "删除文件夹「$target」？",
+            body = "文件夹将被移除，其中的笔记本会保留在「全部」的未分组列表中，不会被删除。",
+            confirmLabel = "删除",
+            onDismiss = { deleteFolderTarget = null },
+            onConfirm = {
+                vm.deleteFolder(target)
+                deleteFolderTarget = null
             },
         )
     }
@@ -941,6 +1084,8 @@ internal fun BookshelfHeaderBar(
     onPrimaryMoreCreate: () -> Unit,
     onEmptyTrash: () -> Unit,
     scrolled: Boolean = false,
+    showBack: Boolean = false,
+    onBack: () -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     // 滚动边缘分隔线(Apple scroll-edge):停在顶部时完全干净,内容滚到顶栏下方才 150ms 淡入 1dp hairline
@@ -951,7 +1096,8 @@ internal fun BookshelfHeaderBar(
     )
     BoxWithConstraints {
         // 窄宽断点对所有页签生效:搜索收成图标、CTA 回到「新建」
-        val compact = maxWidth < 580.dp
+        // 返回位是固定 48dp 槽位:带着它时提前收窄搜索胶囊,标题才不会被挤成一个「…」
+        val compact = maxWidth < (if (showBack) 700.dp else 580.dp)
         Row(
             Modifier
                 .fillMaxWidth()
@@ -965,6 +1111,17 @@ internal fun BookshelfHeaderBar(
                     imageVector = Icons.Outlined.ViewSidebar,
                     contentDescription = "展开侧栏",
                     onClick = onExpandRail,
+                    iconSize = 18.dp,
+                )
+                Spacer(Modifier.width(MilkSpace.xxs))
+            }
+
+            // 文件夹内的返回位:固定槽位(不参与折叠动画),标题因此不会左右跳动
+            if (showBack) {
+                MilkIconButton(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "返回全部",
+                    onClick = onBack,
                     iconSize = 18.dp,
                 )
                 Spacer(Modifier.width(MilkSpace.xxs))
@@ -1293,7 +1450,295 @@ private fun PortraitBookListRow(
     }
 }
 
+// ==================== 文件夹(网格块 / 列表行) ====================
+
+/**
+ * 网格文件夹块:与 [PortraitBookItem] 完全同一列几何(3:4 视觉块 + 10dp 间距 + 两行说明),
+ * 文件夹与笔记本混排时行高严格对齐。右下角「…」与书本封面上的操作钮是同一枚。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MilkFolderGridTile(
+    name: String,
+    books: List<NotebookMeta>,
+    onOpen: () -> Unit,
+    menuExpanded: Boolean,
+    onMore: () -> Unit,
+    onDismissMenu: () -> Unit,
+    menu: @Composable ColumnScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val dark = LocalMilkDark.current
+    val reduced = LocalMilkMotion.current
+    val pressSource = remember { MutableInteractionSource() }
+    val pressed by pressSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && !reduced) 0.97f else 1f,
+        animationSpec = tween(MilkMotion.press, easing = MilkMotion.EaseOut),
+        label = "folderTileScale",
+    )
+    val shape = remember { FolderCardShape() }
+    val latestRel = books.maxOfOrNull { it.updatedAt }?.let { " · ${formatRelative(it)}" }.orEmpty()
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                interactionSource = pressSource,
+                indication = null,
+                onClick = onOpen,
+                onLongClick = onMore,
+            ),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(0.76f)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .softShadow(4.dp, shape)
+                    .clip(shape)
+                    .background(if (dark) SurfaceElevatedDark else cs.surfaceVariant.copy(alpha = 0.72f))
+                    .border(1.dp, cs.outline, shape),
+            ) {
+                FolderCardBody(books = books)
+            }
+            Box(Modifier.align(Alignment.BottomEnd)) {
+                Box(
+                    Modifier
+                        .padding(MilkSpace.sm)
+                        .size(30.dp)
+                        .softShadow(3.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.92f))
+                        .border(0.5.dp, Color(0x1F18191B), CircleShape)
+                        .clickable(role = Role.Button, onClick = onMore),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.MoreHoriz,
+                        contentDescription = "更多操作",
+                        tint = Color(0xFF18191B),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                MilkAnchoredMenu(
+                    expanded = menuExpanded,
+                    onDismiss = onDismissMenu,
+                    anchorHeight = 30.dp,
+                    minWidth = 200.dp,
+                ) { menu() }
+            }
+        }
+
+        Column(Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp)) {
+            Text(
+                name,
+                style = MilkText.cardTitle,
+                color = cs.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
+            MonoText("${books.size} 本$latestRel")
+        }
+    }
+}
+
+/**
+ * 文件夹轮廓内部:有内容时铺 2×2 迷你封面(宽、高双向约束取小值,任何瓦片尺寸都不溢出);
+ * 空文件夹只留一枚克制的淡图标。底部 40dp 留白专供「…」钮,两者永不重叠。
+ */
+@Composable
+private fun FolderCardBody(books: List<NotebookMeta>) {
+    val cs = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tabHeight = 14.dp
+        if (books.isEmpty()) {
+            Icon(
+                Icons.Outlined.Folder,
+                contentDescription = null,
+                tint = cs.onSurfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = tabHeight)
+                    .size(28.dp),
+            )
+        } else {
+            val gap = 6.dp
+            val horizontal = 16.dp
+            val top = tabHeight + 14.dp
+            val bottom = 40.dp
+            val availableWidth = maxWidth - horizontal * 2
+            val availableHeight = maxHeight - top - bottom
+            val swatchWidth = minOf(
+                (availableWidth - gap) / 2,
+                ((availableHeight - gap) / 2) * 0.78f,
+            )
+            Column(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = horizontal, top = top),
+                verticalArrangement = Arrangement.spacedBy(gap),
+            ) {
+                for (row in 0 until 2) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        for (column in 0 until 2) {
+                            val book = books.getOrNull(row * 2 + column)
+                            if (book == null) {
+                                Spacer(Modifier.size(swatchWidth, swatchWidth / 0.78f))
+                            } else {
+                                MiniFolderBookSwatch(meta = book, width = swatchWidth)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 文件夹里的迷你书本:只保留书脊色、纸色与 3:4 比例,hairline 描边,缩小后仍一眼可辨 */
+@Composable
+private fun MiniFolderBookSwatch(meta: NotebookMeta, width: Dp) {
+    val cover = remember(meta.coverColor) { parseColor(meta.coverColor, Color(0xFF2563EB)) }
+    val sheet = remember(meta.paperColor) { parseColor(meta.paperColor, Color.White) }
+    val shape = RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp, topEnd = 4.dp, bottomEnd = 4.dp)
+    Box(
+        Modifier
+            .size(width = width, height = width / 0.78f)
+            .clip(shape)
+            .background(sheet)
+            .border(0.5.dp, Color(0x1F18191B), shape),
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width((width * 0.16f).coerceAtLeast(3.dp))
+                .background(cover),
+        )
+    }
+}
+
+/** 列表文件夹行:与 [PortraitBookListRow] 同行高、同内边距;左侧 38dp 文件夹徽章替代迷你封面 */
+@Composable
+private fun MilkFolderListRow(
+    name: String,
+    count: Int,
+    onOpen: () -> Unit,
+    menuExpanded: Boolean,
+    onMore: () -> Unit,
+    onDismissMenu: () -> Unit,
+    menu: @Composable ColumnScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val badgeShape = RoundedCornerShape(
+        topStart = 2.dp,
+        bottomStart = 2.dp,
+        topEnd = MilkRadius.xs,
+        bottomEnd = MilkRadius.xs,
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MilkRadius.md))
+            .clickable(onClick = onOpen)
+            .padding(start = 12.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(38.dp)
+                .aspectRatio(0.78f)
+                .clip(badgeShape)
+                .background(cs.primary.copy(alpha = 0.10f))
+                .border(1.dp, cs.primary.copy(alpha = 0.22f), badgeShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.Folder,
+                contentDescription = null,
+                tint = cs.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Text(
+            name,
+            style = MilkText.rowTitle,
+            color = cs.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        MonoText("$count 本")
+        Box {
+            MilkIconButton(
+                imageVector = Icons.Outlined.MoreHoriz,
+                contentDescription = "更多操作",
+                onClick = onMore,
+                iconSize = 18.dp,
+            )
+            MilkAnchoredMenu(
+                expanded = menuExpanded,
+                onDismiss = onDismissMenu,
+                anchorHeight = 48.dp,
+                minWidth = 200.dp,
+            ) { menu() }
+        }
+    }
+}
+
+/**
+ * 文件夹实体形状:左上标签页 + 主体两段圆角矩形按 Union 合成为一条连续轮廓——
+ * 标签页与主体之间没有接缝,hairline 描边因此不会在中途断成两截。
+ */
+private class FolderCardShape(
+    private val tabWidthFraction: Float = 0.38f,
+    private val tabHeight: Dp = 14.dp,
+    private val tabCorner: Dp = MilkRadius.sm,
+    private val bodyTopStart: Dp = 2.dp,
+    private val bodyCorner: Dp = MilkRadius.lg,
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val tabBottom = with(density) { tabHeight.toPx() }
+        val tabRadius = with(density) { tabCorner.toPx() }
+        val bodyRadius = with(density) { bodyCorner.toPx() }
+        val bodyTopRadius = with(density) { bodyTopStart.toPx() }
+        val tab = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = 0f,
+                    top = 0f,
+                    right = size.width * tabWidthFraction,
+                    bottom = tabBottom * 2f,
+                    topLeftCornerRadius = CornerRadius(tabRadius),
+                    topRightCornerRadius = CornerRadius(tabRadius),
+                    bottomRightCornerRadius = CornerRadius.Zero,
+                    bottomLeftCornerRadius = CornerRadius.Zero,
+                ),
+            )
+        }
+        val body = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = 0f,
+                    top = tabBottom,
+                    right = size.width,
+                    bottom = size.height,
+                    topLeftCornerRadius = CornerRadius(bodyTopRadius),
+                    topRightCornerRadius = CornerRadius(bodyRadius),
+                    bottomRightCornerRadius = CornerRadius(bodyRadius),
+                    bottomLeftCornerRadius = CornerRadius(bodyRadius),
+                ),
+            )
+        }
+        return Outline.Generic(Path().apply { op(tab, body, PathOperation.Union) })
+    }
+}
+
 // ==================== 内联知识卡片视图 (Minimal Index Cards) ====================
+
 
 @Composable
 private fun BookshelfCardsContent(

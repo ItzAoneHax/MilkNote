@@ -155,6 +155,8 @@ fun SettingsScreen(onBack: () -> Unit, initialPage: String = "appearance") {
             needle.contains("模型") || needle.contains("ai") || needle.contains("key") || needle.contains("provider") ||
                 needle.contains("视觉") || needle.contains("隐私") ||
                 needle.contains("总结") || needle.contains("摘要") || needle.contains("会话") ||
+                needle.contains("协议") || needle.contains("opencode") || needle.contains("responses") ||
+                needle.contains("anthropic") ||
                 needle.contains("附件") || needle.contains("引用") || needle.contains("@") -> "agent"
             needle.contains("更新") || needle.contains("回收站") || needle.contains("存储") -> "storage"
             else -> null

@@ -27,15 +27,20 @@ data class ModelInfo(
     val maxTokensK: Int = 0,
     val priceInPerM: Double? = null,   // ¥/1M tokens(可空)
     val priceOutPerM: Double? = null,
+    /**
+     * 该模型的协议覆盖(null=跟随 profile 默认):同一家网关的不同模型可能分属
+     * ChatCompletions / Messages / Responses(OpenCode Go 即如此),按模型分发才不串线。
+     */
+    val protocol: Protocol? = null,
 )
 
 /** 图片 base64 组装风格(§3.5:GLM 端点裸 base64,其余 data URI) */
 @Serializable
 enum class ImageStyle { DATA_URI, RAW_BASE64 }
 
-/** 对话协议(A2:Anthropic 原生 /v1/messages 与 OpenAI 兼容并存,按 profile 选择) */
+/** 对话协议(A2:Anthropic 原生 /v1/messages 与 OpenAI 兼容并存;B 增补 Responses API) */
 @Serializable
-enum class Protocol { OPENAI_COMPATIBLE, ANTHROPIC }
+enum class Protocol { OPENAI_COMPATIBLE, ANTHROPIC, OPENAI_RESPONSES }
 
 /**
  * 思考强度档位(A2.3,pi-ai 同款递进序):每家可选档位不同 —— 由 ModelInfo.thinkingLevels
@@ -66,6 +71,10 @@ data class ProviderProfile(
 ) {
     fun activeModel(): ModelInfo? = models.firstOrNull { it.id == activeModelId }
         ?: models.firstOrNull { it.vision }
+
+    /** 实际分发协议:模型级覆盖优先,否则 profile 默认(OpenCode Go 一家多协议) */
+    fun effectiveProtocol(modelId: String): Protocol =
+        models.firstOrNull { it.id == modelId }?.protocol ?: protocol
 }
 
 /** 页引用(PageBound;Global 为 M3 Projection 预留) */
@@ -181,6 +190,8 @@ data class ChatRequest(
     val maxTokens: Int? = null,               // 测试连接 =1
     val stream: Boolean = true,
     val reasoningEffort: ReasoningEffort = ReasoningEffort.AUTO,
+    /** 会话标识(OpenCode Go 的 x-opencode-session 头;null=按 profile 派生稳定值) */
+    val sessionId: String? = null,
 )
 
 sealed interface ChatEvent {
