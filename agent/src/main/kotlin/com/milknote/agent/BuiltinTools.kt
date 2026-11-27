@@ -107,40 +107,128 @@ object BuiltinTools {
         override val spec = ToolSpec(
             id = "calculate",
             defaultDisplayName = "数学计算",
-            defaultDescription = "精确计算数学表达式。支持变量、常用函数、阶乘与多语句(分号分隔)。" +
-                "复杂算式请用它验算,不要心算。",
+            defaultDescription = "计算、化简、解方程与微积分。operation=evaluate(默认)时精确计算表达式,支持变量、" +
+                "常用函数、阶乘与多语句(分号分隔);simplify 化简表达式;solve 解一元一次/二次方程或线性方程组" +
+                "(方程组在 expression 内用分号或换行分隔,并给 variables 例如 x,y);derivative 求导;" +
+                "integrate 求不定积分;definite_integral 求定积分(需 lower/upper)。复杂算式请用它验算,不要心算。",
             category = ToolCategory.COMPUTE,
             defaultEnabled = true,
             defaultRequireConfirmation = false,
             parameters = listOf(
-                ToolParameter("expression", "string", "数学表达式,例如 sqrt(3^2+4^2) 或 a=3; a*2", required = true),
+                ToolParameter("expression", "string", "数学表达式或方程,例如 sqrt(3^2+4^2) 或 x+y=5; x-y=1", required = true),
                 ToolParameter("precision", "integer", "保留的小数位数,默认 10,范围 0-15", required = false),
+                ToolParameter(
+                    "operation", "string", "操作类型,默认 evaluate",
+                    enumValues = listOf(
+                        "evaluate", "solve", "derivative", "integrate", "definite_integral", "simplify",
+                    ),
+                ),
+                ToolParameter("variable", "string", "求解/求导/积分的目标变量,默认 x"),
+                ToolParameter("variables", "string", "线性方程组的变量列表(逗号分隔),例如 x,y"),
+                ToolParameter("lower", "string", "定积分下限(expression 为被积函数)"),
+                ToolParameter("upper", "string", "定积分上限"),
             ),
         )
 
-        override fun describeAction(args: JsonObject, ctx: ToolContext): String =
-            "计算 ${ToolArgs.string(args, "expression") ?: "表达式"}"
+        override fun describeAction(args: JsonObject, ctx: ToolContext): String {
+            val expression = ToolArgs.string(args, "expression") ?: "表达式"
+            return when ((ToolArgs.string(args, "operation") ?: "evaluate").lowercase()) {
+                "solve" -> "求解方程 $expression"
+                "derivative" -> "求导 $expression"
+                "integrate" -> "求不定积分 $expression"
+                "definite_integral" -> "求定积分 $expression"
+                "simplify" -> "化简 $expression"
+                else -> "计算 $expression"
+            }
+        }
 
         override suspend fun execute(args: JsonObject, ctx: ToolContext): ToolExecResult {
             val expression = ToolArgs.string(args, "expression")
                 ?: return ToolExecResult(false, "缺少 expression 参数")
-            val precision = ToolArgs.int(args, "precision") ?: 10
+            val precision = (ToolArgs.int(args, "precision") ?: 10).coerceIn(0, 15)
+            val operation = (ToolArgs.string(args, "operation") ?: "evaluate").trim().lowercase()
             return try {
-                val r = MathEvaluator.evaluate(expression, precision)
-                val output = buildString {
-                    append("结果: ").append(r.formatted)
-                    if (r.variables.isNotEmpty()) {
-                        append('\n').append(
-                            r.variables.entries.joinToString(", ") { (k, v) ->
-                                "$k = ${MathEvaluator.formatNumber(v, precision)}"
-                            },
-                        )
+                when (operation) {
+                    "evaluate" -> evaluateNumeric(expression, precision)
+                    "simplify" -> symbolic { SymbolicMathEvaluator.simplify(expression) }
+                    "derivative" -> symbolic {
+                        SymbolicMathEvaluator.derivative(expression, variableArg(args))
                     }
+                    "integrate" -> symbolic {
+                        SymbolicMathEvaluator.integrate(expression, variableArg(args))
+                    }
+                    "definite_integral" -> {
+                        val lower = ToolArgs.string(args, "lower")
+                        val upper = ToolArgs.string(args, "upper")
+                        if (lower == null || upper == null) {
+                            return ToolExecResult(
+                                false,
+                                "definite_integral 需要 lower 与 upper 参数(积分上下限)",
+                                "缺少积分上下限",
+                            )
+                        }
+                        symbolic {
+                            SymbolicMathEvaluator.definiteIntegral(
+                                expression,
+                                variableArg(args),
+                                lower,
+                                upper,
+                                precision,
+                            )
+                        }
+                    }
+                    "solve" -> {
+                        val variables = parseVariables(ToolArgs.string(args, "variables"))
+                        symbolic {
+                            SymbolicMathEvaluator.solve(
+                                expression,
+                                ToolArgs.string(args, "variable"),
+                                variables,
+                            )
+                        }
+                    }
+                    else -> ToolExecResult(
+                        false,
+                        "operation 只能是 evaluate/solve/derivative/integrate/definite_integral/simplify",
+                        "操作类型无效",
+                    )
                 }
-                ToolExecResult(true, output, r.formatted)
-            } catch (e: MathEvaluator.EvaluationException) {
-                ToolExecResult(false, e.message ?: "表达式无法计算", "计算失败")
+            } catch (e: SymbolicMathEvaluator.SymbolicException) {
+                ToolExecResult(false, e.message ?: "符号运算失败", "计算失败")
             }
+        }
+
+        private fun evaluateNumeric(expression: String, precision: Int): ToolExecResult {
+            val result = try {
+                MathEvaluator.evaluate(expression, precision)
+            } catch (e: MathEvaluator.EvaluationException) {
+                return ToolExecResult(false, e.message ?: "表达式无法计算", "计算失败")
+            }
+            val output = buildString {
+                append("结果: ").append(result.formatted)
+                if (result.variables.isNotEmpty()) {
+                    append('\n').append(
+                        result.variables.entries.joinToString(", ") { (k, v) ->
+                            "$k = ${MathEvaluator.formatNumber(v, precision)}"
+                        },
+                    )
+                }
+            }
+            return ToolExecResult(true, output, result.formatted)
+        }
+
+        private fun variableArg(args: JsonObject): String =
+            ToolArgs.string(args, "variable") ?: "x"
+
+        private fun parseVariables(raw: String?): List<String>? {
+            if (raw.isNullOrBlank()) return null
+            return raw.split(',', '，', ';', ' ').map { it.trim() }.filter { it.isNotEmpty() }
+        }
+
+        private inline fun symbolic(block: () -> String): ToolExecResult {
+            val text = block()
+            val summary = if (text.length <= 60) text else text.take(57) + "..."
+            return ToolExecResult(true, "结果: $text", summary)
         }
     }
 
