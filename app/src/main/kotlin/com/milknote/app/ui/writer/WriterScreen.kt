@@ -189,6 +189,9 @@ fun WriterScreen(
     var selectedMajorTool by androidx.compose.runtime.saveable.rememberSaveable {
         mutableStateOf(WriterMajorTool.BRUSH)
     }
+    var toolBeforeReading by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(WriterMajorTool.BRUSH)
+    }
     var railMode by androidx.compose.runtime.saveable.rememberSaveable {
         mutableStateOf<WriterRailMode?>(null)
     }
@@ -236,12 +239,22 @@ fun WriterScreen(
     }
     LaunchedEffect(state.toolSettings.currentTool, state.toolSettings.eraserTemporary) {
         if (state.toolSettings.eraserTemporary) {
+            if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
             selectedMajorTool = WriterMajorTool.ERASER
         } else {
             when (state.toolSettings.currentTool) {
-                InkTool.HIGHLIGHTER -> selectedMajorTool = WriterMajorTool.HIGHLIGHTER
-                InkTool.DOODLE -> selectedMajorTool = WriterMajorTool.DOODLE
-                InkTool.LASER -> selectedMajorTool = WriterMajorTool.LASER
+                InkTool.HIGHLIGHTER -> {
+                    if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
+                    selectedMajorTool = WriterMajorTool.HIGHLIGHTER
+                }
+                InkTool.DOODLE -> {
+                    if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
+                    selectedMajorTool = WriterMajorTool.DOODLE
+                }
+                InkTool.LASER -> {
+                    if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
+                    selectedMajorTool = WriterMajorTool.LASER
+                }
                 InkTool.PEN, InkTool.BALL -> if (selectedMajorTool in listOf(
                     WriterMajorTool.BRUSH, WriterMajorTool.HIGHLIGHTER, WriterMajorTool.ERASER,
                     WriterMajorTool.DOODLE, WriterMajorTool.LASER,
@@ -251,7 +264,10 @@ fun WriterScreen(
         }
     }
     LaunchedEffect(state.lassoArmed) {
-        if (state.lassoArmed) selectedMajorTool = WriterMajorTool.LASSO
+        if (state.lassoArmed) {
+            if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
+            selectedMajorTool = WriterMajorTool.LASSO
+        }
     }
     var recordPermission by remember {
         mutableStateOf(
@@ -292,6 +308,10 @@ fun WriterScreen(
     val materialImageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) vm.insertMaterial(uri) }
+    val exitReading: () -> Unit = {
+        selectedMajorTool = restoreToolAfterReading(toolBeforeReading)
+        minorCollapsed = false
+    }
     val onMajorTool: (WriterMajorTool) -> Unit = { tool ->
         val active = isMajorToolActive(tool, selectedMajorTool, state)
         val settingsOpen = when (tool) {
@@ -317,15 +337,15 @@ fun WriterScreen(
                     WriterMajorTool.SHAPE -> setCentralPanel(WriterPanel.SHAPE, true)
                     WriterMajorTool.SNIP -> if (state.snip.phase == SnipPhase.IDLE) vm.enterSnip()
                     WriterMajorTool.TAPE -> setCentralPanel(WriterPanel.MATERIAL, true)
-                    WriterMajorTool.READING -> {
-                        selectedMajorTool = WriterMajorTool.BRUSH
-                        minorCollapsed = false
-                    }
+                    WriterMajorTool.READING -> exitReading()
                 }
             }
             ToolTapOutcome.ACTIVATE -> {
                 closeCentralPanel()
                 detailTool = null
+                if (tool == WriterMajorTool.READING && selectedMajorTool != WriterMajorTool.READING) {
+                    toolBeforeReading = selectedMajorTool
+                }
                 if (selectedMajorTool == WriterMajorTool.READING) minorCollapsed = false
                 selectedMajorTool = tool
                 if (tool != WriterMajorTool.SHAPE) shapeConfig = null
@@ -823,9 +843,10 @@ fun WriterScreen(
                     )
                 }
             }
-            val showRestoreMinor = minorCollapsed && selectedMajorTool != WriterMajorTool.READING
+            val isReading = selectedMajorTool == WriterMajorTool.READING
+            val showRestoreMinor = minorCollapsed && !isReading
             val showPagePill = railMode == null
-            if (showRestoreMinor || showPagePill) {
+            if (isReading || showRestoreMinor || showPagePill) {
                 val startInset = railWidth + if (minorVisible && minorDock == MinorDock.LEFT) WriterMinorBarThickness else 0.dp
                 val bottomInset = if (minorVisible && minorDock == MinorDock.BOTTOM) WriterMinorToolbarHeight + 22.dp else 12.dp
                 Row(
@@ -835,6 +856,32 @@ fun WriterScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (isReading) {
+                        Row(
+                            Modifier
+                                .height(48.dp)
+                                .milkGlassRim(PillShape, dark = dark, elevation = 8.dp)
+                                .clickable(onClick = exitReading)
+                                .padding(horizontal = 14.dp)
+                                .testTag("writer-exit-reading")
+                                .semantics { contentDescription = "退出阅读" },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                MilkIcons.PenDock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                "退出阅读",
+                                style = MilkText.label,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                     if (showRestoreMinor) {
                         Box(
                             Modifier

@@ -33,4 +33,12 @@ class ToolTapPolicyTest {
             assertEquals(target, state.open)
         }
     }
+
+    @Test
+    fun `退出阅读模式恢复进入前的书写工具 否则回退钢笔`() {
+        assertEquals(WriterMajorTool.HIGHLIGHTER, restoreToolAfterReading(WriterMajorTool.HIGHLIGHTER))
+        assertEquals(WriterMajorTool.ERASER, restoreToolAfterReading(WriterMajorTool.ERASER))
+        assertEquals(WriterMajorTool.BRUSH, restoreToolAfterReading(WriterMajorTool.READING))
+        assertEquals(WriterMajorTool.BRUSH, restoreToolAfterReading(WriterMajorTool.SNIP))
+    }
 }

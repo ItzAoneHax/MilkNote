@@ -210,21 +210,22 @@ object MilkIcons {
         }
     }
 
-    /** 荧光笔：斜切宽头马克笔 + 底部荧光基线 */
+    /** 荧光笔：细长斜向马克笔杆 + 斜切扁平笔头 + 分离荧光基线 */
     val Highlighter: ImageVector by lazy {
         icon("Highlighter") {
             stroke {
-                moveTo(14.5f, 3.5f)
-                lineTo(20f, 9f)
-                lineTo(11f, 18f)
-                lineTo(5.5f, 12.5f)
+                moveTo(15.6f, 3.6f)
+                lineTo(19f, 7f)
+                lineTo(10.8f, 15.2f)
+                lineTo(7.4f, 11.8f)
                 close()
-                moveTo(5.5f, 12.5f)
-                lineTo(3.8f, 16.2f)
-                lineTo(7.3f, 19.7f)
-                lineTo(11f, 18f)
-                moveTo(4f, 20.5f)
-                lineTo(17.5f, 20.5f)
+                moveTo(7.4f, 11.8f)
+                lineTo(4.7f, 14.5f)
+                lineTo(4.7f, 17.7f)
+                lineTo(7.7f, 17.7f)
+                lineTo(10.8f, 15.2f)
+                moveTo(4.7f, 20.4f)
+                lineTo(19f, 20.4f)
             }
         }
     }
@@ -233,33 +234,34 @@ object MilkIcons {
     val HighlighterTipAccent: ImageVector by lazy {
         icon("HighlighterTipAccent") {
             stroke(width = 2.0f) {
-                moveTo(5.5f, 12.5f)
-                lineTo(3.8f, 16.2f)
-                lineTo(7.3f, 19.7f)
-                lineTo(11f, 18f)
-                moveTo(4f, 20.5f)
-                lineTo(17.5f, 20.5f)
+                moveTo(7.4f, 11.8f)
+                lineTo(4.7f, 14.5f)
+                lineTo(4.7f, 17.7f)
+                lineTo(7.7f, 17.7f)
+                lineTo(10.8f, 15.2f)
+                moveTo(4.7f, 20.4f)
+                lineTo(19f, 20.4f)
             }
         }
     }
 
-    /** 橡皮：斜向橡皮块 + 护套分界 + 擦除基线 */
+    /** 橡皮：精确 45° 对称橡皮块 + 垂直护套分界 + 擦除基线 */
     val Eraser: ImageVector by lazy {
         icon("Eraser") {
             stroke {
-                moveTo(7.2f, 19.5f)
-                lineTo(19.2f, 7.5f)
-                quadTo(20.6f, 6.1f, 19.2f, 4.7f)
-                lineTo(17.3f, 2.8f)
-                quadTo(15.9f, 1.4f, 14.5f, 2.8f)
-                lineTo(3.5f, 13.8f)
-                quadTo(2.1f, 15.2f, 3.5f, 16.6f)
-                lineTo(6.4f, 19.5f)
+                moveTo(8.1f, 19.5f)
+                lineTo(18.1f, 9.5f)
+                quadTo(19.3f, 8.3f, 18.1f, 7.1f)
+                lineTo(15.9f, 4.9f)
+                quadTo(14.7f, 3.7f, 13.5f, 4.9f)
+                lineTo(4.3f, 14.1f)
+                quadTo(3.1f, 15.3f, 4.3f, 16.5f)
+                lineTo(7.3f, 19.5f)
                 close()
-                moveTo(9.8f, 7.5f)
-                lineTo(15.8f, 13.5f)
-                moveTo(6.4f, 19.5f)
-                lineTo(20.5f, 19.5f)
+                moveTo(9.5f, 8.9f)
+                lineTo(14.1f, 13.5f)
+                moveTo(6f, 19.5f)
+                lineTo(20f, 19.5f)
             }
         }
     }
@@ -274,34 +276,38 @@ object MilkIcons {
         }
     }
 
-    /** 激光笔：指向射线 + 发光焦点 + 三向光束 */
+    /** 激光笔：斜向笔杆 + 锥形发射头 + 发光焦点 + 五向射线 */
     val LaserPointer: ImageVector by lazy {
         icon("LaserPointer") {
             stroke {
-                moveTo(4f, 20f)
-                lineTo(13.2f, 10.8f)
-                moveTo(16.5f, 3f)
-                lineTo(16.5f, 4.8f)
-                moveTo(21f, 7.5f)
-                lineTo(19.2f, 7.5f)
-                moveTo(19.8f, 4.2f)
-                lineTo(18.5f, 5.5f)
+                moveTo(3.9f, 17.9f)
+                lineTo(11.1f, 10.7f)
+                lineTo(14.2f, 9.8f)
+                lineTo(13.3f, 12.9f)
+                lineTo(6.1f, 20.1f)
+                quadTo(4.8f, 21f, 3.8f, 20f)
+                quadTo(2.9f, 19f, 3.9f, 17.9f)
+                close()
+                moveTo(17.1f, 2.8f); lineTo(17.1f, 4.2f)
+                moveTo(21f, 6.7f); lineTo(19.6f, 6.7f)
+                moveTo(19.9f, 3.9f); lineTo(18.9f, 4.9f)
+                moveTo(14.3f, 3.9f); lineTo(15.3f, 4.9f)
+                moveTo(19.9f, 9.5f); lineTo(18.9f, 8.5f)
             }
-            dot(16.5f, 7.5f, 1.8f)
+            dot(17.1f, 6.7f, 1.55f)
         }
     }
 
     /** 激光笔焦点着色层 */
     val LaserTipAccent: ImageVector by lazy {
         icon("LaserTipAccent") {
-            dot(16.5f, 7.5f, 2.2f)
+            dot(17.1f, 6.7f, 1.85f)
             stroke(width = 1.8f) {
-                moveTo(16.5f, 3f)
-                lineTo(16.5f, 4.8f)
-                moveTo(21f, 7.5f)
-                lineTo(19.2f, 7.5f)
-                moveTo(19.8f, 4.2f)
-                lineTo(18.5f, 5.5f)
+                moveTo(17.1f, 2.8f); lineTo(17.1f, 4.2f)
+                moveTo(21f, 6.7f); lineTo(19.6f, 6.7f)
+                moveTo(19.9f, 3.9f); lineTo(18.9f, 4.9f)
+                moveTo(14.3f, 3.9f); lineTo(15.3f, 4.9f)
+                moveTo(19.9f, 9.5f); lineTo(18.9f, 8.5f)
             }
         }
     }

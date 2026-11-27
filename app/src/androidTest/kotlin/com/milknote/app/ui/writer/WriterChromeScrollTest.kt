@@ -197,4 +197,28 @@ class WriterChromeScrollTest {
         rule.onNodeWithText("开始绘制").assertIsDisplayed().performClick()
         assertTrue(started)
     }
+
+    @Test
+    fun readingMode_showsExitPillAndRestoresDockOnTap() {
+        val vm = WriterViewModel()
+        val cardsVm = CardsViewModel()
+        rule.setContent {
+            MilkTheme {
+                Box(Modifier.width(1100.dp).height(700.dp)) {
+                    WriterScreen(
+                        vm = vm,
+                        cardsVm = cardsVm,
+                        dark = false,
+                        onBack = {},
+                        onOpenDiagnostics = {},
+                    )
+                }
+            }
+        }
+        rule.onNodeWithTag("writer-major-tool-reading").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("writer-major-tool-reading").assertDoesNotExist()
+        rule.onNodeWithTag("writer-exit-reading").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("writer-exit-reading").assertDoesNotExist()
+        rule.onNodeWithTag("writer-major-tool-brush").assertIsDisplayed()
+    }
 }
