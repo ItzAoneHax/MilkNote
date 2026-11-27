@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
+import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -62,9 +63,9 @@ fun MilkIconBadge(
 }
 
 /**
- * MilkNote 统一线性矢量图标库：
- * 24×24 视口、1.7f 等宽圆角描边（StrokeCap.Round / StrokeJoin.Round），
- * 对齐「技能与工具」页的轻盈线性风格，替换语义失真、厚重或拟物位图图标。
+ * MilkNote 统一线性矢量图标库（基于 Lucide / Solar / Tabler 标准 24×24 线性几何）：
+ * 统一 1.7f 等宽圆角描边（StrokeCap.Round / StrokeJoin.Round），
+ * 对齐「技能与工具」页的轻盈线性风格（技能与工具页内部图标保持独立）。
  */
 object MilkIcons {
     private val ink = SolidColor(Color.Black)
@@ -92,6 +93,21 @@ object MilkIcons {
             strokeLineJoin = StrokeJoin.Round,
             pathFillType = PathFillType.NonZero,
             pathBuilder = block,
+        )
+    }
+
+    private fun ImageVector.Builder.svgStroke(
+        pathData: String,
+        width: Float = 1.7f,
+    ) {
+        addPath(
+            pathData = addPathNodes(pathData),
+            fill = null,
+            stroke = ink,
+            strokeLineWidth = width,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            pathFillType = PathFillType.NonZero,
         )
     }
 
@@ -144,125 +160,68 @@ object MilkIcons {
 
     // ==================== 书写工具与笔设置 ====================
 
-    /** 钢笔：经典对称笔尖 + 中缝 + 气孔 + 笔握环 */
+    /** 钢笔（Lucide pen-tool）：经典钢笔尖 + 气孔 + 笔握环 */
     val FountainPen: ImageVector by lazy {
         icon("FountainPen") {
-            stroke {
-                moveTo(12f, 2.75f)
-                lineTo(18f, 11f)
-                lineTo(15.2f, 17.5f)
-                lineTo(8.8f, 17.5f)
-                lineTo(6f, 11f)
-                close()
-                moveTo(12f, 2.75f)
-                lineTo(12f, 11.2f)
-                moveTo(8f, 17.5f)
-                lineTo(8f, 20.5f)
-                quadTo(8f, 21.25f, 8.75f, 21.25f)
-                lineTo(15.25f, 21.25f)
-                quadTo(16f, 21.25f, 16f, 20.5f)
-                lineTo(16f, 17.5f)
-            }
-            dot(12f, 12.6f, 1.1f)
+            svgStroke("m18 13l-.654-4.736a4 4 0 0 0-2.756-3.266l-9.163-2.9a2 2 0 0 0-2.017.493l-.82.819a2 2 0 0 0-.492 2.017l2.9 9.163a4 4 0 0 0 3.266 2.756L13 18")
+            svgStroke("M18.648 12.352a1.205 1.205 0 0 1 1.704 0l1.296 1.296a1.205 1.205 0 0 1 0 1.704l-6.296 6.296a1.205 1.205 0 0 1-1.704 0l-1.296-1.296a1.205 1.205 0 0 1 0-1.704zM3 3l6.586 6.586")
+            stroke { circle(11f, 11f, 2f) }
         }
     }
 
     /** 钢笔笔尖着色层（用于双层色笔图标） */
     val FountainPenNibAccent: ImageVector by lazy {
         icon("FountainPenNibAccent") {
-            stroke(width = 1.9f) {
-                moveTo(12f, 3.2f)
-                lineTo(17.5f, 11f)
-                lineTo(15.2f, 17f)
-                lineTo(8.8f, 17f)
-                lineTo(6.5f, 11f)
-                close()
-            }
+            svgStroke("M3 3l6.586 6.586", width = 1.9f)
+            stroke(width = 1.9f) { circle(11f, 11f, 2f) }
         }
     }
 
-    /** 圆珠笔：斜向笔杆 + 锥形笔尖 + 笔夹 */
+    /** 圆珠笔（Tabler ballpen）：圆润笔杆 + 笔夹 + 圆珠笔尖 */
     val BallpointPen: ImageVector by lazy {
         icon("BallpointPen") {
-            stroke {
-                moveTo(16.2f, 3.6f)
-                lineTo(20.4f, 7.8f)
-                lineTo(9.4f, 18.8f)
-                lineTo(4f, 20f)
-                lineTo(5.2f, 14.6f)
-                close()
-                moveTo(13.8f, 6f)
-                lineTo(18f, 10.2f)
-                moveTo(6.2f, 13.6f)
-                lineTo(10.4f, 17.8f)
-            }
+            svgStroke("m14 6l7 7l-4 4")
+            svgStroke("M5.828 18.172a2.83 2.83 0 0 0 4 0L20.414 7.586a2 2 0 0 0 0-2.829l-1.171-1.171a2 2 0 0 0-2.829 0L5.828 14.172a2.83 2.83 0 0 0 0 4M4 20l1.768-1.768")
         }
     }
 
     /** 圆珠笔笔头着色层 */
     val BallpointPenTipAccent: ImageVector by lazy {
         icon("BallpointPenTipAccent") {
-            stroke(width = 2.0f) {
-                moveTo(5.2f, 14.6f)
-                lineTo(4f, 20f)
-                lineTo(9.4f, 18.8f)
-            }
+            svgStroke("M4 20l1.768-1.768", width = 2.0f)
+            svgStroke("m14 6l7 7l-4 4", width = 1.85f)
         }
     }
 
-    /** 荧光笔：细长斜向马克笔杆 + 斜切扁平笔头 + 分离荧光基线 */
+    /** 荧光笔（Solar highlighter-linear）：流线型斜切马克笔身 + 领口 + 荧光基线 */
     val Highlighter: ImageVector by lazy {
         icon("Highlighter") {
-            stroke {
-                moveTo(15.6f, 3.6f)
-                lineTo(19f, 7f)
-                lineTo(10.8f, 15.2f)
-                lineTo(7.4f, 11.8f)
-                close()
-                moveTo(7.4f, 11.8f)
-                lineTo(4.7f, 14.5f)
-                lineTo(4.7f, 17.7f)
-                lineTo(7.7f, 17.7f)
-                lineTo(10.8f, 15.2f)
-                moveTo(4.7f, 20.4f)
-                lineTo(19f, 20.4f)
-            }
+            svgStroke(
+                "M11.9435 6.15807L13.3931 4.70847C14.4264 3.67517 14.9431 3.15857 15.5851 3.15857C16.2272 3.15857 16.7437 3.67509 17.777 4.70823L17.7772 4.70847L18.3429 5.27417L18.3432 5.2744C19.3763 6.30765 19.8928 6.82422 19.8928 7.46627C19.8928 8.10827 19.3762 8.62497 18.3429 9.65827L14.3123 13.6888C13.8124 14.1888 13.5624 14.4388 13.2085 14.6882C12.8546 14.9375 12.5351 15.0889 11.8961 15.3916L10.7063 15.9552C10.3229 16.1368 10.1312 16.2276 9.91883 16.3772C9.70653 16.5268 9.55653 16.6768 9.25653 16.9768L9.04443 17.189C8.61112 17.6223 8.39443 17.839 8.08213 17.9052C7.76983 17.9715 7.48382 17.8615 6.91182 17.6415L4.74233 16.8071C4.17032 16.5871 3.88443 16.4771 3.84133 16.2742C3.79823 16.0712 4.01493 15.8545 4.44823 15.4212L6.07463 13.7949C6.37463 13.4949 6.52463 13.3449 6.67423 13.1326C6.82383 12.9202 6.91462 12.7285 7.09623 12.3451L7.65983 11.1553C7.96252 10.5163 8.11392 10.1968 8.36322 9.84287C8.61263 9.48897 8.86263 9.23897 9.36263 8.73907L11.9435 6.15807Z",
+            )
+            svgStroke("M9.57422 8.52686L14.524 13.4767")
+            svgStroke("M6.67773 13.1262L9.92423 16.3727")
+            svgStroke("M10.1641 20.8414H20.1641")
         }
     }
 
     /** 荧光笔宽头与底线着色层 */
     val HighlighterTipAccent: ImageVector by lazy {
         icon("HighlighterTipAccent") {
-            stroke(width = 2.0f) {
-                moveTo(7.4f, 11.8f)
-                lineTo(4.7f, 14.5f)
-                lineTo(4.7f, 17.7f)
-                lineTo(7.7f, 17.7f)
-                lineTo(10.8f, 15.2f)
-                moveTo(4.7f, 20.4f)
-                lineTo(19f, 20.4f)
-            }
+            svgStroke(
+                "M6.67773 13.1262L6.07463 13.7949L4.44823 15.4212C4.01493 15.8545 3.79823 16.0712 3.84133 16.2742C3.88443 16.4771 4.17032 16.5871 4.74233 16.8071L6.91182 17.6415C7.48382 17.8615 7.76983 17.9715 8.08213 17.9052C8.39443 17.839 8.61112 17.6223 9.04443 17.189L9.25653 16.9768L9.92423 16.3727Z",
+                width = 1.85f,
+            )
+            svgStroke("M10.1641 20.8414H20.1641", width = 2.0f)
         }
     }
 
-    /** 橡皮：精确 45° 对称橡皮块 + 垂直护套分界 + 擦除基线 */
+    /** 橡皮（Lucide eraser）：圆角斜切橡皮块 + 护套分界 + 底部擦除基线 */
     val Eraser: ImageVector by lazy {
         icon("Eraser") {
-            stroke {
-                moveTo(8.1f, 19.5f)
-                lineTo(18.1f, 9.5f)
-                quadTo(19.3f, 8.3f, 18.1f, 7.1f)
-                lineTo(15.9f, 4.9f)
-                quadTo(14.7f, 3.7f, 13.5f, 4.9f)
-                lineTo(4.3f, 14.1f)
-                quadTo(3.1f, 15.3f, 4.3f, 16.5f)
-                lineTo(7.3f, 19.5f)
-                close()
-                moveTo(9.5f, 8.9f)
-                lineTo(14.1f, 13.5f)
-                moveTo(6f, 19.5f)
-                lineTo(20f, 19.5f)
-            }
+            svgStroke(
+                "M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21m-7.752-9.91l8.828 8.828",
+            )
         }
     }
 
@@ -312,42 +271,19 @@ object MilkIcons {
         }
     }
 
-    /** 阅读/抓手：轻盈线性手掌 */
+    /** 阅读/抓手（Lucide hand）：自然张开手掌 */
     val HandPan: ImageVector by lazy {
         icon("HandPan") {
-            stroke {
-                moveTo(18f, 11.5f)
-                lineTo(18f, 6.8f)
-                arcTo(1.3f, 1.3f, 0f, false, false, 15.4f, 6.8f)
-                lineTo(15.4f, 10.5f)
-                lineTo(15.4f, 4.8f)
-                arcTo(1.3f, 1.3f, 0f, false, false, 12.8f, 4.8f)
-                lineTo(12.8f, 10.5f)
-                lineTo(12.8f, 5.8f)
-                arcTo(1.3f, 1.3f, 0f, false, false, 10.2f, 5.8f)
-                lineTo(10.2f, 12.5f)
-                lineTo(7.8f, 10.4f)
-                arcTo(1.3f, 1.3f, 0f, false, false, 5.8f, 12.1f)
-                lineTo(9.2f, 17.5f)
-                quadTo(10.8f, 20.5f, 14f, 20.5f)
-                quadTo(18f, 20.5f, 18f, 15.8f)
-                close()
-            }
+            svgStroke("M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2m0 4V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2m0 4.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8")
+            svgStroke("M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15")
         }
     }
 
-    /** 套索：环形套索圈 + 绳结与引线 */
+    /** 套索（Lucide lasso）：经典套索圈 + 绳结与引线 */
     val Lasso: ImageVector by lazy {
         icon("Lasso") {
-            stroke {
-                moveTo(3.5f, 10.5f)
-                arcTo(8.5f, 6f, 0f, true, true, 20.5f, 10.5f)
-                arcTo(8.5f, 6f, 0f, true, true, 3.5f, 10.5f)
-                close()
-                circle(14.5f, 16.8f, 1.7f)
-                moveTo(15.7f, 18.1f)
-                quadTo(17.5f, 20f, 19.8f, 20.5f)
-            }
+            svgStroke("M3.704 14.467a10 8 0 1 1 3.115 2.375M7 22a5 5 0 0 1-2-3.994")
+            stroke { circle(5f, 16f, 2f) }
         }
     }
 
@@ -355,63 +291,29 @@ object MilkIcons {
     val LassoRect: ImageVector by lazy {
         icon("LassoRect") {
             stroke {
-                moveTo(4f, 8f)
-                lineTo(4f, 5.5f)
-                quadTo(4f, 4f, 5.5f, 4f)
-                lineTo(8f, 4f)
-                moveTo(16f, 4f)
-                lineTo(18.5f, 4f)
-                quadTo(20f, 4f, 20f, 5.5f)
-                lineTo(20f, 8f)
-                moveTo(20f, 16f)
-                lineTo(20f, 18.5f)
-                quadTo(20f, 20f, 18.5f, 20f)
-                lineTo(16f, 20f)
-                moveTo(8f, 20f)
-                lineTo(5.5f, 20f)
-                quadTo(4f, 20f, 4f, 18.5f)
-                lineTo(4f, 16f)
-                moveTo(11f, 4f)
-                lineTo(13f, 4f)
-                moveTo(11f, 20f)
-                lineTo(13f, 20f)
-                moveTo(4f, 11f)
-                lineTo(4f, 13f)
-                moveTo(20f, 11f)
-                lineTo(20f, 13f)
+                moveTo(4f, 8f); lineTo(4f, 5.5f); quadTo(4f, 4f, 5.5f, 4f); lineTo(8f, 4f)
+                moveTo(16f, 4f); lineTo(18.5f, 4f); quadTo(20f, 4f, 20f, 5.5f); lineTo(20f, 8f)
+                moveTo(20f, 16f); lineTo(20f, 18.5f); quadTo(20f, 20f, 18.5f, 20f); lineTo(16f, 20f)
+                moveTo(8f, 20f); lineTo(5.5f, 20f); quadTo(4f, 20f, 4f, 18.5f); lineTo(4f, 16f)
+                moveTo(11f, 4f); lineTo(13f, 4f)
+                moveTo(11f, 20f); lineTo(13f, 20f)
+                moveTo(4f, 11f); lineTo(4f, 13f)
+                moveTo(20f, 11f); lineTo(20f, 13f)
             }
         }
     }
 
-    /** 图案笔：斜向画笔 + 双星芒装饰 */
+    /** 图案笔（Lucide wand-sparkles）：魔棒 + 闪烁图案星点 */
     val PatternBrush: ImageVector by lazy {
         icon("PatternBrush") {
-            stroke {
-                moveTo(4.5f, 19.5f)
-                lineTo(14.2f, 9.8f)
-                sparkle(17.2f, 6.2f, 3.2f)
-                moveTo(6.5f, 6f)
-                lineTo(6.5f, 8.8f)
-                moveTo(5.1f, 7.4f)
-                lineTo(7.9f, 7.4f)
-                moveTo(17.5f, 16f)
-                lineTo(17.5f, 18.8f)
-                moveTo(16.1f, 17.4f)
-                lineTo(18.9f, 17.4f)
-            }
+            svgStroke("m21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72M14 7l3 3M5 6v4m14 4v4M10 2v2M7 8H3m18 8h-4M11 3H9")
         }
     }
 
     /** 图案笔星芒着色层 */
     val PatternBrushAccent: ImageVector by lazy {
         icon("PatternBrushAccent") {
-            stroke(width = 1.8f) {
-                sparkle(17.2f, 6.2f, 3.2f)
-                moveTo(6.5f, 6f)
-                lineTo(6.5f, 8.8f)
-                moveTo(5.1f, 7.4f)
-                lineTo(7.9f, 7.4f)
-            }
+            svgStroke("M5 6v4m14 4v4M10 2v2M7 8H3m18 8h-4M11 3H9", width = 1.8f)
         }
     }
 
@@ -424,10 +326,8 @@ object MilkIcons {
                 lineTo(20.5f, 9.5f)
                 lineTo(9.5f, 20.5f)
                 close()
-                moveTo(9.5f, 8.5f)
-                lineTo(15.5f, 14.5f)
-                moveTo(6.5f, 11.5f)
-                lineTo(12.5f, 17.5f)
+                moveTo(9.5f, 8.5f); lineTo(15.5f, 14.5f)
+                moveTo(6.5f, 11.5f); lineTo(12.5f, 17.5f)
             }
         }
     }
@@ -435,79 +335,35 @@ object MilkIcons {
     /** 摘取工具：框选卡片摘出示意 */
     val SnipExtract: ImageVector by lazy {
         icon("SnipExtract") {
-            stroke {
-                moveTo(7f, 4f)
-                lineTo(5.5f, 4f)
-                quadTo(4f, 4f, 4f, 5.5f)
-                lineTo(4f, 7f)
-                moveTo(17f, 4f)
-                lineTo(18.5f, 4f)
-                quadTo(20f, 4f, 20f, 5.5f)
-                lineTo(20f, 7f)
-                moveTo(7f, 20f)
-                lineTo(5.5f, 20f)
-                quadTo(4f, 20f, 4f, 18.5f)
-                lineTo(4f, 17f)
-                moveTo(17f, 20f)
-                lineTo(18.5f, 20f)
-                quadTo(20f, 20f, 20f, 18.5f)
-                lineTo(20f, 17f)
-                roundRect(8f, 8f, 16f, 16f, 1.5f)
-            }
+            svgStroke("M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2")
+            stroke { roundRect(8f, 8f, 16f, 16f, 1.5f) }
         }
     }
 
     /** 框选提问：四角取景框 + 居中四芒星 */
     val SnipSpark: ImageVector by lazy {
         icon("SnipSpark") {
-            stroke {
-                moveTo(7.5f, 3.5f)
-                lineTo(5f, 3.5f)
-                quadTo(3.5f, 3.5f, 3.5f, 5f)
-                lineTo(3.5f, 7.5f)
-                moveTo(16.5f, 3.5f)
-                lineTo(19f, 3.5f)
-                quadTo(20.5f, 3.5f, 20.5f, 5f)
-                lineTo(20.5f, 7.5f)
-                moveTo(7.5f, 20.5f)
-                lineTo(5f, 20.5f)
-                quadTo(3.5f, 20.5f, 3.5f, 19f)
-                lineTo(3.5f, 16.5f)
-                moveTo(16.5f, 20.5f)
-                lineTo(19f, 20.5f)
-                quadTo(20.5f, 20.5f, 20.5f, 19f)
-                lineTo(20.5f, 16.5f)
-                sparkle(12f, 12f, 4.3f)
-            }
+            svgStroke("M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2")
+            stroke { sparkle(12f, 12f, 4.2f) }
         }
     }
 
-    /** 文本框：带角标框的 T 字 */
+    /** 文本框：带边框的 T 字 */
     val TextBox: ImageVector by lazy {
         icon("TextBox") {
             stroke {
-                roundRect(3.75f, 3.75f, 20.25f, 20.25f, 2.5f)
-                moveTo(8f, 8.5f)
-                lineTo(16f, 8.5f)
-                moveTo(12f, 8.5f)
-                lineTo(12f, 16.5f)
-                moveTo(10f, 16.5f)
-                lineTo(14f, 16.5f)
+                roundRect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f)
+                moveTo(8f, 8.5f); lineTo(16f, 8.5f)
+                moveTo(12f, 8.5f); lineTo(12f, 16.5f)
+                moveTo(10f, 16.5f); lineTo(14f, 16.5f)
             }
         }
     }
 
-    /** 纯文字 T */
+    /** 纯文字 T（Lucide type） */
     val TextCursor: ImageVector by lazy {
         icon("TextCursor") {
-            stroke {
-                moveTo(5.5f, 6f)
-                lineTo(18.5f, 6f)
-                moveTo(12f, 6f)
-                lineTo(12f, 18.5f)
-                moveTo(9.2f, 18.5f)
-                lineTo(14.8f, 18.5f)
-            }
+            svgStroke("M12 4v16M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M9 20h6")
         }
     }
 
@@ -522,25 +378,11 @@ object MilkIcons {
         }
     }
 
-    /** 贴纸：折角方形 */
+    /** 贴纸（Lucide sticker 结构，极简折角方形） */
     val Sticker: ImageVector by lazy {
         icon("Sticker") {
-            stroke {
-                moveTo(5.5f, 4f)
-                lineTo(18.5f, 4f)
-                quadTo(20f, 4f, 20f, 5.5f)
-                lineTo(20f, 14f)
-                lineTo(14f, 20f)
-                lineTo(5.5f, 20f)
-                quadTo(4f, 20f, 4f, 18.5f)
-                lineTo(4f, 5.5f)
-                quadTo(4f, 4f, 5.5f, 4f)
-                close()
-                moveTo(14f, 20f)
-                lineTo(14f, 15.5f)
-                quadTo(14f, 14f, 15.5f, 14f)
-                lineTo(20f, 14f)
-            }
+            svgStroke("M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z")
+            svgStroke("M15 3v5a1 1 0 0 0 1 1h5")
         }
     }
 
@@ -549,10 +391,7 @@ object MilkIcons {
         icon("MediaPlay") {
             stroke {
                 roundRect(3.5f, 5f, 20.5f, 19f, 2.5f)
-                moveTo(10f, 9f)
-                lineTo(15.5f, 12f)
-                lineTo(10f, 15f)
-                close()
+                moveTo(10f, 9f); lineTo(15.5f, 12f); lineTo(10f, 15f); close()
             }
         }
     }
@@ -562,8 +401,7 @@ object MilkIcons {
     val ShapeLine: ImageVector by lazy {
         icon("ShapeLine") {
             stroke {
-                moveTo(6.2f, 17.8f)
-                lineTo(17.8f, 6.2f)
+                moveTo(6.2f, 17.8f); lineTo(17.8f, 6.2f)
                 circle(5f, 19f, 1.4f)
                 circle(19f, 5f, 1.4f)
             }
@@ -573,12 +411,9 @@ object MilkIcons {
     val ShapeDashedLine: ImageVector by lazy {
         icon("ShapeDashedLine") {
             stroke {
-                moveTo(4.5f, 19.5f)
-                lineTo(7.8f, 16.2f)
-                moveTo(10.3f, 13.7f)
-                lineTo(13.7f, 10.3f)
-                moveTo(16.2f, 7.8f)
-                lineTo(19.5f, 4.5f)
+                moveTo(4.5f, 19.5f); lineTo(7.8f, 16.2f)
+                moveTo(10.3f, 13.7f); lineTo(13.7f, 10.3f)
+                moveTo(16.2f, 7.8f); lineTo(19.5f, 4.5f)
             }
         }
     }
@@ -586,70 +421,43 @@ object MilkIcons {
     val ShapeArrow: ImageVector by lazy {
         icon("ShapeArrow") {
             stroke {
-                moveTo(5f, 19f)
-                lineTo(19f, 5f)
-                moveTo(12f, 5f)
-                lineTo(19f, 5f)
-                lineTo(19f, 12f)
+                moveTo(5f, 19f); lineTo(19f, 5f)
+                moveTo(12f, 5f); lineTo(19f, 5f); lineTo(19f, 12f)
             }
         }
     }
 
     val ShapeRect: ImageVector by lazy {
         icon("ShapeRect") {
-            stroke {
-                roundRect(4.25f, 5.5f, 19.75f, 18.5f, 2f)
-            }
+            stroke { roundRect(4.25f, 5.5f, 19.75f, 18.5f, 2f) }
         }
     }
 
     val ShapeOval: ImageVector by lazy {
         icon("ShapeOval") {
-            stroke {
-                circle(12f, 12f, 7.5f)
-            }
+            stroke { circle(12f, 12f, 7.5f) }
         }
     }
 
     val ShapeTriangle: ImageVector by lazy {
         icon("ShapeTriangle") {
             stroke {
-                moveTo(12f, 4.5f)
-                lineTo(20f, 18.5f)
-                lineTo(4f, 18.5f)
-                close()
+                moveTo(12f, 4.5f); lineTo(20f, 18.5f); lineTo(4f, 18.5f); close()
             }
         }
     }
 
     val ShapeStar: ImageVector by lazy {
         icon("ShapeStar") {
-            stroke {
-                moveTo(12f, 3.5f)
-                lineTo(14.6f, 8.9f)
-                lineTo(20.5f, 9.7f)
-                lineTo(16.2f, 13.8f)
-                lineTo(17.3f, 19.7f)
-                lineTo(12f, 16.9f)
-                lineTo(6.7f, 19.7f)
-                lineTo(7.8f, 13.8f)
-                lineTo(3.5f, 9.7f)
-                lineTo(9.4f, 8.9f)
-                close()
-            }
+            svgStroke("M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z")
         }
     }
 
     val ShapeHexagon: ImageVector by lazy {
         icon("ShapeHexagon") {
             stroke {
-                moveTo(12f, 3.5f)
-                lineTo(19.4f, 7.75f)
-                lineTo(19.4f, 16.25f)
-                lineTo(12f, 20.5f)
-                lineTo(4.6f, 16.25f)
-                lineTo(4.6f, 7.75f)
-                close()
+                moveTo(12f, 3.5f); lineTo(19.4f, 7.75f); lineTo(19.4f, 16.25f)
+                lineTo(12f, 20.5f); lineTo(4.6f, 16.25f); lineTo(4.6f, 7.75f); close()
             }
         }
     }
@@ -688,7 +496,7 @@ object MilkIcons {
 
     val FormatBold: ImageVector by lazy {
         icon("FormatBold") {
-            stroke(width = 2.1f) {
+            stroke(width = 2.0f) {
                 moveTo(7f, 5.5f)
                 lineTo(13.2f, 5.5f)
                 arcTo(3.2f, 3.2f, 0f, false, true, 13.2f, 11.9f)
@@ -740,148 +548,121 @@ object MilkIcons {
         }
     }
 
-    // ==================== 基础导航与控制 ====================
+    // ==================== 基础导航与控制（Lucide） ====================
 
     val ArrowLeft: ImageVector by lazy {
         icon("ArrowLeft") {
-            stroke {
-                moveTo(19f, 12f); lineTo(5f, 12f)
-                moveTo(11f, 6f); lineTo(5f, 12f); lineTo(11f, 18f)
-            }
+            svgStroke("m12 19l-7-7l7-7m7 7H5")
         }
     }
 
     val ChevronLeft: ImageVector by lazy {
         icon("ChevronLeft") {
-            stroke { moveTo(14.5f, 6.5f); lineTo(9f, 12f); lineTo(14.5f, 17.5f) }
+            svgStroke("m15 18l-6-6l6-6")
         }
     }
 
     val ChevronRight: ImageVector by lazy {
         icon("ChevronRight") {
-            stroke { moveTo(9.5f, 6.5f); lineTo(15f, 12f); lineTo(9.5f, 17.5f) }
+            svgStroke("m9 18l6-6l-6-6")
         }
     }
 
     val ChevronUp: ImageVector by lazy {
         icon("ChevronUp") {
-            stroke { moveTo(6.5f, 14.5f); lineTo(12f, 9f); lineTo(17.5f, 14.5f) }
+            svgStroke("m18 15l-6-6l-6 6")
         }
     }
 
     val ChevronDown: ImageVector by lazy {
         icon("ChevronDown") {
-            stroke { moveTo(6.5f, 9.5f); lineTo(12f, 15f); lineTo(17.5f, 9.5f) }
+            svgStroke("m6 9l6 6l6-6")
         }
     }
 
     val UnfoldMore: ImageVector by lazy {
         icon("UnfoldMore") {
-            stroke {
-                moveTo(8.5f, 9f); lineTo(12f, 5.5f); lineTo(15.5f, 9f)
-                moveTo(8.5f, 15f); lineTo(12f, 18.5f); lineTo(15.5f, 15f)
-            }
+            svgStroke("m7 15l5 5l5-5M7 9l5-5l5 5")
         }
     }
 
     val Add: ImageVector by lazy {
         icon("Add") {
-            stroke { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) }
+            svgStroke("M5 12h14m-7-7v14")
         }
     }
 
     val Close: ImageVector by lazy {
         icon("Close") {
-            stroke { moveTo(6.5f, 6.5f); lineTo(17.5f, 17.5f); moveTo(17.5f, 6.5f); lineTo(6.5f, 17.5f) }
+            svgStroke("M18 6L6 18M6 6l12 12")
         }
     }
 
     val Check: ImageVector by lazy {
         icon("Check") {
-            stroke { moveTo(5f, 12.5f); lineTo(9.8f, 17.2f); lineTo(19.2f, 7.2f) }
+            svgStroke("M20 6L9 17l-5-5")
         }
     }
 
     val CheckCircle: ImageVector by lazy {
         icon("CheckCircle") {
-            stroke {
-                circle(12f, 12f, 8.75f)
-                moveTo(8.3f, 12.3f); lineTo(10.8f, 14.8f); lineTo(15.8f, 9.5f)
-            }
+            stroke { circle(12f, 12f, 10f) }
+            svgStroke("m16 9l-5.5 5.5L8 12")
         }
     }
 
     val ErrorCircle: ImageVector by lazy {
         icon("ErrorCircle") {
-            stroke {
-                circle(12f, 12f, 8.75f)
-                moveTo(12f, 8.2f); lineTo(12f, 12.6f)
-            }
-            dot(12f, 15.8f, 1.0f)
+            stroke { circle(12f, 12f, 10f) }
+            svgStroke("M12 8v4m0 4h.01")
         }
     }
 
     val WarningTriangle: ImageVector by lazy {
         icon("WarningTriangle") {
-            stroke {
-                moveTo(12f, 3.8f)
-                lineTo(20.6f, 18.8f)
-                quadTo(21f, 19.6f, 20.1f, 19.6f)
-                lineTo(3.9f, 19.6f)
-                quadTo(3f, 19.6f, 3.4f, 18.8f)
-                close()
-                moveTo(12f, 9.5f); lineTo(12f, 13.5f)
-            }
-            dot(12f, 16.4f, 1.0f)
+            svgStroke("m21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4m0 4h.01")
         }
     }
 
     val InfoCircle: ImageVector by lazy {
         icon("InfoCircle") {
-            stroke {
-                circle(12f, 12f, 8.75f)
-                moveTo(12f, 11.4f); lineTo(12f, 16f)
-            }
-            dot(12f, 8.2f, 1.0f)
+            stroke { circle(12f, 12f, 10f) }
+            svgStroke("M12 16v-4m0-4h.01")
         }
     }
 
     val Search: ImageVector by lazy {
         icon("Search") {
-            stroke {
-                circle(10.8f, 10.8f, 6.25f)
-                moveTo(15.5f, 15.5f); lineTo(20f, 20f)
-            }
+            svgStroke("m21 21l-4.34-4.34")
+            stroke { circle(11f, 11f, 8f) }
         }
     }
 
     val SearchOff: ImageVector by lazy {
         icon("SearchOff") {
-            stroke {
-                circle(10.8f, 10.8f, 6.25f)
-                moveTo(15.5f, 15.5f); lineTo(20f, 20f)
-                moveTo(4f, 4f); lineTo(20f, 20f)
-            }
+            svgStroke("m13.5 8.5l-5 5m0-5l5 5")
+            stroke { circle(11f, 11f, 8f) }
+            svgStroke("m21 21l-4.3-4.3")
         }
     }
 
     val MoreDots: ImageVector by lazy {
         icon("MoreDots") {
-            dot(5.5f, 12f, 1.35f)
-            dot(12f, 12f, 1.35f)
-            dot(18.5f, 12f, 1.35f)
+            dot(5f, 12f, 1.3f)
+            dot(12f, 12f, 1.3f)
+            dot(19f, 12f, 1.3f)
         }
     }
 
     val GripDots: ImageVector by lazy {
         icon("GripDots") {
-            dot(9.2f, 7f, 1.25f); dot(14.8f, 7f, 1.25f)
-            dot(9.2f, 12f, 1.25f); dot(14.8f, 12f, 1.25f)
-            dot(9.2f, 17f, 1.25f); dot(14.8f, 17f, 1.25f)
+            dot(9f, 6.5f, 1.2f); dot(15f, 6.5f, 1.2f)
+            dot(9f, 12f, 1.2f); dot(15f, 12f, 1.2f)
+            dot(9f, 17.5f, 1.2f); dot(15f, 17.5f, 1.2f)
         }
     }
 
-    /** 展开笔匣：笔匣胶囊与内部笔锋，替代拖拽点 */
+    /** 展开笔匣：笔匣胶囊与内部笔锋 */
     val PenDock: ImageVector by lazy {
         icon("PenDock") {
             stroke {
@@ -892,177 +673,97 @@ object MilkIcons {
         }
     }
 
+    /** 侧栏（Lucide panel-left） */
     val Sidebar: ImageVector by lazy {
         icon("Sidebar") {
-            stroke {
-                roundRect(3.25f, 4.25f, 20.75f, 19.75f, 2.5f)
-                moveTo(9f, 4.25f); lineTo(9f, 19.75f)
-            }
+            stroke { roundRect(3f, 3f, 21f, 21f, 2f) }
+            svgStroke("M9 3v18")
         }
     }
 
+    /** 双开分屏（Lucide columns-2） */
     val SplitView: ImageVector by lazy {
         icon("SplitView") {
-            stroke {
-                roundRect(3.25f, 4.25f, 20.75f, 19.75f, 2.5f)
-                moveTo(12f, 4.25f); lineTo(12f, 19.75f)
-            }
+            stroke { roundRect(3f, 3f, 21f, 21f, 2f) }
+            svgStroke("M12 3v18")
         }
     }
 
+    /** 专注模式（Lucide scan 四角扩展框） */
     val FocusExpand: ImageVector by lazy {
         icon("FocusExpand") {
-            stroke {
-                moveTo(8.5f, 4f); lineTo(4f, 4f); lineTo(4f, 8.5f)
-                moveTo(15.5f, 4f); lineTo(20f, 4f); lineTo(20f, 8.5f)
-                moveTo(4f, 15.5f); lineTo(4f, 20f); lineTo(8.5f, 20f)
-                moveTo(20f, 15.5f); lineTo(20f, 20f); lineTo(15.5f, 20f)
-            }
+            svgStroke("M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2")
         }
     }
 
     val Undo: ImageVector by lazy {
         icon("Undo") {
-            stroke {
-                moveTo(8.5f, 6.5f); lineTo(4f, 11f); lineTo(8.5f, 15.5f)
-                moveTo(4.5f, 11f); lineTo(14.5f, 11f)
-                arcTo(4.75f, 4.75f, 0f, true, true, 14.5f, 20.5f)
-                lineTo(12f, 20.5f)
-            }
+            svgStroke("M9 14L4 9l5-5")
+            svgStroke("M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11")
         }
     }
 
     val Redo: ImageVector by lazy {
         icon("Redo") {
-            stroke {
-                moveTo(15.5f, 6.5f); lineTo(20f, 11f); lineTo(15.5f, 15.5f)
-                moveTo(19.5f, 11f); lineTo(9.5f, 11f)
-                arcTo(4.75f, 4.75f, 0f, true, false, 9.5f, 20.5f)
-                lineTo(12f, 20.5f)
-            }
+            svgStroke("m15 14l5-5l-5-5")
+            svgStroke("M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13")
         }
     }
 
     val Refresh: ImageVector by lazy {
         icon("Refresh") {
-            stroke {
-                moveTo(19.5f, 10.5f)
-                arcTo(7.5f, 7.5f, 0f, true, false, 18.2f, 16.5f)
-                moveTo(19.5f, 5.5f); lineTo(19.5f, 10.5f); lineTo(14.5f, 10.5f)
-            }
+            svgStroke("M3 12a9 9 0 0 1 9-9a9.75 9.75 0 0 1 6.74 2.74L21 8")
+            svgStroke("M21 3v5h-5m5 4a9 9 0 0 1-9 9a9.75 9.75 0 0 1-6.74-2.74L3 16")
+            svgStroke("M8 16H3v5")
         }
     }
 
     val Reset: ImageVector by lazy {
         icon("Reset") {
-            stroke {
-                moveTo(4.5f, 10.5f)
-                arcTo(7.5f, 7.5f, 0f, true, true, 5.8f, 16.5f)
-                moveTo(4.5f, 5.5f); lineTo(4.5f, 10.5f); lineTo(9.5f, 10.5f)
-            }
+            svgStroke("M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8")
+            svgStroke("M3 3v5h5")
         }
     }
 
     val Sliders: ImageVector by lazy {
         icon("Sliders") {
-            stroke {
-                moveTo(4f, 7.5f); lineTo(7.5f, 7.5f)
-                moveTo(11.5f, 7.5f); lineTo(20f, 7.5f)
-                circle(9.5f, 7.5f, 2f)
-                moveTo(4f, 16.5f); lineTo(12.5f, 16.5f)
-                moveTo(16.5f, 16.5f); lineTo(20f, 16.5f)
-                circle(14.5f, 16.5f, 2f)
-            }
+            svgStroke("M10 5H3m9 14H3M14 3v4m2 10v4m5-9h-9m9 7h-5m5-14h-7m-6 5v4m0-2H3")
         }
     }
 
     val Settings: ImageVector by lazy {
         icon("Settings") {
-            stroke {
-                circle(12f, 12f, 3.2f)
-                moveTo(12f, 3f); lineTo(12f, 5.2f)
-                moveTo(12f, 18.8f); lineTo(12f, 21f)
-                moveTo(3f, 12f); lineTo(5.2f, 12f)
-                moveTo(18.8f, 12f); lineTo(21f, 12f)
-                moveTo(5.6f, 5.6f); lineTo(7.2f, 7.2f)
-                moveTo(16.8f, 16.8f); lineTo(18.4f, 18.4f)
-                moveTo(18.4f, 5.6f); lineTo(16.8f, 7.2f)
-                moveTo(7.2f, 16.8f); lineTo(5.6f, 18.4f)
-                circle(12f, 12f, 6.8f)
-            }
+            svgStroke("M9.671 4.136a2.34 2.34 0 0 1 4.659 0a2.34 2.34 0 0 0 3.319 1.915a2.34 2.34 0 0 1 2.33 4.033a2.34 2.34 0 0 0 0 3.831a2.34 2.34 0 0 1-2.33 4.033a2.34 2.34 0 0 0-3.319 1.915a2.34 2.34 0 0 1-4.659 0a2.34 2.34 0 0 0-3.32-1.915a2.34 2.34 0 0 1-2.33-4.033a2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915")
+            stroke { circle(12f, 12f, 3f) }
         }
     }
 
-    /** 笔诊断：波形脉冲 */
+    /** 笔诊断（Lucide activity） */
     val PulseDiag: ImageVector by lazy {
         icon("PulseDiag") {
-            stroke {
-                roundRect(3.25f, 4.25f, 20.75f, 19.75f, 2.8f)
-                moveTo(6f, 12.5f)
-                lineTo(8.8f, 12.5f)
-                lineTo(10.6f, 8.2f)
-                lineTo(13.4f, 16.2f)
-                lineTo(15.2f, 12.5f)
-                lineTo(18f, 12.5f)
-            }
+            svgStroke("M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2")
         }
     }
 
-    /** 清空画布：扫除刷 */
+    /** 清空画布（Lucide brush-cleaning） */
     val ClearSweep: ImageVector by lazy {
         icon("ClearSweep") {
-            stroke {
-                moveTo(4f, 19.5f); lineTo(20f, 19.5f)
-                moveTo(14.5f, 4f); lineTo(11f, 10.5f)
-                moveTo(7f, 11.5f); lineTo(15f, 11.5f)
-                quadTo(16.5f, 11.5f, 16.8f, 13f)
-                lineTo(17.5f, 17f)
-                lineTo(5.5f, 17f)
-                lineTo(6.2f, 13f)
-                quadTo(6.4f, 11.5f, 7f, 11.5f)
-                close()
-                moveTo(9.5f, 14.5f); lineTo(9.5f, 17f)
-                moveTo(13f, 14.5f); lineTo(13f, 17f)
-            }
+            svgStroke("m16 22l-1-4m4-4a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1")
+            svgStroke("M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233zM8 22l1-4")
         }
     }
 
-    // ==================== 书架、笔记本、文件夹与卡片 ====================
+    // ==================== 书架、笔记本、文件夹与卡片（Lucide） ====================
 
     val Book: ImageVector by lazy {
         icon("Book") {
-            stroke {
-                moveTo(4.5f, 5.2f)
-                quadTo(4.5f, 3.5f, 6.5f, 3.5f)
-                lineTo(19f, 3.5f)
-                lineTo(19f, 19.5f)
-                lineTo(6.5f, 19.5f)
-                quadTo(4.5f, 19.5f, 4.5f, 17.8f)
-                close()
-                moveTo(4.5f, 17.5f)
-                quadTo(4.5f, 16f, 6.5f, 16f)
-                lineTo(19f, 16f)
-                moveTo(8.5f, 7.5f); lineTo(15.5f, 7.5f)
-                moveTo(8.5f, 11f); lineTo(13.5f, 11f)
-            }
+            svgStroke("M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20")
         }
     }
 
     val Star: ImageVector by lazy {
         icon("Star") {
-            stroke {
-                moveTo(12f, 3.4f)
-                lineTo(14.6f, 8.8f)
-                lineTo(20.5f, 9.6f)
-                lineTo(16.2f, 13.7f)
-                lineTo(17.2f, 19.6f)
-                lineTo(12f, 16.8f)
-                lineTo(6.8f, 19.6f)
-                lineTo(7.8f, 13.7f)
-                lineTo(3.5f, 9.6f)
-                lineTo(9.4f, 8.8f)
-                close()
-            }
+            svgStroke("M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z")
         }
     }
 
@@ -1070,10 +771,8 @@ object MilkIcons {
         icon("Cards") {
             stroke {
                 roundRect(3.5f, 5.5f, 16.5f, 19.5f, 2.2f)
-                moveTo(7.5f, 3.5f)
-                lineTo(18f, 3.5f)
-                quadTo(20.5f, 3.5f, 20.5f, 6f)
-                lineTo(20.5f, 16.5f)
+                moveTo(7.5f, 3.5f); lineTo(18f, 3.5f)
+                quadTo(20.5f, 3.5f, 20.5f, 6f); lineTo(20.5f, 16.5f)
                 moveTo(7f, 10.5f); lineTo(13f, 10.5f)
                 moveTo(7f, 14f); lineTo(11f, 14f)
             }
@@ -1082,663 +781,333 @@ object MilkIcons {
 
     val Trash: ImageVector by lazy {
         icon("Trash") {
-            stroke {
-                moveTo(4.5f, 6.8f); lineTo(19.5f, 6.8f)
-                moveTo(9f, 6.8f); lineTo(9f, 4.5f)
-                quadTo(9f, 3.6f, 10f, 3.6f)
-                lineTo(14f, 3.6f)
-                quadTo(15f, 3.6f, 15f, 4.5f)
-                lineTo(15f, 6.8f)
-                moveTo(6.2f, 6.8f)
-                lineTo(7.1f, 18.8f)
-                quadTo(7.2f, 20.2f, 8.6f, 20.2f)
-                lineTo(15.4f, 20.2f)
-                quadTo(16.8f, 20.2f, 16.9f, 18.8f)
-                lineTo(17.8f, 6.8f)
-                moveTo(10.2f, 10.8f); lineTo(10.2f, 16.2f)
-                moveTo(13.8f, 10.8f); lineTo(13.8f, 16.2f)
-            }
+            svgStroke("M10 11v6m4-6v6m5-11v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2")
         }
     }
 
     val RestoreTrash: ImageVector by lazy {
         icon("RestoreTrash") {
-            stroke {
-                moveTo(4.5f, 6.8f); lineTo(19.5f, 6.8f)
-                moveTo(9f, 6.8f); lineTo(9f, 4.5f)
-                quadTo(9f, 3.6f, 10f, 3.6f)
-                lineTo(14f, 3.6f)
-                quadTo(15f, 3.6f, 15f, 4.5f)
-                lineTo(15f, 6.8f)
-                moveTo(6.2f, 6.8f)
-                lineTo(7.1f, 18.8f)
-                quadTo(7.2f, 20.2f, 8.6f, 20.2f)
-                lineTo(15.4f, 20.2f)
-                quadTo(16.8f, 20.2f, 16.9f, 18.8f)
-                lineTo(17.8f, 6.8f)
-                moveTo(12f, 16.2f); lineTo(12f, 10.4f)
-                moveTo(9.5f, 12.6f); lineTo(12f, 10.2f); lineTo(14.5f, 12.6f)
-            }
+            stroke { roundRect(2f, 3f, 22f, 8f, 1f) }
+            svgStroke("M4 8v11a2 2 0 0 0 2 2h2M20 8v11a2 2 0 0 1-2 2h-2m-7-6l3-3l3 3m-3-3v9")
         }
     }
 
     val Folder: ImageVector by lazy {
         icon("Folder") {
-            stroke {
-                moveTo(3.5f, 6.8f)
-                quadTo(3.5f, 5f, 5.3f, 5f)
-                lineTo(9.2f, 5f)
-                lineTo(11.2f, 7.4f)
-                lineTo(18.7f, 7.4f)
-                quadTo(20.5f, 7.4f, 20.5f, 9.2f)
-                lineTo(20.5f, 17.5f)
-                quadTo(20.5f, 19.3f, 18.7f, 19.3f)
-                lineTo(5.3f, 19.3f)
-                quadTo(3.5f, 19.3f, 3.5f, 17.5f)
-                close()
-            }
+            svgStroke("M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z")
         }
     }
 
     val FolderOpen: ImageVector by lazy {
         icon("FolderOpen") {
-            stroke {
-                moveTo(3.5f, 18f)
-                lineTo(3.5f, 6.5f)
-                quadTo(3.5f, 5f, 5f, 5f)
-                lineTo(9f, 5f)
-                lineTo(11f, 7.2f)
-                lineTo(18f, 7.2f)
-                quadTo(19.5f, 7.2f, 19.5f, 8.7f)
-                lineTo(19.5f, 10.5f)
-                moveTo(3.5f, 18.2f)
-                lineTo(5.8f, 11.2f)
-                quadTo(6.1f, 10.4f, 7f, 10.4f)
-                lineTo(20f, 10.4f)
-                quadTo(21f, 10.4f, 20.7f, 11.4f)
-                lineTo(18.6f, 18.2f)
-                quadTo(18.3f, 19f, 17.4f, 19f)
-                lineTo(4.5f, 19f)
-                quadTo(3.5f, 19f, 3.5f, 18.2f)
-                close()
-            }
+            svgStroke("m6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2")
         }
     }
 
     val FolderOff: ImageVector by lazy {
         icon("FolderOff") {
-            stroke {
-                moveTo(3.5f, 6.8f)
-                quadTo(3.5f, 5f, 5.3f, 5f)
-                lineTo(9.2f, 5f)
-                lineTo(11.2f, 7.4f)
-                lineTo(18.7f, 7.4f)
-                quadTo(20.5f, 7.4f, 20.5f, 9.2f)
-                lineTo(20.5f, 16.5f)
-                moveTo(16.8f, 19.3f)
-                lineTo(5.3f, 19.3f)
-                quadTo(3.5f, 19.3f, 3.5f, 17.5f)
-                lineTo(3.5f, 9f)
-                moveTo(4f, 4f); lineTo(20f, 20f)
-            }
+            svgStroke("M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2ZM9.5 10.5l5 5m0-5l-5 5")
         }
     }
 
     val GridView: ImageVector by lazy {
         icon("GridView") {
             stroke {
-                roundRect(4f, 4f, 10.2f, 10.2f, 1.8f)
-                roundRect(13.8f, 4f, 20f, 10.2f, 1.8f)
-                roundRect(4f, 13.8f, 10.2f, 20f, 1.8f)
-                roundRect(13.8f, 13.8f, 20f, 20f, 1.8f)
+                roundRect(3f, 3f, 10f, 10f, 1.2f)
+                roundRect(14f, 3f, 21f, 10f, 1.2f)
+                roundRect(14f, 14f, 21f, 21f, 1.2f)
+                roundRect(3f, 14f, 10f, 21f, 1.2f)
             }
         }
     }
 
     val ListBullet: ImageVector by lazy {
         icon("ListBullet") {
-            stroke {
-                moveTo(8.5f, 6.5f); lineTo(20f, 6.5f)
-                moveTo(8.5f, 12f); lineTo(20f, 12f)
-                moveTo(8.5f, 17.5f); lineTo(20f, 17.5f)
-            }
-            dot(4.8f, 6.5f, 1.1f)
-            dot(4.8f, 12f, 1.1f)
-            dot(4.8f, 17.5f, 1.1f)
+            svgStroke("M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13")
         }
     }
 
     val Sort: ImageVector by lazy {
         icon("Sort") {
-            stroke {
-                moveTo(4f, 6.5f); lineTo(14.5f, 6.5f)
-                moveTo(4f, 12f); lineTo(11.5f, 12f)
-                moveTo(4f, 17.5f); lineTo(8.5f, 17.5f)
-                moveTo(17.5f, 6.5f); lineTo(17.5f, 18f)
-                moveTo(14.8f, 15.2f); lineTo(17.5f, 18f); lineTo(20.2f, 15.2f)
-            }
+            svgStroke("m21 16l-4 4l-4-4m4 4V4M3 8l4-4l4 4M7 4v16")
         }
     }
 
     val ImportDoc: ImageVector by lazy {
         icon("ImportDoc") {
-            stroke {
-                moveTo(14f, 3.5f)
-                lineTo(6.5f, 3.5f)
-                quadTo(5f, 3.5f, 5f, 5f)
-                lineTo(5f, 19f)
-                quadTo(5f, 20.5f, 6.5f, 20.5f)
-                lineTo(17.5f, 20.5f)
-                quadTo(19f, 20.5f, 19f, 19f)
-                lineTo(19f, 8.5f)
-                close()
-                moveTo(14f, 3.5f); lineTo(14f, 8.5f); lineTo(19f, 8.5f)
-                moveTo(12f, 11.5f); lineTo(12f, 17f)
-                moveTo(9.5f, 14.5f); lineTo(12f, 17f); lineTo(14.5f, 14.5f)
-            }
+            svgStroke("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z")
+            svgStroke("M14 2v5a1 1 0 0 0 1 1h5m-8 4v6m3-3l-3-3l-3 3")
         }
     }
 
     val Export: ImageVector by lazy {
         icon("Export") {
-            stroke {
-                moveTo(12f, 15f); lineTo(12f, 4f)
-                moveTo(8.2f, 7.8f); lineTo(12f, 4f); lineTo(15.8f, 7.8f)
-                moveTo(4.5f, 14.5f)
-                lineTo(4.5f, 18.2f)
-                quadTo(4.5f, 20f, 6.3f, 20f)
-                lineTo(17.7f, 20f)
-                quadTo(19.5f, 20f, 19.5f, 18.2f)
-                lineTo(19.5f, 14.5f)
-            }
+            svgStroke("M12 3v12m5-7l-5-5l-5 5m14 7v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4")
         }
     }
 
     val PageAdd: ImageVector by lazy {
         icon("PageAdd") {
-            stroke {
-                moveTo(14f, 3.5f)
-                lineTo(6.5f, 3.5f)
-                quadTo(5f, 3.5f, 5f, 5f)
-                lineTo(5f, 19f)
-                quadTo(5f, 20.5f, 6.5f, 20.5f)
-                lineTo(17.5f, 20.5f)
-                quadTo(19f, 20.5f, 19f, 19f)
-                lineTo(19f, 8.5f)
-                close()
-                moveTo(14f, 3.5f); lineTo(14f, 8.5f); lineTo(19f, 8.5f)
-                moveTo(12f, 11.8f); lineTo(12f, 16.8f)
-                moveTo(9.5f, 14.3f); lineTo(14.5f, 14.3f)
-            }
+            svgStroke("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z")
+            svgStroke("M14 2v5a1 1 0 0 0 1 1h5M9 15h6m-3 3v-6")
         }
     }
 
     val Article: ImageVector by lazy {
         icon("Article") {
-            stroke {
-                roundRect(4.5f, 3.5f, 19.5f, 20.5f, 2f)
-                moveTo(8f, 8.2f); lineTo(16f, 8.2f)
-                moveTo(8f, 12f); lineTo(16f, 12f)
-                moveTo(8f, 15.8f); lineTo(13f, 15.8f)
-            }
+            svgStroke("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z")
+            svgStroke("M14 2v5a1 1 0 0 0 1 1h5M10 9H8m8 4H8m8 4H8")
         }
     }
 
     val Copy: ImageVector by lazy {
         icon("Copy") {
-            stroke {
-                roundRect(8.5f, 8.5f, 19.5f, 20.5f, 2f)
-                moveTo(6.5f, 15.5f)
-                lineTo(5.8f, 15.5f)
-                quadTo(4.5f, 15.5f, 4.5f, 14.2f)
-                lineTo(4.5f, 5.2f)
-                quadTo(4.5f, 3.5f, 6.2f, 3.5f)
-                lineTo(14.5f, 3.5f)
-                quadTo(15.5f, 3.5f, 15.5f, 4.8f)
-                lineTo(15.5f, 6f)
-            }
+            stroke { roundRect(8f, 8f, 22f, 22f, 2f) }
+            svgStroke("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2")
         }
     }
 
     val Edit: ImageVector by lazy {
         icon("Edit") {
-            stroke {
-                moveTo(15.5f, 4.5f)
-                lineTo(19.5f, 8.5f)
-                lineTo(9.2f, 18.8f)
-                lineTo(4.5f, 19.5f)
-                lineTo(5.2f, 14.8f)
-                close()
-                moveTo(13.2f, 6.8f); lineTo(17.2f, 10.8f)
-            }
+            svgStroke("M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7")
+            svgStroke("M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z")
         }
     }
 
     val Pin: ImageVector by lazy {
         icon("Pin") {
-            stroke {
-                moveTo(9f, 4.5f); lineTo(15f, 4.5f)
-                moveTo(10f, 4.5f); lineTo(9f, 11f)
-                moveTo(14f, 4.5f); lineTo(15f, 11f)
-                moveTo(6.5f, 13.5f)
-                quadTo(6.5f, 11f, 9f, 11f)
-                lineTo(15f, 11f)
-                quadTo(17.5f, 11f, 17.5f, 13.5f)
-                close()
-                moveTo(12f, 13.5f); lineTo(12f, 20.5f)
-            }
+            svgStroke("M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4a1 1 0 0 1 1 1z")
         }
     }
 
     val Bookmark: ImageVector by lazy {
         icon("Bookmark") {
-            stroke {
-                moveTo(6.5f, 4.5f)
-                quadTo(6.5f, 3.5f, 7.5f, 3.5f)
-                lineTo(16.5f, 3.5f)
-                quadTo(17.5f, 3.5f, 17.5f, 4.5f)
-                lineTo(17.5f, 20.5f)
-                lineTo(12f, 16.5f)
-                lineTo(6.5f, 20.5f)
-                close()
-            }
+            svgStroke("M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z")
         }
     }
 
     val NoteInsert: ImageVector by lazy {
         icon("NoteInsert") {
-            stroke {
-                roundRect(4.5f, 3.5f, 19.5f, 20.5f, 2f)
-                moveTo(12f, 9f); lineTo(12f, 15f)
-                moveTo(9f, 12f); lineTo(15f, 12f)
-            }
+            svgStroke("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z")
+            svgStroke("M14 2v5a1 1 0 0 0 1 1h5M9 15h6m-3 3v-6")
         }
     }
 
     val ExpandOpen: ImageVector by lazy {
         icon("ExpandOpen") {
-            stroke {
-                moveTo(14f, 4f); lineTo(20f, 4f); lineTo(20f, 10f)
-                moveTo(20f, 4f); lineTo(13.5f, 10.5f)
-                moveTo(10f, 20f); lineTo(4f, 20f); lineTo(4f, 14f)
-                moveTo(4f, 20f); lineTo(10.5f, 13.5f)
-            }
+            svgStroke("M15 3h6v6m0-6l-7 7M3 21l7-7m-1 7H3v-6")
         }
     }
 
-    // ==================== 媒体、相机、音频与画布选中 ====================
+    // ==================== 媒体、相机、音频与画布选中（Lucide） ====================
 
     val Image: ImageVector by lazy {
         icon("Image") {
             stroke {
-                roundRect(3.5f, 4.5f, 20.5f, 19.5f, 2.5f)
-                moveTo(4f, 16.8f); lineTo(9.2f, 11.6f); lineTo(13.5f, 15.8f)
-                moveTo(12.2f, 14.5f); lineTo(15.2f, 11.8f); lineTo(20.2f, 16.5f)
+                roundRect(3f, 3f, 21f, 21f, 2f)
+                circle(9f, 9f, 2f)
             }
-            dot(8.5f, 8.8f, 1.35f)
+            svgStroke("m21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21")
         }
     }
 
     val PhotoLibrary: ImageVector by lazy {
         icon("PhotoLibrary") {
-            stroke {
-                roundRect(6.5f, 3.5f, 20.5f, 17.5f, 2.2f)
-                moveTo(7f, 14.2f); lineTo(11.2f, 10.2f); lineTo(14.5f, 13.4f)
-                moveTo(13.8f, 12.6f); lineTo(16.2f, 10.5f); lineTo(20.2f, 14.2f)
-                moveTo(3.5f, 8f)
-                lineTo(3.5f, 18.5f)
-                quadTo(3.5f, 20.5f, 5.5f, 20.5f)
-                lineTo(16f, 20.5f)
-            }
-            dot(10.5f, 7.2f, 1.15f)
+            svgStroke("m22 11l-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16")
+            svgStroke("M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2")
+            dot(13f, 7f, 1.1f)
+            stroke { roundRect(8f, 2f, 22f, 16f, 2f) }
         }
     }
 
     val BrokenImage: ImageVector by lazy {
         icon("BrokenImage") {
-            stroke {
-                roundRect(3.5f, 4.5f, 20.5f, 19.5f, 2.5f)
-                moveTo(4f, 13.5f); lineTo(8.5f, 11f); lineTo(12f, 14f); lineTo(15.5f, 10.5f); lineTo(20f, 13f)
-                moveTo(4f, 4f); lineTo(20f, 20f)
-            }
+            svgStroke("m2 2l20 20M10.41 10.41a2 2 0 1 1-2.83-2.83m5.92 5.92L6 21m12-9l3 3")
+            svgStroke("M3.59 3.59A2 2 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59M21 15V5a2 2 0 0 0-2-2H9")
         }
     }
 
     val Camera: ImageVector by lazy {
         icon("Camera") {
-            stroke {
-                moveTo(4.5f, 7.5f)
-                lineTo(7.5f, 7.5f)
-                lineTo(9.2f, 5f)
-                lineTo(14.8f, 5f)
-                lineTo(16.5f, 7.5f)
-                lineTo(19.5f, 7.5f)
-                quadTo(21f, 7.5f, 21f, 9f)
-                lineTo(21f, 18f)
-                quadTo(21f, 19.5f, 19.5f, 19.5f)
-                lineTo(4.5f, 19.5f)
-                quadTo(3f, 19.5f, 3f, 18f)
-                lineTo(3f, 9f)
-                quadTo(3f, 7.5f, 4.5f, 7.5f)
-                close()
-                circle(12f, 13.2f, 3.4f)
-            }
+            svgStroke("M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z")
+            stroke { circle(12f, 13f, 3f) }
         }
     }
 
     val Video: ImageVector by lazy {
         icon("Video") {
-            stroke {
-                roundRect(3f, 6.5f, 15.5f, 17.5f, 2.2f)
-                moveTo(15.5f, 10.5f)
-                lineTo(21f, 7.5f)
-                lineTo(21f, 16.5f)
-                lineTo(15.5f, 13.5f)
-                close()
-            }
+            svgStroke("m16 13l5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5")
+            stroke { roundRect(2f, 6f, 16f, 18f, 2f) }
         }
     }
 
     val Play: ImageVector by lazy {
         icon("Play") {
-            stroke {
-                moveTo(7.5f, 5.2f)
-                lineTo(18.5f, 12f)
-                lineTo(7.5f, 18.8f)
-                close()
-            }
+            svgStroke("M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z")
         }
     }
 
     val Mic: ImageVector by lazy {
         icon("Mic") {
-            stroke {
-                roundRect(9.2f, 3.2f, 14.8f, 13.5f, 2.8f)
-                moveTo(5.5f, 10.8f)
-                arcTo(6.5f, 6.5f, 0f, false, false, 18.5f, 10.8f)
-                moveTo(12f, 17.3f); lineTo(12f, 20.8f)
-                moveTo(8.5f, 20.8f); lineTo(15.5f, 20.8f)
-            }
+            svgStroke("M12 19v3m7-12v2a7 7 0 0 1-14 0v-2")
+            stroke { roundRect(9f, 2f, 15f, 15f, 3f) }
         }
     }
 
     val MagnetSnap: ImageVector by lazy {
         icon("MagnetSnap") {
-            stroke {
-                moveTo(6.5f, 4.5f)
-                lineTo(6.5f, 12.5f)
-                arcTo(5.5f, 5.5f, 0f, false, false, 17.5f, 12.5f)
-                lineTo(17.5f, 4.5f)
-                moveTo(6.5f, 8.2f); lineTo(9.5f, 8.2f)
-                moveTo(14.5f, 8.2f); lineTo(17.5f, 8.2f)
-                moveTo(9.5f, 4.5f); lineTo(9.5f, 12.5f)
-                arcTo(2.5f, 2.5f, 0f, false, false, 14.5f, 12.5f)
-                lineTo(14.5f, 4.5f)
-                moveTo(6.5f, 4.5f); lineTo(9.5f, 4.5f)
-                moveTo(14.5f, 4.5f); lineTo(17.5f, 4.5f)
-            }
+            svgStroke("m12 15l4 4M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282zM5 8l4 4")
         }
     }
 
-    // ==================== AI 抽屉、会话、图片编辑与预览 ====================
+    // ==================== AI 抽屉、会话、图片编辑与预览（Lucide） ====================
 
     val Sparkle: ImageVector by lazy {
         icon("Sparkle") {
-            stroke {
-                sparkle(11f, 12f, 7.5f)
-                moveTo(18.5f, 4f); lineTo(18.5f, 7.6f)
-                moveTo(16.7f, 5.8f); lineTo(20.3f, 5.8f)
-            }
+            svgStroke("M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4")
+            stroke { circle(4f, 20f, 1.5f) }
         }
     }
 
     val History: ImageVector by lazy {
         icon("History") {
-            stroke {
-                moveTo(4.5f, 12f)
-                arcTo(7.5f, 7.5f, 0f, true, true, 6.8f, 17.4f)
-                moveTo(4.5f, 7f); lineTo(4.5f, 12f); lineTo(9.5f, 12f)
-                moveTo(12f, 8f); lineTo(12f, 12.2f); lineTo(15f, 14f)
-            }
+            svgStroke("M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8")
+            svgStroke("M3 3v5h5m4-1v5l4 2")
         }
     }
 
     val Clock: ImageVector by lazy {
         icon("Clock") {
-            stroke {
-                circle(12f, 12f, 8.5f)
-                moveTo(12f, 7.5f); lineTo(12f, 12.2f); lineTo(15.2f, 14.2f)
-            }
+            stroke { circle(12f, 12f, 10f) }
+            svgStroke("M12 6v6l4 2")
         }
     }
 
     val AttachClip: ImageVector by lazy {
         icon("AttachClip") {
-            stroke {
-                moveTo(19.5f, 11.2f)
-                lineTo(11.3f, 19.4f)
-                arcTo(4.4f, 4.4f, 0f, false, true, 5.1f, 13.2f)
-                lineTo(13.8f, 4.5f)
-                arcTo(2.9f, 2.9f, 0f, false, true, 17.9f, 8.6f)
-                lineTo(9.4f, 17.1f)
-                arcTo(1.4f, 1.4f, 0f, false, true, 7.4f, 15.1f)
-                lineTo(15f, 7.5f)
-            }
+            svgStroke("m16 6l-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551")
         }
     }
 
     val Send: ImageVector by lazy {
         icon("Send") {
-            stroke {
-                moveTo(20.5f, 3.5f)
-                lineTo(14f, 20.5f)
-                lineTo(10.8f, 13.2f)
-                lineTo(3.5f, 10f)
-                close()
-                moveTo(20.5f, 3.5f); lineTo(10.8f, 13.2f)
-            }
+            svgStroke("M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11zm7.318-19.539l-10.94 10.939")
         }
     }
 
     val StopSquare: ImageVector by lazy {
         icon("StopSquare") {
-            stroke {
-                roundRect(6.2f, 6.2f, 17.8f, 17.8f, 2f)
-            }
+            stroke { roundRect(5f, 5f, 19f, 19f, 2f) }
         }
     }
 
     val RotateLeft: ImageVector by lazy {
         icon("RotateLeft") {
-            stroke {
-                moveTo(5.5f, 10.5f)
-                arcTo(7f, 7f, 0f, true, true, 7.2f, 16.5f)
-                moveTo(5.5f, 5.5f); lineTo(5.5f, 10.5f); lineTo(10.5f, 10.5f)
-            }
+            svgStroke("M3 12a9 9 0 1 0 9-9a9.75 9.75 0 0 0-6.74 2.74L3 8")
+            svgStroke("M3 3v5h5")
         }
     }
 
     val RotateRight: ImageVector by lazy {
         icon("RotateRight") {
-            stroke {
-                moveTo(18.5f, 10.5f)
-                arcTo(7f, 7f, 0f, true, false, 16.8f, 16.5f)
-                moveTo(18.5f, 5.5f); lineTo(18.5f, 10.5f); lineTo(13.5f, 10.5f)
-            }
+            svgStroke("M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8")
+            svgStroke("M21 3v5h-5")
         }
     }
 
     val FlipHorizontal: ImageVector by lazy {
         icon("FlipHorizontal") {
-            stroke {
-                moveTo(12f, 4f); lineTo(12f, 20f)
-                moveTo(8.5f, 7f); lineTo(4f, 12f); lineTo(8.5f, 17f); close()
-                moveTo(15.5f, 7f); lineTo(20f, 12f); lineTo(15.5f, 17f); close()
-            }
+            svgStroke("m3 7l5 5l-5 5zm18 0l-5 5l5 5zm-9 13v2m0-8v2m0-8v2m0-8v2")
         }
     }
 
     val FlipVertical: ImageVector by lazy {
         icon("FlipVertical") {
-            stroke {
-                moveTo(4f, 12f); lineTo(20f, 12f)
-                moveTo(7f, 8.5f); lineTo(12f, 4f); lineTo(17f, 8.5f); close()
-                moveTo(7f, 15.5f); lineTo(12f, 20f); lineTo(17f, 15.5f); close()
-            }
+            svgStroke("m17 3l-5 5l-5-5zm0 18l-5-5l-5 5zM4 12H2m8 0H8m8 0h-2m8 0h-2")
         }
     }
 
     val Brightness: ImageVector by lazy {
         icon("Brightness") {
-            stroke {
-                circle(12f, 12f, 4f)
-                moveTo(12f, 3.2f); lineTo(12f, 5f)
-                moveTo(12f, 19f); lineTo(12f, 20.8f)
-                moveTo(3.2f, 12f); lineTo(5f, 12f)
-                moveTo(19f, 12f); lineTo(20.8f, 12f)
-                moveTo(5.8f, 5.8f); lineTo(7.1f, 7.1f)
-                moveTo(16.9f, 16.9f); lineTo(18.2f, 18.2f)
-                moveTo(18.2f, 5.8f); lineTo(16.9f, 7.1f)
-                moveTo(7.1f, 16.9f); lineTo(5.8f, 18.2f)
-            }
+            stroke { circle(12f, 12f, 4f) }
+            svgStroke("M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41")
         }
     }
 
     val DocumentEnhance: ImageVector by lazy {
         icon("DocumentEnhance") {
-            stroke {
-                moveTo(7.5f, 4f); lineTo(4.8f, 4f)
-                quadTo(4f, 4f, 4f, 4.8f); lineTo(4f, 7.5f)
-                moveTo(16.5f, 4f); lineTo(19.2f, 4f)
-                quadTo(20f, 4f, 20f, 4.8f); lineTo(20f, 7.5f)
-                moveTo(7.5f, 20f); lineTo(4.8f, 20f)
-                quadTo(4f, 20f, 4f, 19.2f); lineTo(4f, 16.5f)
-                moveTo(16.5f, 20f); lineTo(19.2f, 20f)
-                quadTo(20f, 20f, 20f, 19.2f); lineTo(20f, 16.5f)
-                moveTo(7.5f, 10f); lineTo(16.5f, 10f)
-                moveTo(7.5f, 14f); lineTo(13.5f, 14f)
-            }
+            svgStroke("M3 7V5a2 2 0 0 1 2-2h2m10 0h2a2 2 0 0 1 2 2v2m0 10v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2m4-9h8m-8 4h10M7 16h6")
         }
     }
 
     val CheckBoxChecked: ImageVector by lazy {
         icon("CheckBoxChecked") {
-            stroke {
-                roundRect(4f, 4f, 20f, 20f, 3f)
-                moveTo(8f, 12.2f); lineTo(10.8f, 15f); lineTo(16.2f, 9.2f)
-            }
+            stroke { roundRect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f) }
+            svgStroke("m8 12l3 3l5-5.5")
         }
     }
 
     val CheckBoxUnchecked: ImageVector by lazy {
         icon("CheckBoxUnchecked") {
-            stroke {
-                roundRect(4f, 4f, 20f, 20f, 3f)
-            }
+            stroke { roundRect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f) }
         }
     }
 
-    // ==================== 设置侧栏与导出格式 ====================
+    // ==================== 设置侧栏与导出格式（Lucide / Tabler） ====================
 
     val Palette: ImageVector by lazy {
         icon("Palette") {
-            stroke {
-                moveTo(12f, 3.5f)
-                arcTo(8.5f, 8.5f, 0f, true, false, 12f, 20.5f)
-                quadTo(14.5f, 20.5f, 14.5f, 18.2f)
-                quadTo(14.5f, 16.5f, 16.2f, 16.5f)
-                lineTo(18f, 16.5f)
-                arcTo(2.5f, 2.5f, 0f, false, false, 20.5f, 14f)
-                arcTo(8.5f, 8.5f, 0f, false, false, 12f, 3.5f)
-                close()
-            }
-            dot(8f, 10.5f, 1.1f)
-            dot(10.8f, 7.2f, 1.1f)
-            dot(15.2f, 8.5f, 1.1f)
+            svgStroke("M12 22a1 1 0 0 1 0-20a10 9 0 0 1 10 9a5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z")
+            dot(13.5f, 6.5f, 1.0f)
+            dot(17.5f, 10.5f, 1.0f)
+            dot(6.5f, 12.5f, 1.0f)
+            dot(8.5f, 7.5f, 1.0f)
         }
     }
 
-    /** 触控笔：细长焦距触控笔 + 侧键 */
+    /** 触控笔（Lucide pen-line）：书写笔身与纸面基线 */
     val Stylus: ImageVector by lazy {
         icon("Stylus") {
-            stroke {
-                moveTo(17.2f, 3.8f)
-                lineTo(20.2f, 6.8f)
-                lineTo(9.2f, 17.8f)
-                lineTo(4.2f, 19.8f)
-                lineTo(6.2f, 14.8f)
-                close()
-                moveTo(11f, 10f); lineTo(13.5f, 7.5f)
-            }
+            svgStroke("M13 21h8m.174-14.188a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z")
         }
     }
 
     val Keyboard: ImageVector by lazy {
         icon("Keyboard") {
-            stroke {
-                roundRect(2.75f, 5.5f, 21.25f, 18.5f, 2.5f)
-                moveTo(6.5f, 9.5f); lineTo(7.5f, 9.5f)
-                moveTo(11.5f, 9.5f); lineTo(12.5f, 9.5f)
-                moveTo(16.5f, 9.5f); lineTo(17.5f, 9.5f)
-                moveTo(6.5f, 12.5f); lineTo(7.5f, 12.5f)
-                moveTo(11.5f, 12.5f); lineTo(12.5f, 12.5f)
-                moveTo(16.5f, 12.5f); lineTo(17.5f, 12.5f)
-                moveTo(8f, 15.5f); lineTo(16f, 15.5f)
-            }
+            svgStroke("M10 8h.01M12 12h.01M14 8h.01M16 12h.01M18 8h.01M6 8h.01M7 16h10m-9-4h.01")
+            stroke { roundRect(2f, 4f, 22f, 20f, 2f) }
         }
     }
 
-    /** 设置侧栏「技能与工具」图标：模块方阵 */
+    /** 设置侧栏「技能与工具」图标（Lucide blocks） */
     val Blocks: ImageVector by lazy {
         icon("Blocks") {
-            stroke {
-                roundRect(4f, 4f, 10.5f, 10.5f, 1.8f)
-                roundRect(13.5f, 4f, 20f, 10.5f, 1.8f)
-                roundRect(4f, 13.5f, 10.5f, 20f, 1.8f)
-                moveTo(16.75f, 13.8f); lineTo(16.75f, 19.7f)
-                moveTo(13.8f, 16.75f); lineTo(19.7f, 16.75f)
-            }
+            svgStroke("M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2")
+            stroke { roundRect(14f, 2f, 22f, 10f, 1f) }
         }
     }
 
-    /** 存储与更新：磁盘与同步更新 */
+    /** 存储与更新（Lucide hard-drive） */
     val StorageUpdate: ImageVector by lazy {
         icon("StorageUpdate") {
-            stroke {
-                roundRect(4f, 4.5f, 20f, 11.2f, 2f)
-                roundRect(4f, 13.5f, 20f, 19.5f, 2f)
-                moveTo(7.5f, 7.8f); lineTo(11.5f, 7.8f)
-                moveTo(7.5f, 16.5f); lineTo(11.5f, 16.5f)
-            }
-            dot(16.5f, 7.8f, 1.0f)
-            dot(16.5f, 16.5f, 1.0f)
+            svgStroke("M10 16h.01m-7.798-4.423a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11zm19.734.436H2.054M6 16h.01")
         }
     }
 
+    /** PDF 文件（Tabler file-type-pdf） */
     val FilePdf: ImageVector by lazy {
         icon("FilePdf") {
-            stroke {
-                moveTo(14f, 3.5f); lineTo(6.5f, 3.5f)
-                quadTo(5f, 3.5f, 5f, 5f); lineTo(5f, 19f)
-                quadTo(5f, 20.5f, 6.5f, 20.5f); lineTo(17.5f, 20.5f)
-                quadTo(19f, 20.5f, 19f, 19f); lineTo(19f, 8.5f); close()
-                moveTo(14f, 3.5f); lineTo(14f, 8.5f); lineTo(19f, 8.5f)
-                moveTo(8.5f, 12.2f); lineTo(15.5f, 12.2f)
-                moveTo(8.5f, 15.8f); lineTo(13.5f, 15.8f)
-            }
+            svgStroke("M14 3v4a1 1 0 0 0 1 1h4")
+            svgStroke("M5 12V5a2 2 0 0 1 2-2h7l5 5v4M5 18h1.5a1.5 1.5 0 0 0 0-3H5v6m12-3h2m1-3h-3v6m-6-6v6h1a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2z", width = 1.6f)
         }
     }
 
+    /** ZIP 归档（Lucide file-archive） */
     val FileZip: ImageVector by lazy {
         icon("FileZip") {
-            stroke {
-                roundRect(4.5f, 4f, 19.5f, 20f, 2.5f)
-                moveTo(12f, 4f); lineTo(12f, 14f)
-                moveTo(10.5f, 7f); lineTo(12f, 7f)
-                moveTo(12f, 9.5f); lineTo(13.5f, 9.5f)
-                moveTo(10.5f, 12f); lineTo(12f, 12f)
-                roundRect(10f, 14f, 14f, 17.5f, 1f)
-            }
+            svgStroke("M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5")
+            svgStroke("M14 2v5a1 1 0 0 0 1 1h5M8 12v-1m0 7v-2m0-9V6")
+            stroke { circle(8f, 20f, 2f) }
         }
     }
 }

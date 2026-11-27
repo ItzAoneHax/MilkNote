@@ -869,10 +869,10 @@ fun WriterScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Icon(
-                                MilkIcons.PenDock,
+                                MilkIcons.Close,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 "退出阅读",
