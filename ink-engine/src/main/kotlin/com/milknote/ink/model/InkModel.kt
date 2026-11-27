@@ -47,7 +47,7 @@ data class InkPoint(
     val timeMs: Long,
 )
 
-/** 一笔完整笔迹 */
+/** 一笔完整笔迹;createdAt = 生成时刻(Unix 毫秒,0 = 旧数据未记录) */
 data class Stroke(
     val id: String,
     val tool: InkTool,
@@ -55,6 +55,7 @@ data class Stroke(
     val baseWidthMm: Float, // 压感映射前基准宽
     val points: List<InkPoint>,
     val zIndex: Long = 0L,  // 全局层序;旧数据 0 按历史层带排序
+    val createdAt: Long = 0L, // 生成 Unix 毫秒;0 = 旧笔记缺省,不伪造
 )
 
 /**
@@ -178,6 +179,61 @@ class PageInkState {
         undoStack.clear()
         redoStack.clear()
         version++
+    }
+
+    /**
+     * 恢复内容与撤销/重做两栈(重启后由操作日志回放构建)。
+     * 与 [reset] 不同,这里保留历史;调用方负责传入当前页的副本。
+     */
+    fun restoreDrawing(
+        strokes: List<Stroke>,
+        cards: List<AnnotationCard>,
+        images: List<ImageElement>,
+        media: List<MediaElement>,
+        undo: List<InkOp>,
+        redo: List<InkOp>,
+    ) {
+        this.strokes.clear()
+        this.strokes.addAll(strokes)
+        this.cards.clear()
+        this.cards.addAll(cards)
+        this.images.clear()
+        this.images.addAll(images)
+        this.media.clear()
+        this.media.addAll(media)
+        undoStack.clear()
+        undoStack.addAll(undo)
+        redoStack.clear()
+        redoStack.addAll(redo)
+        version++
+    }
+
+    fun undoStackSnapshot(): List<InkOp> = undoStack.toList()
+
+    fun redoStackSnapshot(): List<InkOp> = redoStack.toList()
+
+    /**
+     * 仍生效的「已擦除」笔迹:沿撤销栈顺序回放删除,取当前已不存在的 id。
+     * 同 id 的原地移动(Remove + Add 同 id)不算擦除;已被撤销的删除也不算。
+     * 返回顺序按首次删除的先后;内容取最后一次删除时的笔迹。
+     */
+    fun removedStrokes(): List<Stroke> {
+        val present = strokes.mapTo(HashSet(strokes.size)) { it.id }
+        val removed = LinkedHashMap<String, Stroke>()
+        fun visit(op: InkOp) {
+            when (op) {
+                is InkOp.Remove -> removed[op.stroke.id] = op.stroke
+                is InkOp.Add -> removed.remove(op.stroke.id)
+                is InkOp.Batch -> op.ops.forEach(::visit)
+                else -> {}
+            }
+        }
+        undoStack.forEach(::visit)
+        val iterator = removed.keys.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next() in present) iterator.remove()
+        }
+        return removed.values.toList()
     }
 
     /** 返回被撤销的 op(供落盘镜像:反向记录) */

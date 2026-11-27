@@ -107,7 +107,7 @@ class InkControllerLassoTest {
         assertNull(c.selectionSnapshot())                             // undo 清选中
     }
 
-    @Test fun `拖动选中 - 位移落为新笔迹并可撤销还原`() {
+    @Test fun `拖动选中 - 位移保留同 id 并可撤销还原`() {
         val (c, mirror) = controllerWith(s("a", 50f, 50f))
         selectAround(c, 55f, 50f)
         c.beginSelectionDrag(50f, 50f)
@@ -116,13 +116,13 @@ class InkControllerLassoTest {
 
         assertEquals(1, c.page.strokes.size)
         val moved = c.page.strokes[0]
-        assertFalse(moved.id == "a")                                  // 新 id
+        assertEquals("a", moved.id)                                   // stable id:非复制变换不移交身份
         assertEquals(80f, moved.points[0].x, 0.001f)                  // 50+30
         assertEquals(90f, moved.points[0].y, 0.001f)                  // 50+40
-        // 镜像:先 tombstone 旧,再 added 新(追加流重放语义正确)
+        // 镜像:先 tombstone 原 id,再 added 同 id(追加流重放语义正确)
         assertEquals(2, mirror.size)
         assertTrue(mirror[0] is InkCommit.Tombstoned)
-        assertTrue(mirror[1] is InkCommit.Added)
+        assertTrue(mirror[1] is InkCommit.Added && (mirror[1] as InkCommit.Added).stroke.id == "a")
 
         c.undo()
         assertEquals(listOf("a"), c.page.strokes.map { it.id })       // 原位原序还原

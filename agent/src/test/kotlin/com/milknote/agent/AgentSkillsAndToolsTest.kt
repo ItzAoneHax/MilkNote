@@ -152,14 +152,16 @@ class PromptSkillToolContractTest {
     }
 }
 
-/** skills.json / tools.json 持久化与内置技能补齐 */
+/** skills.json / tools.json 持久化:只读投影 + 保存时保留原始内置记录 */
 class AgentStoreSkillsToolsTest {
 
     @get:Rule
     val tmp = TemporaryFolder()
 
+    private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+
     @Test
-    fun `首次加载补齐内置技能并落盘`() {
+    fun `首次加载投影内置技能且不写文件`() {
         val files = tmp.newFolder()
         val store = AgentStore(files, tmp.newFolder())
 
@@ -167,11 +169,11 @@ class AgentStoreSkillsToolsTest {
 
         assertEquals(BuiltinSkills.all.map { it.id }, skills.map { it.id })
         assertTrue(skills.all { it.builtin && it.enabled })
-        assertTrue(File(files, "agent/skills.json").exists())
+        assertFalse("读取是纯投影,不创建/改写文件", File(files, "agent/skills.json").exists())
     }
 
     @Test
-    fun `内置技能编辑与关闭在重新加载后保留`() {
+    fun `内置技能不可编辑或关闭-新传入的内置定义不写入`() {
         val files = tmp.newFolder()
         val store = AgentStore(files, tmp.newFolder())
         val edited = store.loadSkills().map {
@@ -182,14 +184,18 @@ class AgentStoreSkillsToolsTest {
         val reopened = AgentStore(files, tmp.newFolder()).loadSkills()
         val math = reopened.first { it.id == "math_solution_steps" }
 
-        assertEquals("自定义正文", math.content)
-        assertFalse(math.enabled)
+        assertEquals(BuiltinSkills.mathSolutionSteps.content, math.content)
+        assertTrue(math.enabled)
         assertTrue(math.builtin)
         assertEquals(3, reopened.count { it.builtin })
+        val stored = json.decodeFromString<AgentStore.SkillBook>(
+            File(files, "agent/skills.json").readText(),
+        ).skills
+        assertTrue("新传入的内置定义不落盘(原文件无记录时不新建)", stored.isEmpty())
     }
 
     @Test
-    fun `缺失的内置技能会重新补齐`() {
+    fun `缺失的内置技能在投影中补齐`() {
         val files = tmp.newFolder()
         val store = AgentStore(files, tmp.newFolder())
         store.saveSkills(store.loadSkills().filterNot { it.id == "formula_sheet" })
@@ -200,7 +206,7 @@ class AgentStoreSkillsToolsTest {
     }
 
     @Test
-    fun `用户技能与工具配置读写`() {
+    fun `用户技能与自定义工具配置读写`() {
         val files = tmp.newFolder()
         val store = AgentStore(files, tmp.newFolder())
         store.saveSkills(
@@ -214,6 +220,12 @@ class AgentStoreSkillsToolsTest {
                     displayName = "算一算",
                     settings = mapOf("precision" to "6"),
                 ),
+                "my_tool" to ToolConfig(
+                    id = "my_tool",
+                    enabled = false,
+                    displayName = "我的工具",
+                    settings = mapOf("k" to "v"),
+                ),
             ),
         )
 
@@ -223,10 +235,194 @@ class AgentStoreSkillsToolsTest {
 
         assertTrue(skills.any { it.id == "my_skill" && !it.builtin })
         assertEquals(4, skills.size)
-        assertFalse(configs["calculate"]!!.enabled)
-        assertEquals("算一算", configs["calculate"]!!.displayName)
-        assertEquals("6", configs["calculate"]!!.settings["precision"])
+        assertFalse("内置工具覆盖不落盘", configs.containsKey("calculate"))
+        assertFalse(configs["my_tool"]!!.enabled)
+        assertEquals("我的工具", configs["my_tool"]!!.displayName)
+        assertEquals("v", configs["my_tool"]!!.settings["k"])
         assertTrue(File(files, "agent/tools.json").exists())
+        assertFalse(File(files, "agent/tools.json").readText().contains("calculate"))
+    }
+
+    @Test
+    fun `读取内置覆盖不删除不改写且运行时完全不生效`() {
+        val files = tmp.newFolder()
+        writeSkills(
+            files,
+            listOf(
+                AgentSkill("math_solution_steps", "旧名", "旧摘要", "旧正文", enabled = false),
+                AgentSkill("my_skill", "我的技能", "摘要", "正文"),
+            ),
+        )
+        writeTools(
+            files,
+            listOf(
+                ToolConfig(
+                    "delete_page",
+                    enabled = false,
+                    requireConfirmation = false,
+                    displayName = "旧名",
+                    settings = mapOf("k" to "v"),
+                ),
+                ToolConfig("my_tool", enabled = false),
+            ),
+        )
+        val skillsBefore = File(files, "agent/skills.json").readText()
+        val toolsBefore = File(files, "agent/tools.json").readText()
+
+        val store = AgentStore(files, tmp.newFolder())
+        repeat(2) {
+            val math = store.loadSkills().first { it.id == "math_solution_steps" }
+            assertEquals(BuiltinSkills.mathSolutionSteps.content, math.content)
+            assertTrue(math.enabled)
+
+            val configs = store.loadToolConfigs()
+            assertFalse(configs.containsKey("delete_page"))
+            assertEquals(false, configs["my_tool"]!!.enabled)
+
+            val registry = BuiltinTools.createDefaultRegistry()
+            val spec = registry.get("delete_page")!!.spec
+            val effective = registry.effectiveConfig(spec, configs)
+            assertTrue("内置工具开关恒为默认", effective.enabled)
+            assertTrue("危险确认不可被旧覆盖关闭", effective.requireConfirmation == true)
+            assertNull("旧显示名不生效", effective.displayName)
+        }
+
+        assertEquals("读取不得改写技能文件", skillsBefore, File(files, "agent/skills.json").readText())
+        assertEquals("读取不得改写工具文件", toolsBefore, File(files, "agent/tools.json").readText())
+    }
+
+    @Test
+    fun `后续保存自定义数据时保留原始内置覆盖`() {
+        val files = tmp.newFolder()
+        writeSkills(
+            files,
+            listOf(
+                AgentSkill("math_solution_steps", "旧名", "旧摘要", "旧正文", enabled = false),
+                AgentSkill("my_skill", "我的技能", "摘要", "正文"),
+            ),
+        )
+        writeTools(
+            files,
+            listOf(
+                ToolConfig(
+                    "delete_page",
+                    enabled = false,
+                    requireConfirmation = false,
+                    displayName = "旧名",
+                    settings = mapOf("k" to "v"),
+                ),
+                ToolConfig("my_tool", enabled = false),
+            ),
+        )
+
+        val store = AgentStore(files, tmp.newFolder())
+        store.saveSkills(
+            store.loadSkills().filterNot { it.id == "my_skill" } +
+                AgentSkill("my_skill", "新名字", "新摘要", "新正文") +
+                AgentSkill("my_skill_2", "第二个", "s", "c"),
+        )
+        store.saveToolConfigs(
+            store.loadToolConfigs() +
+                ("my_tool" to ToolConfig("my_tool", enabled = true, displayName = "新名")) +
+                ("my_tool_2" to ToolConfig("my_tool_2", enabled = false)),
+        )
+
+        val rawSkills = json.decodeFromString<AgentStore.SkillBook>(
+            File(files, "agent/skills.json").readText(),
+        ).skills.associateBy { it.id }
+        val rawMath = rawSkills["math_solution_steps"]!!
+        assertEquals("旧名", rawMath.name)
+        assertEquals("旧正文", rawMath.content)
+        assertFalse(rawMath.enabled)
+        assertEquals("新名字", rawSkills["my_skill"]!!.name)
+        assertEquals("新正文", rawSkills["my_skill"]!!.content)
+        assertFalse(rawSkills["my_skill"]!!.builtin)
+        assertTrue(rawSkills.containsKey("my_skill_2"))
+
+        val rawTools = json.decodeFromString<AgentStore.ToolBook>(
+            File(files, "agent/tools.json").readText(),
+        ).configs.associateBy { it.id }
+        val rawDelete = rawTools["delete_page"]!!
+        assertEquals("旧名", rawDelete.displayName)
+        assertFalse(rawDelete.enabled)
+        assertFalse(rawDelete.requireConfirmation!!)
+        assertEquals("v", rawDelete.settings["k"])
+        assertEquals("新名", rawTools["my_tool"]!!.displayName)
+        assertTrue(rawTools["my_tool"]!!.enabled)
+        assertFalse(rawTools["my_tool_2"]!!.enabled)
+
+        // 文件里保留了原始记录,但运行时仍用规范定义
+        assertEquals(BuiltinSkills.mathSolutionSteps.content, store.loadSkills().first { it.id == rawMath.id }.content)
+        assertFalse(store.loadToolConfigs().containsKey("delete_page"))
+    }
+
+    @Test
+    fun `写入内置覆盖不替换原始值且缺失时不新建`() {
+        val files = tmp.newFolder()
+        writeSkills(
+            files,
+            listOf(AgentSkill("math_solution_steps", "旧名", "旧摘要", "旧正文", enabled = false)),
+        )
+        writeTools(
+            files,
+            listOf(
+                ToolConfig("delete_page", enabled = true, requireConfirmation = true, displayName = "旧名"),
+            ),
+        )
+
+        val store = AgentStore(files, tmp.newFolder())
+        store.saveSkills(
+            listOf(
+                AgentSkill("math_solution_steps", "新名", "新摘要", "新正文", enabled = true),
+                AgentSkill("formula_sheet", "新公式", "s", "c"),
+                AgentSkill("my_skill", "自定义", "s", "c"),
+            ),
+        )
+        store.saveToolConfigs(
+            mapOf(
+                "delete_page" to ToolConfig(
+                    "delete_page",
+                    enabled = false,
+                    requireConfirmation = false,
+                    displayName = "新名",
+                ),
+                "calculate" to ToolConfig("calculate", enabled = false),
+                "my_tool" to ToolConfig("my_tool", enabled = false),
+            ),
+        )
+
+        val rawSkills = json.decodeFromString<AgentStore.SkillBook>(
+            File(files, "agent/skills.json").readText(),
+        ).skills.associateBy { it.id }
+        assertEquals("旧名", rawSkills["math_solution_steps"]!!.name)
+        assertEquals("旧正文", rawSkills["math_solution_steps"]!!.content)
+        assertFalse(rawSkills["math_solution_steps"]!!.enabled)
+        assertFalse("缺失的内置记录不新建", rawSkills.containsKey("formula_sheet"))
+        assertTrue(rawSkills.containsKey("my_skill"))
+
+        val rawTools = json.decodeFromString<AgentStore.ToolBook>(
+            File(files, "agent/tools.json").readText(),
+        ).configs.associateBy { it.id }
+        val rawDelete = rawTools["delete_page"]!!
+        assertEquals("旧名", rawDelete.displayName)
+        assertTrue(rawDelete.enabled)
+        assertTrue(rawDelete.requireConfirmation == true)
+        assertFalse("缺失的内置记录不新建", rawTools.containsKey("calculate"))
+        assertTrue(rawTools.containsKey("my_tool"))
+    }
+
+    private fun writeSkills(files: File, skills: List<AgentSkill>) {
+        File(files, "agent").mkdirs()
+        File(files, "agent/skills.json").writeText(
+            json.encodeToString(AgentStore.SkillBook.serializer(), AgentStore.SkillBook(skills)),
+        )
+    }
+
+    private fun writeTools(files: File, configs: List<ToolConfig>) {
+        File(files, "agent").mkdirs()
+        File(files, "agent/tools.json").writeText(
+            json.encodeToString(AgentStore.ToolBook.serializer(), AgentStore.ToolBook(configs)),
+        )
     }
 }
 
@@ -516,11 +712,12 @@ class BuiltinToolsTest {
     private val registry = BuiltinTools.createDefaultRegistry()
 
     @Test
-    fun `注册九个工具与确认默认值`() {
+    fun `注册十个工具与确认默认值`() {
         assertEquals(
             listOf(
                 "web_search", "calculate", "add_page", "delete_page", "insert_markdown",
-                "list_page_elements", "modify_page_element", "read_skill", "create_skill",
+                "list_page_elements", "modify_page_element", "get_element_timestamps",
+                "read_skill", "create_skill",
             ),
             registry.allSpecs().map { it.id },
         )
@@ -528,26 +725,36 @@ class BuiltinToolsTest {
         assertTrue(registry.get("modify_page_element")!!.spec.defaultRequireConfirmation)
         assertFalse(registry.get("calculate")!!.spec.defaultRequireConfirmation)
         assertFalse(registry.get("web_search")!!.spec.defaultRequireConfirmation)
+        assertTrue(registry.get(BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID)!!.spec.requiresUserGrant)
+        assertTrue(registry.allSpecs().all { it.builtin })
     }
 
     @Test
-    fun `开关与文案覆盖生效`() {
-        val spec = registry.get("calculate")!!.spec
-        val off = registry.effectiveConfig(spec, mapOf("calculate" to ToolConfig("calculate", enabled = false)))
-        assertFalse(off.enabled)
+    fun `内置工具覆盖无效而自定义工具覆盖生效`() {
+        val calculate = registry.get("calculate")!!.spec
+        val off = registry.effectiveConfig(
+            calculate,
+            mapOf("calculate" to ToolConfig("calculate", enabled = false, displayName = "算一算")),
+        )
+        assertTrue("内置工具只读", off.enabled)
+        assertNull(off.displayName)
         assertTrue(
             registry.effectiveWireTools(mapOf("calculate" to ToolConfig("calculate", enabled = false)))
-                .none { it.name == "calculate" },
+                .any { it.name == "calculate" },
         )
 
-        val confirm = registry.effectiveConfig(
+        registry.register(TestOnlyCustomTool())
+        val spec = registry.get("test_only_tool")!!.spec
+        val customCfg = registry.effectiveConfig(
             spec,
-            mapOf("calculate" to ToolConfig("calculate", requireConfirmation = true)),
+            mapOf("test_only_tool" to ToolConfig("test_only_tool", enabled = false, displayName = "自定义")),
         )
-        assertTrue(registry.requiresConfirmation(spec, confirm))
-        assertEquals(
-            "算一算",
-            registry.effectiveDisplayName(spec, ToolConfig("calculate", displayName = "算一算")),
+        assertFalse(customCfg.enabled)
+        assertEquals("自定义", registry.effectiveDisplayName(spec, customCfg))
+        assertTrue(
+            registry.effectiveWireTools(
+                mapOf("test_only_tool" to ToolConfig("test_only_tool", enabled = false)),
+            ).none { it.name == "test_only_tool" },
         )
     }
 
@@ -677,6 +884,7 @@ class AgentControllerToolLoopTest {
         scope: CoroutineScope,
         workspace: FakeWorkspace = FakeWorkspace(),
         webSearch: WebSearchPort = FakeWebSearch(emptyList()),
+        toolRegistry: ToolRegistry = BuiltinTools.createDefaultRegistry(),
         script: (ChatRequest, Int) -> List<ChatEvent>,
     ): ToolRig {
         val files = File(tmp.newFolder(), "files").apply { mkdirs() }
@@ -692,6 +900,7 @@ class AgentControllerToolLoopTest {
             providerFactory = { _, _, _ -> provider },
             workspace = workspace,
             webSearch = webSearch,
+            toolRegistry = toolRegistry,
         )
         controller.addProfile("glm", "", "", "sk-test")
         controller.setSummaryConfig(SummaryConfig(enabled = false))
@@ -926,11 +1135,15 @@ class AgentControllerToolLoopTest {
     }
 
     @Test
-    fun `关闭的工具回传错误并继续对话`() = runTest {
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler))) { _, i ->
+    fun `自定义工具关闭后不暴露且伪造调用回传关闭原因`() = runTest {
+        val customRegistry = BuiltinTools.createDefaultRegistry().apply { register(TestOnlyCustomTool()) }
+        val rig = rig(
+            CoroutineScope(StandardTestDispatcher(testScheduler)),
+            toolRegistry = customRegistry,
+        ) { _, i ->
             if (i == 0) {
                 listOf(
-                    ChatEvent.ToolCallReady(ToolCall("c1", "calculate", """{"expression":"1+1"}""")),
+                    ChatEvent.ToolCallReady(ToolCall("c1", "test_only_tool", "{}")),
                     ChatEvent.Done(null),
                 )
             } else {
@@ -938,14 +1151,14 @@ class AgentControllerToolLoopTest {
             }
         }
         val controller = rig.controller
-        controller.toggleTool("calculate", false)
-        assertEquals(false, controller.state.value.toolConfigs["calculate"]!!.enabled)
+        controller.toggleTool("test_only_tool", false)
+        assertEquals(false, controller.state.value.toolConfigs["test_only_tool"]!!.enabled)
 
         controller.openDrawer(PageRef("nb1", "p0001"))
         controller.sendWithIntent(Intents.Id.EXPLAIN)
         advanceUntilIdle()
 
-        assertTrue(rig.provider.requests[0].tools.none { it.name == "calculate" })
+        assertTrue(rig.provider.requests[0].tools.none { it.name == "test_only_tool" })
         val toolMsg = rig.provider.requests[1].continuationMessages.first { it.role == "tool" }
         assertTrue("工具结果:${toolMsg.content}", toolMsg.content.contains("已被用户关闭"))
         assertEquals(
@@ -956,33 +1169,75 @@ class AgentControllerToolLoopTest {
     }
 
     @Test
-    fun `技能与工具管理API-编辑关闭重置`() = runTest {
+    fun `内置工具开关与覆盖被忽略`() = runTest {
+        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler))) { _, _ ->
+            listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
+        }
+        val controller = rig.controller
+
+        controller.toggleTool("calculate", false)
+        assertNull(controller.state.value.toolConfigs["calculate"])
+        assertNotNull(controller.state.value.toast)
+
+        controller.consumeToast()
+        controller.updateToolConfig(ToolConfig("delete_page", enabled = false, requireConfirmation = false))
+        assertNull(controller.state.value.toolConfigs["delete_page"])
+
+        controller.openDrawer(PageRef("nb1", "p0001"))
+        controller.sendWithIntent(Intents.Id.EXPLAIN)
+        advanceUntilIdle()
+        assertTrue(rig.provider.requests[0].tools.any { it.name == "calculate" })
+        assertTrue(rig.provider.requests[0].tools.any { it.name == "delete_page" })
+        assertTrue(
+            rig.provider.requests[0].system.contains("删除页面和修改页面元素会请求用户确认"),
+        )
+    }
+
+    @Test
+    fun `内置技能只读而自定义技能可编辑删除`() = runTest {
         val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler))) { _, _ ->
             listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
         }
         val controller = rig.controller
 
         assertEquals(3, controller.state.value.skills.size)
-        assertEquals(9, controller.state.value.toolSpecs.size)
+        assertEquals(10, controller.state.value.toolSpecs.size)
 
+        // 内置:关闭/改名/改正文/删除一律无效
         controller.toggleSkill("cornell_notes", false)
-        assertFalse(controller.state.value.skills.first { it.id == "cornell_notes" }.enabled)
-        assertFalse(rig.store.loadSkills().first { it.id == "cornell_notes" }.enabled)
+        assertTrue(controller.state.value.skills.first { it.id == "cornell_notes" }.enabled)
+        assertNotNull(controller.state.value.toast)
 
-        controller.upsertSkill(AgentSkill("custom", "自定义技能", "摘要", "正文"))
-        assertTrue(controller.state.value.skills.any { it.id == "custom" })
+        controller.consumeToast()
+        controller.upsertSkill(AgentSkill("math_solution_steps", "改名", "改摘要", "改正文", builtin = true))
+        val math = controller.state.value.skills.first { it.id == "math_solution_steps" }
+        assertEquals(BuiltinSkills.mathSolutionSteps.name, math.name)
+        assertEquals(BuiltinSkills.mathSolutionSteps.content, math.content)
+        assertEquals(
+            BuiltinSkills.mathSolutionSteps.content,
+            rig.store.loadSkills().first { it.id == math.id }.content,
+        )
+
+        controller.deleteSkill("cornell_notes")
+        assertTrue(controller.state.value.skills.any { it.id == "cornell_notes" })
+
+        // 自定义:新增/编辑/删除照常;内置标记不被写入
+        controller.upsertSkill(AgentSkill("custom", "自定义技能", "摘要", "正文", builtin = true))
+        val custom = controller.state.value.skills.first { it.id == "custom" }
+        assertEquals("自定义技能", custom.name)
+        assertFalse("用户技能不能自称内置", custom.builtin)
+
+        controller.upsertSkill(custom.copy(name = "改名后的技能"))
+        assertEquals("改名后的技能", controller.state.value.skills.first { it.id == "custom" }.name)
+
+        controller.toggleSkill("custom", false)
+        assertFalse(controller.state.value.skills.first { it.id == "custom" }.enabled)
+
         controller.deleteSkill("custom")
         assertTrue(controller.state.value.skills.none { it.id == "custom" })
 
-        controller.deleteSkill("cornell_notes")   // 内置不可删,只提示
-        assertTrue(controller.state.value.skills.any { it.id == "cornell_notes" })
-
-        controller.resetBuiltinSkill("cornell_notes")
-        assertTrue(controller.state.value.skills.first { it.id == "cornell_notes" }.enabled)
-
+        // 内置工具配置只读
         controller.updateToolConfig(ToolConfig("calculate", enabled = false, displayName = "算一算"))
-        assertEquals("算一算", controller.state.value.toolConfigs["calculate"]!!.displayName)
-        controller.resetToolConfig("calculate")
         assertNull(controller.state.value.toolConfigs["calculate"])
     }
 
@@ -1054,6 +1309,19 @@ private class FakeSkillStore(initial: List<AgentSkill> = BuiltinSkills.all) : Sk
         skills += skill
         return skill
     }
+}
+
+private class TestOnlyCustomTool : AgentTool {
+    override val spec = ToolSpec(
+        id = "test_only_tool",
+        defaultDisplayName = "自定义测试工具",
+        defaultDescription = "仅测试用",
+        category = ToolCategory.COMPUTE,
+        builtin = false,
+    )
+
+    override suspend fun execute(args: kotlinx.serialization.json.JsonObject, ctx: ToolContext): ToolExecResult =
+        ToolExecResult(true, "ok")
 }
 
 private class FakeWebSearch(private val items: List<WebSearchItem>) : WebSearchPort {

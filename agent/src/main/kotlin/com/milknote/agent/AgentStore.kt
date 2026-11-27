@@ -9,8 +9,10 @@ import java.security.MessageDigest
 /**
  * 存储(§3.2 / §7.2):
  * - 全局:filesDir/agent/profiles.json(Provider 配置;Key 在 KeyVault,不在此)
- * - 全局:filesDir/agent/skills.json(技能,内置技能首次加载补齐)
- * - 全局:filesDir/agent/tools.json(工具用户覆盖:开关/显示名/确认/设置)
+ * - 全局:filesDir/agent/skills.json(自定义技能 + 旧版本内置条目的原始记录)
+ * - 全局:filesDir/agent/tools.json(自定义工具覆盖 + 旧版本内置工具的原始记录)
+ *   读取是纯投影:内置能力恒用规范定义且严格运行门禁,不改写既有文件;
+ *   保存自定义数据时按 id 原样保留文件里的内置记录(不新增、不覆盖)。
  * - 随笔记本:<nb>.milk/agent/sessions/<id>.json + att/<sha1>.png(整本备份带走,§A7)
  * - 写策略:消息完成时整文件重写;流式过程不落盘;附件发送时落盘
  */
@@ -55,61 +57,77 @@ class AgentStore(
         atomicWrite(profilesFile, json.encodeToString(book))
     }
 
-    // ---- 技能(全局;首次加载补齐内置技能,保留用户编辑与开关状态) ----
+    // ---- 技能(全局;读取为纯投影,内置技能恒为规范定义) ----
 
+    private fun readSkillBook(): SkillBook = runCatching {
+        if (!skillsFile.exists()) SkillBook()
+        else json.decodeFromString<SkillBook>(skillsFile.readText())
+    }.getOrDefault(SkillBook())
+
+    /**
+     * 只读投影:返回规范内置技能 + 用户技能,不重写既有文件
+     * (旧版本保存的内置覆盖保留在文件里,但运行时完全不生效)。
+     */
     @Synchronized
-    fun loadSkills(): List<AgentSkill> {
-        val stored = runCatching {
-            if (!skillsFile.exists()) emptyList()
-            else json.decodeFromString<SkillBook>(skillsFile.readText()).skills
-        }.getOrDefault(emptyList())
-        val merged = mergeBuiltinSkills(stored)
-        if (merged != stored) {
-            runCatching { saveSkills(merged) }
-        }
-        return merged
-    }
+    fun loadSkills(): List<AgentSkill> = mergeBuiltinSkills(readSkillBook().skills)
 
+    /**
+     * 保存自定义技能:传入的内置定义一律忽略;文件里既有的内置记录按 id 原样保留,
+     * 缺失时不新建;自定义技能按传入内容更新。
+     */
     @Synchronized
     fun saveSkills(skills: List<AgentSkill>) {
+        val builtinIds = BuiltinSkills.all.map { it.id }.toSet()
+        val preservedBuiltins = readSkillBook().skills.filter { it.id in builtinIds }
+        val users = skills.filter { it.id !in builtinIds }.map { it.copy(builtin = false) }
         skillsFile.parentFile?.mkdirs()
-        atomicWrite(skillsFile, json.encodeToString(SkillBook(skills)))
+        atomicWrite(skillsFile, json.encodeToString(SkillBook(preservedBuiltins + users)))
     }
 
     /**
-     * 内置技能补齐:缺失的按默认值补;已存在的保留用户改过的名称/摘要/正文/开关,
-     * 但 id 与 builtin 标记始终归内置定义所有。
+     * 内置技能只读:始终返回内置定义(名称/摘要/正文/启用状态),用户不能编辑、关闭或覆盖。
+     * 文件里被改过的内置条目、伪装成内置的用户条目只做投影规范化,不回写。
      */
     private fun mergeBuiltinSkills(stored: List<AgentSkill>): List<AgentSkill> {
-        val byId = stored.associateBy { it.id }
-        val builtins = BuiltinSkills.all.map { base ->
-            val existing = byId[base.id] ?: return@map base
-            base.copy(
-                name = existing.name,
-                summary = existing.summary,
-                content = existing.content,
-                enabled = existing.enabled,
-                updatedAt = existing.updatedAt,
-                builtin = true,
-            )
-        }
         val builtinIds = BuiltinSkills.all.map { it.id }.toSet()
-        val users = stored.filter { it.id !in builtinIds }.sortedBy { it.name }
-        return builtins + users
+        val users = stored
+            .filter { it.id !in builtinIds }
+            .map { it.copy(builtin = false) }
+            .sortedBy { it.name }
+        return BuiltinSkills.all + users
     }
 
-    // ---- 工具配置(只存用户覆盖:显示名/描述/开关/确认/设置键值) ----
+    // ---- 工具配置(自定义工具覆盖;内置工具的旧记录只保留不生效) ----
 
+    private fun readToolBook(): ToolBook = runCatching {
+        if (!toolsFile.exists()) ToolBook()
+        else json.decodeFromString<ToolBook>(toolsFile.readText())
+    }.getOrDefault(ToolBook())
+
+    /**
+     * 只读投影:只返回自定义工具覆盖,不重写既有文件
+     * (旧版本内置工具覆盖保留在文件里,但运行时恒用规范定义)。
+     */
     @Synchronized
-    fun loadToolConfigs(): Map<String, ToolConfig> = runCatching {
-        if (!toolsFile.exists()) return emptyMap()
-        json.decodeFromString<ToolBook>(toolsFile.readText()).configs.associateBy { it.id }
-    }.getOrDefault(emptyMap())
+    fun loadToolConfigs(): Map<String, ToolConfig> =
+        readToolBook().configs
+            .filter { it.id !in BuiltinTools.builtinToolIds }
+            .associateBy { it.id }
 
+    /**
+     * 保存自定义工具配置:传入的内置覆盖一律忽略;文件里既有的内置记录按 id 原样保留,
+     * 缺失时不新建;自定义工具配置按传入内容替换。
+     */
     @Synchronized
     fun saveToolConfigs(configs: Map<String, ToolConfig>) {
+        val preservedBuiltins = readToolBook().configs
+            .filter { it.id in BuiltinTools.builtinToolIds }
+        val customOnly = configs
+            .filterKeys { it !in BuiltinTools.builtinToolIds }
+            .values
+            .sortedBy { it.id }
         toolsFile.parentFile?.mkdirs()
-        atomicWrite(toolsFile, json.encodeToString(ToolBook(configs.values.sortedBy { it.id })))
+        atomicWrite(toolsFile, json.encodeToString(ToolBook(preservedBuiltins + customOnly)))
     }
 
     // ---- 会话(每 (notebook,page) 至多恢复最近一个;§7.1 生命周期) ----

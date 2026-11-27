@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -85,11 +89,17 @@ class SettingsRefinementTest {
     }
 
     @Test
-    fun skillsAndTools_listEveryBuiltinToolWithConfirmBadges() {
+    fun skillsAndTools_listsBuiltinCapabilitiesWithReadOnlyBadges() {
         showSettings("skills_tools")
 
-        rule.onNodeWithText("技能").assertIsDisplayed()
-        rule.onNodeWithText("工具").assertIsDisplayed()
+        rule.onNodeWithText("内置技能").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("内置工具").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("我的技能").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("自定义工具").assertDoesNotExist()
+
+        listOf("分步解题规范", "康奈尔笔记整理", "公式速查卡片").forEach { name ->
+            rule.onNodeWithText(name).performScrollTo().assertIsDisplayed()
+        }
 
         listOf(
             "联网搜索",
@@ -97,34 +107,87 @@ class SettingsRefinementTest {
             "新增页面",
             "删除页面",
             "插入 Markdown 卡片",
+            "查看页面元素",
             "移动或删除页面元素",
+            "读取页面元素时序",
+            "阅读技能",
             "新增技能",
         ).forEach { name ->
             rule.onNodeWithText(name).performScrollTo().assertIsDisplayed()
         }
 
-        // 删除页面 / 移动或删除页面元素默认需要执行前确认
-        val badges = rule.onAllNodesWithText("需确认").fetchSemanticsNodes()
-        assertTrue("默认应有 2 个需确认徽标，实际 ${badges.size}", badges.size == 2)
+        // 删除页面 / 移动或删除页面元素默认需要执行前确认;时序工具仅在用户申请后可用
+        val confirmBadges = rule.onAllNodesWithText("需确认").fetchSemanticsNodes()
+        assertEquals("默认应有 2 个需确认徽标，实际 ${confirmBadges.size}", 2, confirmBadges.size)
+        val applyBadges = rule.onAllNodesWithText("需申请").fetchSemanticsNodes()
+        assertEquals("读取页面元素时序应有 1 个需申请徽标，实际 ${applyBadges.size}", 1, applyBadges.size)
     }
 
     @Test
-    fun skillsAndTools_openSkillAndToolEditors() {
+    fun skillsAndTools_createsCustomSkillAndInspectsBuiltinReadOnlyDetails() {
         showSettings("skills_tools")
 
-        // 技能:新建 → 面板自带名称/摘要/正文/启用
+        // 自定义技能仍可新建编辑:面板自带名称/摘要/正文/启用
         rule.onNodeWithText("新建").performScrollTo().performClick()
         rule.onNodeWithText("新建技能").assertIsDisplayed()
+        rule.onNodeWithText("名称").assertIsDisplayed()
         rule.onNodeWithText("摘要").assertIsDisplayed()
         rule.onNodeWithText("正文").assertIsDisplayed()
+        rule.onNodeWithText("启用").assertIsDisplayed()
         rule.onNodeWithText("取消").performClick()
 
-        // 工具:点击行(非开关)打开设置面板,含确认策略与声明式参数
+        // 内置技能:只读详情可查看,没有保存/编辑/开关/可输入定义
+        val skillInputsBefore = rule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size
+        val skillTogglesBefore = rule.onAllNodes(isToggleable()).fetchSemanticsNodes().size
+        rule.onNodeWithText("康奈尔笔记整理").performScrollTo().performClick()
+        rule.onNodeWithText("应用自带 · 只读").assertIsDisplayed()
+        rule.onNodeWithText("线索栏", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText(
+            "内置技能随应用提供,不可编辑、关闭或删除;用户补充的方法请建为「我的技能」。",
+        ).performScrollTo().assertIsDisplayed()
+        rule.onAllNodesWithText("保存").assertCountEquals(0)
+        rule.onAllNodesWithText("编辑").assertCountEquals(0)
+        rule.onAllNodesWithText("名称").assertCountEquals(0)
+        rule.onAllNodesWithText("摘要").assertCountEquals(0)
+        rule.onAllNodesWithText("正文").assertCountEquals(0)
+        rule.onAllNodesWithText("启用").assertCountEquals(0)
+        assertEquals(
+            "只读详情不得新增开关",
+            skillTogglesBefore,
+            rule.onAllNodes(isToggleable()).fetchSemanticsNodes().size,
+        )
+        assertTrue(
+            "只读详情不得新增输入框",
+            rule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size <= skillInputsBefore,
+        )
+        rule.onNodeWithText("关闭").performClick()
+
+        // 内置工具:只读详情含说明/参数,没有工具设置/确认开关/设置字段
+        val toolInputsBefore = rule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size
+        val toolTogglesBefore = rule.onAllNodes(isToggleable()).fetchSemanticsNodes().size
         rule.onNodeWithText("联网搜索").performScrollTo().performClick()
-        rule.onNodeWithText("工具设置").assertIsDisplayed()
-        rule.onNodeWithText("执行前确认").assertIsDisplayed()
-        rule.onNodeWithText("恢复默认").assertIsDisplayed()
-        rule.onNodeWithText("搜索引擎").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("应用自带 · 只读").assertIsDisplayed()
+        // 背景工具列表行也带同一段说明且可点击;这里只定位只读窗口正文
+        rule.onNode(
+            hasText("搜索互联网获取最新信息", substring = true) and !hasClickAction(),
+        ).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("参数").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("query", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onAllNodesWithText("工具设置").assertCountEquals(0)
+        rule.onAllNodesWithText("执行前确认").assertCountEquals(0)
+        rule.onAllNodesWithText("搜索引擎").assertCountEquals(0)
+        rule.onAllNodesWithText("保存").assertCountEquals(0)
+        rule.onAllNodesWithText("恢复默认").assertCountEquals(0)
+        assertEquals(
+            "只读详情不得新增开关",
+            toolTogglesBefore,
+            rule.onAllNodes(isToggleable()).fetchSemanticsNodes().size,
+        )
+        assertTrue(
+            "只读详情不得新增输入框",
+            rule.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size <= toolInputsBefore,
+        )
+        rule.onNodeWithText("关闭").performClick()
     }
 
     @Test

@@ -18,10 +18,9 @@ import com.milknote.agent.Rect4
 import com.milknote.app.agent.AgentBridge
 import com.milknote.app.agent.PageRenderer
 import com.milknote.app.agent.WorkspaceElementSummaries
-import com.milknote.app.agent.WorkspaceSidecarOps
+import com.milknote.app.agent.WorkspaceElementTimestamps
 import com.milknote.app.di.ServiceLocator
 import com.milknote.ink.input.InkAction
-import com.milknote.ink.input.InkCommit
 import com.milknote.ink.input.InkController
 import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.CardTextStyle
@@ -32,7 +31,9 @@ import com.milknote.ink.model.LassoContent
 import com.milknote.ink.model.LassoMode
 import com.milknote.ink.model.MediaElement
 import com.milknote.ink.model.PageImageKind
+import com.milknote.ink.model.PageInkState
 import com.milknote.ink.model.PressureGamma
+import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.model.ToolConfig
 import com.milknote.ink.render.AnnotationCardRenderer
@@ -98,21 +99,51 @@ enum class SnipPhase { IDLE, FROZEN, CONFIRMED }
 /** 轻提示 */
 data class Toast(val text: String)
 
-/** 一页的完整内容快照(切页/删除/导出共用,避免四元组)。 */
-private data class PageContent(
-    val strokes: List<com.milknote.ink.model.Stroke>,
+/** 一页的完整内容快照(切页/删除/导出/端口共用,避免四元组)。 */
+private data class PageSnapshot(
+    val strokes: List<Stroke>,
     val cards: List<AnnotationCard>,
     val images: List<ImageElement>,
     val media: List<MediaElement>,
-)
+    /** 已擦除笔迹(工区时间戳 includeErased 用;载入时由日志重建) */
+    val removed: List<Stroke> = emptyList(),
+) {
+    companion object {
+        /** 只在主线程对控制器取平面列表(后台只做几何计算) */
+        fun of(page: PageInkState): PageSnapshot = PageSnapshot(
+            strokes = page.strokes.toList(),
+            cards = page.cards.toList(),
+            images = page.images.toList(),
+            media = page.media.toList(),
+            removed = page.removedStrokes(),
+        )
+    }
+}
 
 class WriterViewModel : ViewModel() {
 
     private val repo = ServiceLocator.repository
 
+    /**
+     * 控制器当前承载的页(落盘归属用):变更回调按「载入时捕获的页」写盘,
+     * 切页会取消未完成的 pointer,避免把笔迹写到另一页。
+     */
+    private var mainPageId: String = ""
+    private var splitPageId: String = ""
+    private var splitNotebookId: String = ""
+
     /** 每次进入书写页新建(书架→书写);跨页存活于本对象内 */
     val controller = InkController().apply {
-        onCommit = { commit -> persistCommit(commit) }
+        onDrawingChange = { change ->
+            val nb = notebookId
+            val page = mainPageId
+            if (nb.isNotEmpty() && page.isNotEmpty()) {
+                // 按页持久化一次:整次变更作为单条日志进写队列(画面 + 撤销/重做可重放)
+                repo.appendDrawingChange(nb, page, change)
+                mirrorMainPaneToDuplicateSplit()
+                scheduleFlush()
+            }
+        }
         addInvalidator { syncToolbarState() }
         // 橡皮「自动切回画笔」(千本 P019 自动取消):擦完一笔回到原书写笔
         onEraserUsed = {
@@ -136,31 +167,24 @@ class WriterViewModel : ViewModel() {
     private var thumbJob: Job? = null
     private var pageSwitchJob: Job? = null
     private var pendingPageId: String? = null
+    /** 打开笔记本 / 分屏笔记本的在途任务与请求序号(只允许最新一次请求的结果生效) */
+    @Volatile private var openJob: Job? = null
+    private var openRequestSeq = 0L
+    private var openRequestNotebookId: String? = null
+    @Volatile private var splitOpenJob: Job? = null
+    private var splitOpenRequestSeq = 0L
+    private var splitOpenRequestKey: String? = null
     /** 进入「框选加入附件」前的草稿文字(openDrawer 会清空输入框) */
     private var draftTextBeforeSnip: String? = null
 
     init {
-        // 设置 → 压感曲线档(笔宽是样式,换档即时生效)/ 前置缓冲开关
-        viewModelScope.launch {
-            ServiceLocator.appSettings.flow.collect { s ->
-                frontBufferFlag = s.frontBufferInk
-                val settings = _state.value.toolSettings.withPressureGamma(s.pressureGamma)
-                applyToolSettings(settings)
-                _state.value = _state.value.copy(
-                    frontBufferEnabled = s.frontBufferInk,
-                )
-                penPresets.value = PenPresets.decode(s.penPresets)
-            }
-        }
         registerAgentBridge()
     }
 
     // ---- Agent 桥(渲染源 / 批注落点 / 整章页序;AGENT-BACKEND §2.1 装配) ----
 
     private fun registerAgentBridge() {
-        AgentBridge.pageProvider = { page ->
-            if (page.notebookId == notebookId) currentPageData(page.pageId) else null
-        }
+        AgentBridge.pageProvider = { page -> pageDataSnapshot(page) }
         ServiceLocator.agentSnipSource.pagesListProvider = { nb ->
             repo.listPages(nb).map { PageRef(nb, it.pageId) }
         }
@@ -176,25 +200,25 @@ class WriterViewModel : ViewModel() {
         super.onCleared()
     }
 
-    private fun currentPageData(pageId: String): AgentBridge.PageData? {
+    /**
+     * Agent 渲染快照:只服务内存里已打开的当前页(与书写同帧,含图片与纸样);
+     * 其余页返回 null,由 [PageRenderer] 用单次 `repo.loadDrawing` 统一读取,
+     * 不再按层分别读 pb/ann/img/media 造成跨层不一致。
+     */
+    private suspend fun pageDataSnapshot(page: PageRef): AgentBridge.PageData? {
+        if (page.notebookId != notebookId) return null
         val nb = _state.value.notebook ?: return null
-        val strokes = if (pageId == _state.value.currentPageId) {
-            controller.page.strokes.toList()
-        } else null
-        val cards = if (pageId == _state.value.currentPageId) {
-            controller.annotationCards()
-        } else null
-        val images = if (pageId == _state.value.currentPageId) controller.images() else null
-        val media = if (pageId == _state.value.currentPageId) controller.media() else null
-        val spec = nb.pageSpec(pageId)
+        if (page.pageId != mainPageId) return null
+        val snapshot = withContext(Dispatchers.Main) { PageSnapshot.of(controller.page) }
+        val spec = nb.pageSpec(page.pageId)
         return AgentBridge.PageData(
-            strokes = strokes ?: repo.loadPage(notebookId, pageId),
-            cards = cards ?: repo.loadAnnotations(notebookId, pageId),
+            strokes = snapshot.strokes,
+            cards = snapshot.cards,
             paper = spec.paper,
             pageSize = nb.pageSize,
             orientation = nb.orientation,
-            images = images ?: repo.loadImages(notebookId, pageId),
-            media = media ?: repo.loadMedia(notebookId, pageId),
+            images = snapshot.images,
+            media = snapshot.media,
             imageDir = repo.notebookDir(notebookId).absolutePath,
             paperColor = spec.paperColor,
             pageWidthMm = spec.widthMm,
@@ -227,20 +251,21 @@ class WriterViewModel : ViewModel() {
             text = text,
             createdAt = System.currentTimeMillis(),
         )
-        controller.addAnnotationCard(card)   // 进撤销栈;落盘经 onCommit
+        controller.addAnnotationCard(card)   // 进撤销栈;落盘经变更日志
         refreshThumbOf(page.pageId)
         id
     }
 
     /**
      * Agent 工作区端口(AGENT-BACKEND 页管理 / 画布工具):
-     * 当前打开的笔记本走内存控制器(撤销栈 + 缩略图),其余页整表重写 sidecar;
-     * 所有 `controller` 与 `_state` 修改都在主线程,磁盘读写在 IO。
+     * 已打开的页(当前页 / 可编辑分屏页)走内存控制器(撤销栈 + 缩略图 + 同帧时间戳);
+     * 其余页把该页载入临时控制器,用既有 InkOp 语义改动后按单条日志落盘 ——
+     * 与书写路径共用同一份 Journal,不再整表重写 sidecar。
      */
     private inner class WriterWorkspacePort : NotebookWorkspacePort {
 
         override suspend fun listPages(notebookId: String): List<PageInfo> = withContext(Dispatchers.IO) {
-            val current = _state.value.currentPageId
+            val current = mainPageId
             repo.listPages(notebookId).mapIndexed { index, page ->
                 PageInfo(
                     pageId = page.pageId,
@@ -279,7 +304,7 @@ class WriterViewModel : ViewModel() {
                 }
             }
             val index = pages.indexOfFirst { it.pageId == pageId } + 1
-            val isCurrent = active && _state.value.currentPageId == pageId
+            val isCurrent = active && mainPageId == pageId
             return PageInfo(pageId, index.coerceAtLeast(1), isCurrent)
         }
 
@@ -294,33 +319,29 @@ class WriterViewModel : ViewModel() {
                 pages = withContext(Dispatchers.IO) { repo.listPages(notebookId) }
             }
             if (!isActiveNotebook(notebookId)) return true
-            val currentBefore = _state.value.currentPageId
+            val currentBefore = mainPageId.ifEmpty { _state.value.currentPageId }
             val currentMissing = pages.none { it.pageId == currentBefore }
             val target = if (currentMissing) {
                 fallback?.takeIf { id -> pages.any { it.pageId == id } } ?: pages.first().pageId
             } else {
                 currentBefore
             }
-            val replacement = if (currentMissing) {
-                withContext(Dispatchers.IO) {
-                    PageContent(
-                        repo.loadPage(notebookId, target),
-                        repo.loadAnnotations(notebookId, target),
-                        repo.loadImages(notebookId, target),
-                        repo.loadMedia(notebookId, target),
-                    )
+            if (currentMissing) {
+                val loaded = withContext(Dispatchers.IO) {
+                    repo.loadDrawing(notebookId, target)
                 }
-            } else {
-                null
-            }
-            withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(pages = pages, currentPageId = target)
-                replacement?.let {
-                    controller.loadStrokes(it.strokes, it.cards, it.images, it.media)
+                withContext(Dispatchers.Main) {
+                    if (controller.drawing) controller.cancelStroke()
+                    controller.loadDrawing(loaded)
+                    mainPageId = target
+                    _state.value = _state.value.copy(pages = pages, currentPageId = target)
+                    mirrorMainPaneToDuplicateSplit()
                     bindAgent(notebookId, target)
                 }
-                thumbs.value = thumbs.value - pageId
+            } else {
+                withContext(Dispatchers.Main) { _state.value = _state.value.copy(pages = pages) }
             }
+            withContext(Dispatchers.Main) { thumbs.value = thumbs.value - pageId }
             refreshAllThumbs()
             return true
         }
@@ -332,9 +353,8 @@ class WriterViewModel : ViewModel() {
             yPx: Float,
             widthPx: Float,
         ): String? {
-            val id = UUID.randomUUID().toString().substring(0, 8)
             val card = AnnotationCard(
-                id = id,
+                id = UUID.randomUUID().toString().substring(0, 8),
                 x = xPx,
                 y = yPx,
                 width = widthPx.coerceAtLeast(80f),
@@ -342,50 +362,47 @@ class WriterViewModel : ViewModel() {
                 text = markdown,
                 createdAt = System.currentTimeMillis(),
             )
-            if (isCurrentPage(page)) {
-                withContext(Dispatchers.Main) { controller.addAnnotationCard(card) }
-                refreshThumbOf(page.pageId)
-                return id
+            val inserted = when {
+                isCurrentPageOpen(page) -> withContext(Dispatchers.Main) {
+                    controller.addAnnotationCard(card)
+                    true
+                }
+                isSplitPageOpen(page) -> withContext(Dispatchers.Main) {
+                    splitController.addAnnotationCard(card)
+                    true
+                }
+                else -> editOffscreenPage(page) {
+                    it.addAnnotationCard(card)
+                    true
+                } ?: false
             }
-            val saved = withContext(Dispatchers.IO) {
-                runCatching {
-                    val cards = repo.loadAnnotations(page.notebookId, page.pageId).toMutableList()
-                    val top = (cards.maxOfOrNull { it.zIndex } ?: 0L) + 1L
-                    cards.add(card.copy(zIndex = top))
-                    repo.saveAnnotations(page.notebookId, page.pageId, cards)
-                }.isSuccess
-            }
-            if (!saved) return null
-            refreshThumbFromDisk(page)
-            return id
+            if (!inserted) return null
+            refreshThumbAfterPageEdit(page)
+            return card.id
         }
 
         override suspend fun listElements(page: PageRef): List<PageElementSummary> {
             val dims = pageDimensions(page) ?: return emptyList()
-            val snapshot = if (isCurrentPage(page)) {
-                withContext(Dispatchers.Main) {
-                    PageContent(
-                        controller.page.strokes.toList(),
-                        controller.annotationCards(),
-                        controller.images(),
-                        controller.media(),
-                    )
-                }
-            } else {
-                withContext(Dispatchers.IO) {
-                    PageContent(
-                        repo.loadPage(page.notebookId, page.pageId),
-                        repo.loadAnnotations(page.notebookId, page.pageId),
-                        repo.loadImages(page.notebookId, page.pageId),
-                        repo.loadMedia(page.notebookId, page.pageId),
-                    )
-                }
-            }
+            val snapshot = capturePageSnapshot(page) ?: return emptyList()
             // 卡片高度要跑文本排版(含 Markdown 富渲染),放默认线程避免阻塞主线程
             return withContext(Dispatchers.Default) {
                 WorkspaceElementSummaries.of(
                     snapshot.strokes, snapshot.cards, snapshot.images, snapshot.media,
                     dims.widthPx, dims.heightPx,
+                )
+            }
+        }
+
+        override suspend fun elementTimestamps(
+            page: PageRef,
+            rect: Rect4,
+            includeErased: Boolean,
+        ) = capturePageSnapshot(page)?.let { snapshot ->
+            // 主线程只取平面列表与已删除笔迹,几何(卡片排版等)在后台
+            withContext(Dispatchers.Default) {
+                WorkspaceElementTimestamps.of(
+                    snapshot.strokes, snapshot.cards, snapshot.images, snapshot.media,
+                    rect, if (includeErased) snapshot.removed else emptyList(),
                 )
             }
         }
@@ -399,56 +416,105 @@ class WriterViewModel : ViewModel() {
             dx: Float?,
             dy: Float?,
         ): Boolean {
+            if (targetX == null && targetY == null && dx == null && dy == null) return false
             val kind = WorkspaceElementSummaries.parseKind(elementKind)
-            if (isCurrentPage(page)) {
-                val moved = withContext(Dispatchers.Main) {
+            val moved = when {
+                isCurrentPageOpen(page) -> withContext(Dispatchers.Main) {
                     controller.moveElementById(kind, elementId, targetX, targetY, dx, dy)
                 }
-                if (moved) refreshThumbOf(page.pageId)
-                return moved
+                isSplitPageOpen(page) -> withContext(Dispatchers.Main) {
+                    splitController.moveElementById(kind, elementId, targetX, targetY, dx, dy)
+                }
+                else -> editOffscreenPage(page) {
+                    it.moveElementById(kind, elementId, targetX, targetY, dx, dy)
+                } ?: false
             }
-            if (targetX == null && targetY == null && dx == null && dy == null) return false
-            val moved = withContext(Dispatchers.IO) {
-                WorkspaceSidecarOps.move(repo, page, kind, elementId, targetX, targetY, dx, dy)
-            }
-            if (moved) refreshThumbFromDisk(page)
+            if (moved) refreshThumbAfterPageEdit(page)
             return moved
         }
 
         override suspend fun deleteElement(page: PageRef, elementId: String, elementKind: String?): Boolean {
             val kind = WorkspaceElementSummaries.parseKind(elementKind)
-            if (isCurrentPage(page)) {
-                val deleted = withContext(Dispatchers.Main) { controller.deleteElementById(kind, elementId) }
-                if (deleted) refreshThumbOf(page.pageId)
-                return deleted
+            val deleted = when {
+                isCurrentPageOpen(page) -> withContext(Dispatchers.Main) {
+                    controller.deleteElementById(kind, elementId)
+                }
+                isSplitPageOpen(page) -> withContext(Dispatchers.Main) {
+                    splitController.deleteElementById(kind, elementId)
+                }
+                else -> editOffscreenPage(page) { it.deleteElementById(kind, elementId) } ?: false
             }
-            val deleted = withContext(Dispatchers.IO) {
-                WorkspaceSidecarOps.delete(repo, page, kind, elementId)
-            }
-            if (deleted) refreshThumbFromDisk(page)
+            if (deleted) refreshThumbAfterPageEdit(page)
             return deleted
         }
 
         private fun isActiveNotebook(target: String): Boolean =
             target == this@WriterViewModel.notebookId && _state.value.notebook != null
-
-        private fun isCurrentPage(page: PageRef): Boolean =
-            page.notebookId == this@WriterViewModel.notebookId &&
-                page.pageId == _state.value.currentPageId
     }
 
-    /** 非当前页的改动只落在磁盘 sidecar:从磁盘重绘该页缩略图(不影响当前页内存内容) */
+    // ---- 页面载入 / 同页双窗格 ----
+
+    private fun isCurrentPageOpen(page: PageRef): Boolean =
+        notebookId.isNotEmpty() && page.notebookId == notebookId && page.pageId == mainPageId
+
+    /** 分屏页可编辑(同页重复窗格只读,操作一律回到主窗格控制器) */
+    private fun isSplitPageOpen(page: PageRef): Boolean =
+        _state.value.splitEnabled && !isDuplicateSplitPane() &&
+            page.notebookId == splitNotebookId && page.pageId == splitPageId
+
+    /** 分屏与主窗格显示同一本同一页:该重复窗格只读,避免两个撤销栈互相覆盖 */
+    private fun isDuplicateSplitPane(): Boolean {
+        val st = _state.value
+        return st.splitEnabled && notebookId.isNotEmpty() &&
+            st.splitNotebook?.id == notebookId && splitPageId == mainPageId
+    }
+
+    /** 主窗格完成变更后把权威状态(画面 + 两栈)复制给同页重复窗格,保证撤销对象一致 */
+    private fun mirrorMainPaneToDuplicateSplit() {
+        if (!isDuplicateSplitPane()) return
+        if (splitController.drawing) return
+        splitController.loadDrawing(controller.page)
+    }
+
+    /** 该页的平面列表:已打开的页取同帧内存,其余页用单次 loadDrawing 读盘(null = 页不存在) */
+    private suspend fun capturePageSnapshot(page: PageRef): PageSnapshot? = when {
+        isCurrentPageOpen(page) -> withContext(Dispatchers.Main) { PageSnapshot.of(controller.page) }
+        isSplitPageOpen(page) -> withContext(Dispatchers.Main) { PageSnapshot.of(splitController.page) }
+        else -> withContext(Dispatchers.IO) {
+            if (repo.listPages(page.notebookId).none { it.pageId == page.pageId }) null
+            else PageSnapshot.of(repo.loadDrawing(page.notebookId, page.pageId))
+        }
+    }
+
+    /**
+     * 离屏页编辑:同一页载入临时控制器 → 既有 InkOp 语义改动 → 每条变更按单条日志落盘。
+     * 返回 null = 页不存在;否则返回 [block] 结果。
+     */
+    private suspend fun <T> editOffscreenPage(page: PageRef, block: (InkController) -> T): T? =
+        withContext(Dispatchers.Default) {
+            val drawing = withContext(Dispatchers.IO) {
+                if (repo.listPages(page.notebookId).none { it.pageId == page.pageId }) null
+                else repo.loadDrawing(page.notebookId, page.pageId)
+            } ?: return@withContext null
+            val journal = InkController().apply { loadDrawing(drawing) }
+            journal.onDrawingChange = { change ->
+                repo.appendDrawingChange(page.notebookId, page.pageId, change)
+            }
+            block(journal)
+        }
+
+    private suspend fun refreshThumbAfterPageEdit(page: PageRef) {
+        if (page.notebookId != notebookId) return
+        if (page.pageId == mainPageId) refreshThumbOf(page.pageId) else refreshThumbFromDisk(page)
+    }
+
+    /** 非当前页的改动只落在磁盘日志:从磁盘重绘该页缩略图(不影响当前页内存内容) */
     private suspend fun refreshThumbFromDisk(page: PageRef) {
         if (page.notebookId != notebookId) return
         val nb = withContext(Dispatchers.IO) { repo.getNotebook(page.notebookId) } ?: return
         val spec = nb.pageSpec(page.pageId)
         val snapshot = withContext(Dispatchers.IO) {
-            PageContent(
-                repo.loadPage(page.notebookId, page.pageId),
-                repo.loadAnnotations(page.notebookId, page.pageId),
-                repo.loadImages(page.notebookId, page.pageId),
-                repo.loadMedia(page.notebookId, page.pageId),
-            )
+            PageSnapshot.of(repo.loadDrawing(page.notebookId, page.pageId))
         }
         val bmp = withContext(Dispatchers.Default) {
             renderPageThumb(
@@ -458,6 +524,7 @@ class WriterViewModel : ViewModel() {
                 paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
             )
         }
+        if (page.notebookId != notebookId) return   // 期间已切本:旧缩略图不写入
         thumbs.value = thumbs.value + (page.pageId to bmp)
     }
 
@@ -494,8 +561,10 @@ class WriterViewModel : ViewModel() {
 
     /** 卡片库回插：切到指定页后，文字与图片都走现有 InkOp/撤销/持久化链路。 */
     fun insertLibraryCard(card: NoteCard, pageId: String) {
-        if (notebookId.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
+            // 书架/卡片页会「open 后立刻插卡」:等打开请求落定再读页
+            awaitOpenSettled()
+            if (notebookId.isEmpty()) return@launch
             if (_state.value.pages.none { it.pageId == pageId }) {
                 withContext(Dispatchers.Main) { toast("插入失败：目标页面不存在") }
                 return@launch
@@ -556,6 +625,8 @@ class WriterViewModel : ViewModel() {
     /** 将相册图片复制进笔记本资产目录,再作为页面元素插入,避免 content Uri 授权过期。 */
     fun insertImage(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
+            // 书架「打开并插图」会在 open 之后立即调用:等打开请求落定
+            awaitOpenSettled()
             val nb = _state.value.notebook ?: return@launch
             val pageId = _state.value.currentPageId
             val dir = File(repo.notebookDir(notebookId), "images").apply { mkdirs() }
@@ -781,7 +852,7 @@ class WriterViewModel : ViewModel() {
         syncToolbarState()
     }
 
-    fun deleteSelection() = controller.deleteSelection() // 落盘经 onCommit 镜像
+    fun deleteSelection() = controller.deleteSelection() // 落盘经变更日志镜像
 
     fun clearSelection() = controller.clearSelection()
 
@@ -974,55 +1045,102 @@ class WriterViewModel : ViewModel() {
 
     // ---- 打开/切页 ----
 
-    /** 双开分屏右侧独立控制器(支持对照阅读与直接手写批注) */
+    /** 双开分屏右侧独立控制器(支持对照阅读与直接手写批注;同页重复窗格只读) */
     val splitController = InkController().apply {
-        onCommit = { commit -> persistSplitCommit(commit) }
+        onDrawingChange = { change ->
+            val nb = splitNotebookId
+            val page = splitPageId
+            // 同页重复窗格只读,状态由主窗格整体镜像;这里再兜一次底避免双写
+            if (nb.isNotEmpty() && page.isNotEmpty() && !isDuplicateSplitPane()) {
+                repo.appendDrawingChange(nb, page, change)
+                scheduleFlush()
+            }
+        }
     }
+
+    private var splitPageSwitchJob: Job? = null
+    private var pendingSplitPageId: String? = null
 
     /** 设置快照(open() 整体重建 UiState 时保留,避免清掉已生效的设置) */
     @Volatile private var frontBufferFlag = false
 
     fun open(nbId: String, asSplit: Boolean = false) {
-        val allLive = repo.listNotebooks(includeTrashed = false)
-        val nb = allLive.firstOrNull { it.id == nbId } ?: return
         if (asSplit && notebookId.isNotEmpty() && notebookId != nbId) {
-            val currentTabs = (_state.value.openTabs.map { it.id } + nbId).distinct()
-                .mapNotNull { id -> allLive.firstOrNull { it.id == id } }
-            loadSplitNotebook(nb, currentTabs)
+            openSplitNotebookAsync(nbId)
             return
         }
         if (notebookId == nbId && _state.value.notebook != null) {
+            // 已是当前本:作废在途打开,避免旧结果回写当前页
+            cancelPendingOpen()
             if (asSplit && !_state.value.splitEnabled) toggleSplit()
             return
         }
+        openNotebookAsync(nbId, asSplit)
+    }
+
+    /** 丢弃在途的打开请求(结果不再回写) */
+    private fun cancelPendingOpen() {
+        openJob?.cancel()
+        openRequestSeq++
+        openRequestNotebookId = null
+    }
+
+    /** 后台协程等待打开请求落定(主线程不调用;书架「打开并插图/插卡」依赖) */
+    private suspend fun awaitOpenSettled() {
+        while (true) {
+            val job = openJob
+            if (job == null || !job.isActive) return
+            job.join()
+        }
+    }
+
+    /**
+     * 打开笔记本:目录列举 / 页序 / 首末页 / 日志回放全部在 IO 线程完成,
+     * 主线程只做 state 替换与 `loadDrawing(快照)`(纯内存拷贝,不再阻塞 UI)。
+     * 请求序号做 latest-wins:快速 open / 切标签时旧结果不会覆盖最新页。
+     */
+    private fun openNotebookAsync(nbId: String, asSplit: Boolean) {
+        if (openRequestNotebookId == nbId && openJob?.isActive == true) return
+        val seq = ++openRequestSeq
+        openRequestNotebookId = nbId
         pageSwitchJob?.cancel()
+        splitPageSwitchJob?.cancel()
+        flushJob?.cancel()          // 旧本的缩略图/更新时间防抖作废,避免回写到新本
         pendingPageId = null
-        notebookId = nbId
-        repo.markOpened(nbId)
-        val pages = repo.listPages(nbId)
-        val cur = pages.lastOrNull()?.pageId ?: repo.newPage(nbId)
-        val existingTabs = _state.value.openTabs.map { it.id }
-        val tabIds = if (nbId in existingTabs) existingTabs else existingTabs + nbId
-        val resolvedTabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
-            .ifEmpty { listOf(nb) }
-        val md = repo.loadPageMarkdown(nbId, cur)
-        _state.value = _state.value.copy(
-            notebook = nb,
-            pages = repo.listPages(nbId),
-            currentPageId = cur,
-            openTabs = resolvedTabs,
-            pageMarkdown = md,
-            frontBufferEnabled = frontBufferFlag,
-        )
-        controller.loadStrokes(
-            repo.loadPage(nbId, cur),
-            repo.loadAnnotations(nbId, cur),
-            repo.loadImages(nbId, cur),
-            repo.loadMedia(nbId, cur),
-        )
-        bindAgent(nb.id, cur)
-        refreshAllThumbs()
-        if (asSplit) toggleSplit()
+        pendingSplitPageId = null
+        openJob?.cancel()
+        openJob = viewModelScope.launch(Dispatchers.IO) {
+            val allLive = repo.listNotebooks(includeTrashed = false)
+            val nb = allLive.firstOrNull { it.id == nbId } ?: return@launch
+            repo.markOpened(nbId)
+            val pages = repo.listPages(nbId)
+            val cur = pages.lastOrNull()?.pageId ?: repo.newPage(nbId)
+            val md = repo.loadPageMarkdown(nbId, cur)
+            val drawing = repo.loadDrawing(nbId, cur)
+            withContext(Dispatchers.Main) {
+                // 旧请求直接丢弃:不覆盖最新页,也不留下它未完成打开的标签
+                if (seq != openRequestSeq) return@withContext
+                openRequestNotebookId = null
+                notebookId = nbId
+                val tabIds = (_state.value.openTabs.map { it.id } + nbId).distinct()
+                val resolvedTabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
+                    .ifEmpty { listOf(nb) }
+                _state.value = _state.value.copy(
+                    notebook = nb,
+                    pages = pages,
+                    currentPageId = cur,
+                    openTabs = resolvedTabs,
+                    pageMarkdown = md,
+                    frontBufferEnabled = frontBufferFlag,
+                )
+                if (controller.drawing) controller.cancelStroke()
+                controller.loadDrawing(drawing)
+                mainPageId = cur
+                bindAgent(nb.id, cur)
+                refreshAllThumbs()
+                if (asSplit) toggleSplit() else mirrorMainPaneToDuplicateSplit()
+            }
+        }
     }
 
     fun closeTab(tabId: String) {
@@ -1030,7 +1148,9 @@ class WriterViewModel : ViewModel() {
         if (remaining.isEmpty()) return
         _state.value = _state.value.copy(openTabs = remaining)
         if (notebookId == tabId) {
-            notebookId = ""
+            // 不提前清空 notebookId:异步打开期间当前页仍可书写,变更必须继续归属原页;
+            // 新页载入完成时由 openNotebookAsync 在应用块里原子切换归属。
+            cancelPendingOpen()
             open(remaining.first().id)
         }
     }
@@ -1038,53 +1158,94 @@ class WriterViewModel : ViewModel() {
     fun toggleSplit(targetNbId: String? = null) {
         val st = _state.value
         if (st.splitEnabled && targetNbId == null) {
+            splitOpenJob?.cancel()
+            splitOpenRequestSeq++
+            splitOpenRequestKey = null
+            splitPageSwitchJob?.cancel()
+            pendingSplitPageId = null
             _state.value = st.copy(splitEnabled = false)
             return
         }
-        val allLive = repo.listNotebooks(includeTrashed = false)
-        val candidate = when {
-            targetNbId != null -> allLive.firstOrNull { it.id == targetNbId }
-            st.splitNotebook != null && st.splitNotebook.id != notebookId -> st.splitNotebook
-            else -> st.openTabs.firstOrNull { it.id != notebookId }
-                ?: allLive.firstOrNull { it.id != notebookId }
-                ?: st.notebook
-        } ?: return
-        val tabIds = (st.openTabs.map { it.id } + candidate.id).distinct()
-        val tabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
-        loadSplitNotebook(candidate, tabs)
+        openSplitNotebookAsync(targetNbId)
     }
 
-    private fun loadSplitNotebook(nb: NotebookMeta, tabs: List<NotebookMeta>) {
-        val pages = repo.listPages(nb.id)
-        val cur = pages.firstOrNull()?.pageId ?: repo.newPage(nb.id)
-        splitController.tool = _state.value.toolSettings.effective
-        splitController.loadStrokes(
-            repo.loadPage(nb.id, cur),
-            repo.loadAnnotations(nb.id, cur),
-            repo.loadImages(nb.id, cur),
-            repo.loadMedia(nb.id, cur),
-        )
-        _state.value = _state.value.copy(
-            openTabs = tabs,
-            splitEnabled = true,
-            splitNotebook = nb,
-            splitPages = repo.listPages(nb.id),
-            splitPageId = cur,
-        )
+    /**
+     * 打开分屏笔记本:候选解析、页序与日志回放同样在后台;latest-wins 保证
+     * 快速 split / 连续切换分屏本时旧结果不覆盖最新。
+     */
+    private fun openSplitNotebookAsync(targetNbId: String?) {
+        val requestKey = targetNbId.orEmpty()
+        if (splitOpenRequestKey == requestKey && splitOpenJob?.isActive == true) return
+        val seq = ++splitOpenRequestSeq
+        splitOpenRequestKey = requestKey
+        splitPageSwitchJob?.cancel()
+        pendingSplitPageId = null
+        splitOpenJob?.cancel()
+        splitOpenJob = viewModelScope.launch(Dispatchers.IO) {
+            val st = _state.value
+            val allLive = repo.listNotebooks(includeTrashed = false)
+            val candidate = when {
+                targetNbId != null -> allLive.firstOrNull { it.id == targetNbId }
+                st.splitNotebook != null && st.splitNotebook.id != notebookId ->
+                    allLive.firstOrNull { it.id == st.splitNotebook.id }
+                else -> st.openTabs.firstOrNull { it.id != notebookId }?.let { tab ->
+                    allLive.firstOrNull { it.id == tab.id }
+                } ?: allLive.firstOrNull { it.id != notebookId }
+                ?: st.notebook?.let { main -> allLive.firstOrNull { it.id == main.id } }
+            } ?: return@launch
+            val pages = repo.listPages(candidate.id)
+            val cur = pages.firstOrNull()?.pageId ?: repo.newPage(candidate.id)
+            val drawing = repo.loadDrawing(candidate.id, cur)
+            withContext(Dispatchers.Main) {
+                if (seq != splitOpenRequestSeq) return@withContext
+                splitOpenRequestKey = null
+                val tabIds = (_state.value.openTabs.map { it.id } + candidate.id).distinct()
+                val tabs = tabIds.mapNotNull { id -> allLive.firstOrNull { it.id == id } }
+                splitController.tool = _state.value.toolSettings.effective
+                if (splitController.drawing) splitController.cancelStroke()
+                splitController.loadDrawing(drawing)
+                splitNotebookId = candidate.id
+                splitPageId = cur
+                _state.value = _state.value.copy(
+                    openTabs = tabs,
+                    splitEnabled = true,
+                    splitNotebook = candidate,
+                    splitPages = pages,
+                    splitPageId = cur,
+                )
+                mirrorMainPaneToDuplicateSplit()
+            }
+        }
     }
 
     fun stepSplitPage(delta: Int) {
         val st = _state.value
         val splitNb = st.splitNotebook ?: return
-        val nextId = adjacentPageId(st.splitPages, st.splitPageId, delta) ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val strokes = repo.loadPage(splitNb.id, nextId)
-            val cards = repo.loadAnnotations(splitNb.id, nextId)
-            val images = repo.loadImages(splitNb.id, nextId)
-            val media = repo.loadMedia(splitNb.id, nextId)
+        // 连续翻页以上一次待载入页为基准,避免快速点击反复落到同一页
+        val basePageId = pendingSplitPageId ?: st.splitPageId
+        val nextId = adjacentPageId(st.splitPages, basePageId, delta) ?: return
+        if (nextId == pendingSplitPageId) return
+        // 连续翻页只认最后一次:旧任务在应用前比对目标页,避免回退到上一页
+        pendingSplitPageId = nextId
+        splitPageSwitchJob?.cancel()
+        splitPageSwitchJob = viewModelScope.launch(Dispatchers.IO) {
+            val nbId = splitNb.id
+            val drawing = if (repo.listPages(nbId).any { it.pageId == nextId }) {
+                repo.loadDrawing(nbId, nextId)
+            } else {
+                null
+            }
             withContext(Dispatchers.Main) {
+                if (pendingSplitPageId != nextId) return@withContext
+                pendingSplitPageId = null
+                if (drawing == null) return@withContext
+                if (_state.value.splitNotebook?.id != nbId) return@withContext
+                if (splitController.drawing) splitController.cancelStroke()
+                splitController.loadDrawing(drawing)
+                splitNotebookId = nbId
+                splitPageId = nextId
                 _state.value = _state.value.copy(splitPageId = nextId)
-                splitController.loadStrokes(strokes, cards, images, media)
+                mirrorMainPaneToDuplicateSplit()
             }
         }
     }
@@ -1158,42 +1319,52 @@ class WriterViewModel : ViewModel() {
         viewModelScope.launch { refreshThumbOf(pageId) }
     }
 
-    fun outlineEntries(): List<Pair<String, String>> {
-        val nbId = notebookId.takeIf { it.isNotEmpty() } ?: return emptyList()
-        return _state.value.pages.mapIndexed { idx, pg ->
-            val md = if (pg.pageId == _state.value.currentPageId) _state.value.pageMarkdown
-            else repo.loadPageMarkdown(nbId, pg.pageId)
-            val heading = md.lineSequence()
-                .map { it.trim() }
-                .firstOrNull { it.startsWith("#") }
-                ?.trimStart('#', ' ')
-                ?.takeIf { it.isNotBlank() }
-                ?: run {
-                    val cards = if (pg.pageId == _state.value.currentPageId) controller.annotationCards()
-                    else repo.loadAnnotations(nbId, pg.pageId)
-                    cards.firstOrNull()?.text?.lineSequence()?.firstOrNull()?.take(24)
-                }
-                ?: "第 ${idx + 1} 页"
-            pg.pageId to heading
-        }
-    }
+    /**
+     * 大纲(页序/标题/首条批注):全量读盘移到 IO,结果经 [outline] 推给 UI;
+     * 保留上次结果,只有换笔记本时才清空,避免刷新期间闪空。
+     */
+    private val _outline = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    val outline: StateFlow<List<Pair<String, String>>> = _outline
+    private var outlineJob: Job? = null
+    private var outlineRequestSeq = 0L
+    private var outlineNotebookId: String = ""
 
-    private fun persistSplitCommit(commit: InkCommit) {
-        val splitNb = _state.value.splitNotebook ?: return
-        val page = _state.value.splitPageId
-        when (commit) {
-            is InkCommit.Added, is InkCommit.Tombstoned -> repo.appendCommit(splitNb.id, page, commit)
-            is InkCommit.CardAdded, is InkCommit.CardRemoved ->
-                repo.saveAnnotations(splitNb.id, page, splitController.annotationCards())
-            is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
-                repo.saveImages(splitNb.id, page, splitController.images())
-            is InkCommit.MediaAdded, is InkCommit.MediaRemoved ->
-                repo.saveMedia(splitNb.id, page, splitController.media())
-            is InkCommit.LayersChanged -> {
-                repo.appendLayerStates(splitNb.id, page, splitController.page.strokes.toList())
-                repo.saveAnnotations(splitNb.id, page, splitController.annotationCards())
-                repo.saveImages(splitNb.id, page, splitController.images())
-                repo.saveMedia(splitNb.id, page, splitController.media())
+    /** 页序 / 当前页 / 伴随 Markdown 变化时由书写页触发(后台执行,过期结果丢弃) */
+    fun refreshOutline() {
+        val nbId = notebookId
+        if (nbId.isEmpty()) {
+            outlineRequestSeq++
+            outlineJob?.cancel()
+            outlineNotebookId = ""
+            _outline.value = emptyList()
+            return
+        }
+        if (outlineNotebookId != nbId) {
+            outlineNotebookId = nbId
+            _outline.value = emptyList()
+        }
+        val seq = ++outlineRequestSeq
+        val pages = _state.value.pages.map { it.pageId }
+        val current = mainPageId
+        val currentMarkdown = _state.value.pageMarkdown
+        outlineJob?.cancel()
+        outlineJob = viewModelScope.launch(Dispatchers.IO) {
+            val currentCards = withContext(Dispatchers.Main) { controller.annotationCards() }
+            val entries = pages.mapIndexed { idx, pageId ->
+                val md = if (pageId == current) currentMarkdown else repo.loadPageMarkdown(nbId, pageId)
+                val heading = md.lineSequence()
+                    .map { it.trim() }
+                    .firstOrNull { it.startsWith("#") }
+                    ?.trimStart('#', ' ')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: (if (pageId == current) currentCards else repo.loadAnnotations(nbId, pageId))
+                        .firstOrNull()?.text?.lineSequence()?.firstOrNull()?.take(24)
+                    ?: "第 ${idx + 1} 页"
+                pageId to heading
+            }
+            withContext(Dispatchers.Main) {
+                if (seq != outlineRequestSeq || notebookId != nbId) return@withContext
+                _outline.value = entries
             }
         }
     }
@@ -1213,17 +1384,25 @@ class WriterViewModel : ViewModel() {
         pendingPageId = pageId
         pageSwitchJob?.cancel()
         pageSwitchJob = viewModelScope.launch(Dispatchers.IO) {
-            val strokes = repo.loadPage(notebookId, pageId)
-            val cards = repo.loadAnnotations(notebookId, pageId)
-            val images = repo.loadImages(notebookId, pageId)
-            val media = repo.loadMedia(notebookId, pageId)
-            val md = repo.loadPageMarkdown(notebookId, pageId)
+            val nb = notebookId
+            val drawing = if (repo.listPages(nb).any { it.pageId == pageId }) {
+                repo.loadDrawing(nb, pageId)
+            } else {
+                null
+            }
+            val md = repo.loadPageMarkdown(nb, pageId)
             withContext(Dispatchers.Main) {
                 if (pendingPageId != pageId) return@withContext
+                if (notebookId != nb) return@withContext   // 打开别的本后,旧切页结果作废
                 pendingPageId = null
+                if (drawing == null) return@withContext
                 _state.value = _state.value.copy(currentPageId = pageId, pageMarkdown = md)
-                controller.loadStrokes(strokes, cards, images, media)
-                bindAgent(notebookId, pageId)
+                // 切页丢弃未完成的 pointer,避免它的 commit 归属到新页
+                if (controller.drawing) controller.cancelStroke()
+                controller.loadDrawing(drawing)
+                mainPageId = pageId
+                mirrorMainPaneToDuplicateSplit()
+                bindAgent(nb, pageId)
             }
         }
     }
@@ -1298,11 +1477,11 @@ class WriterViewModel : ViewModel() {
     }
 
     /**
-     * 清除页面内容。当前页走 InkController 的 Batch 撤销栈(可撤销,落盘走既有 InkCommit);
-     * 非当前页没有跨页撤销栈,直接截断磁盘并二次确认前由 UI 说明。
+     * 清除页面内容。当前页走 InkController 的 Batch 撤销栈;离屏页把该页载入临时控制器,
+     * 同样作为可撤销批次写进同一份 Journal —— 打开该页后仍能撤销恢复。
      */
     fun clearPage(pageId: String) {
-        if (pageId == _state.value.currentPageId) {
+        if (pageId == mainPageId) {
             val cleared = controller.clearPageContent()
             if (cleared) {
                 toast("已清除当前页,可撤销")
@@ -1314,17 +1493,29 @@ class WriterViewModel : ViewModel() {
         }
         if (notebookId.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            val cleared = repo.clearPage(notebookId, pageId)
-            withContext(Dispatchers.Main) {
-                if (cleared) toast("已清除页面 $pageId") else toast("页面 $pageId 不存在")
+            val splitPage = PageRef(notebookId, pageId)
+            val cleared = if (isSplitPageOpen(splitPage)) {
+                withContext(Dispatchers.Main) { splitController.clearPageContent() }
+            } else {
+                editOffscreenPage(splitPage) { it.clearPageContent() }
             }
-            if (cleared) refreshAllThumbs()
+            withContext(Dispatchers.Main) {
+                when (cleared) {
+                    null -> toast("页面 $pageId 不存在")
+                    true -> toast("已清除页面 $pageId,可打开该页撤销")
+                    false -> toast("页面 $pageId 已是空白")
+                }
+            }
+            if (cleared == true) {
+                refreshThumbFromDisk(splitPage)
+                refreshAllThumbs()
+            }
         }
     }
 
     /**
      * 删除页面文件与 sidecar(图片资产文件保留)。没有封面页语义,允许删除任意页;
-     * 若删到一本空本则补一张空白页,避免书写页落到无页状态。
+     * 若删到一本空本则补一张空白页,避免书写页落到无页状态(删除不可撤销)。
      */
     fun deletePage(pageId: String) {
         if (notebookId.isEmpty()) return
@@ -1349,22 +1540,14 @@ class WriterViewModel : ViewModel() {
             } else {
                 currentBefore
             }
-            val targetData = if (currentMissing) {
-                PageContent(
-                    repo.loadPage(notebookId, target),
-                    repo.loadAnnotations(notebookId, target),
-                    repo.loadImages(notebookId, target),
-                    repo.loadMedia(notebookId, target),
-                )
-            } else {
-                null
-            }
+            val targetDrawing = if (currentMissing) repo.loadDrawing(notebookId, target) else null
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(pages = pages, currentPageId = target)
-                if (targetData != null) {
-                    controller.loadStrokes(
-                        targetData.strokes, targetData.cards, targetData.images, targetData.media,
-                    )
+                if (targetDrawing != null) {
+                    if (controller.drawing) controller.cancelStroke()
+                    controller.loadDrawing(targetDrawing)
+                    mainPageId = target
+                    mirrorMainPaneToDuplicateSplit()
                     bindAgent(notebookId, target)
                 }
                 thumbs.value = thumbs.value - pageId
@@ -1374,18 +1557,20 @@ class WriterViewModel : ViewModel() {
         }
     }
 
-    /** IO 线程读页 → 主线程替换页状态与控制器(页面管理共用)。 */
-    private suspend fun openPageOnMain(pageId: String) {
-        val pages = repo.listPages(notebookId)
-        val strokes = repo.loadPage(notebookId, pageId)
-        val cards = repo.loadAnnotations(notebookId, pageId)
-        val images = repo.loadImages(notebookId, pageId)
-        val media = repo.loadMedia(notebookId, pageId)
-        val md = repo.loadPageMarkdown(notebookId, pageId)
+    /** IO 线程读页 → 主线程替换页状态与控制器(页面管理共用;调用方可在任意线程) */
+    private suspend fun openPageOnMain(pageId: String) = withContext(Dispatchers.IO) {
+        val nb = notebookId
+        val pages = repo.listPages(nb)
+        val drawing = repo.loadDrawing(nb, pageId)
+        val md = repo.loadPageMarkdown(nb, pageId)
         withContext(Dispatchers.Main) {
+            if (notebookId != nb) return@withContext   // 期间已切本:旧结果作废
             _state.value = _state.value.copy(pages = pages, currentPageId = pageId, pageMarkdown = md)
-            controller.loadStrokes(strokes, cards, images, media)
-            bindAgent(notebookId, pageId)
+            if (controller.drawing) controller.cancelStroke()
+            controller.loadDrawing(drawing)
+            mainPageId = pageId
+            mirrorMainPaneToDuplicateSplit()
+            bindAgent(nb, pageId)
         }
         refreshAllThumbs()
     }
@@ -1489,27 +1674,7 @@ class WriterViewModel : ViewModel() {
     fun undo() { controller.undo() }
     fun redo() { controller.redo() }
 
-    // ---- 持久化(每笔抬起即追加;批注卡整表重写;300ms 防抖刷缩略图与元数据) ----
-
-    private fun persistCommit(commit: InkCommit) {
-        val page = _state.value.currentPageId
-        when (commit) {
-            is InkCommit.Added, is InkCommit.Tombstoned -> repo.appendCommit(notebookId, page, commit)
-            is InkCommit.CardAdded, is InkCommit.CardRemoved ->
-                repo.saveAnnotations(notebookId, page, controller.annotationCards())
-            is InkCommit.ImageAdded, is InkCommit.ImageRemoved ->
-                repo.saveImages(notebookId, page, controller.images())
-            is InkCommit.MediaAdded, is InkCommit.MediaRemoved ->
-                repo.saveMedia(notebookId, page, controller.media())
-            is InkCommit.LayersChanged -> {
-                repo.appendLayerStates(notebookId, page, controller.page.strokes.toList())
-                repo.saveAnnotations(notebookId, page, controller.annotationCards())
-                repo.saveImages(notebookId, page, controller.images())
-                repo.saveMedia(notebookId, page, controller.media())
-            }
-        }
-        scheduleFlush()
-    }
+    // ---- 持久化(变更整次进单条日志队列;300ms 防抖刷缩略图与元数据) ----
 
     private var flushJob: Job? = null
     private fun scheduleFlush() {
@@ -1543,15 +1708,24 @@ class WriterViewModel : ViewModel() {
         viewModelScope.launch {
             val nbId = notebookId
             val nb = _state.value.notebook ?: return@launch
-            val map = repo.listPages(nbId).associate { p ->
-                val spec = nb.pageSpec(p.pageId)
-                p.pageId to renderPageThumb(
-                    repo.loadPage(nbId, p.pageId), repo.loadAnnotations(nbId, p.pageId), spec.paper, nb.pageSize, nb.orientation,
-                    images = repo.loadImages(nbId, p.pageId), media = repo.loadMedia(nbId, p.pageId),
-                    imageDir = repo.notebookDir(nbId).absolutePath,
-                    paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
-                )
+            val pages = withContext(Dispatchers.IO) { repo.listPages(nbId) }
+            val snapshots = withContext(Dispatchers.IO) {
+                pages.map { p ->
+                    val spec = nb.pageSpec(p.pageId)
+                    Triple(p.pageId, spec, PageSnapshot.of(repo.loadDrawing(nbId, p.pageId)))
+                }
             }
+            val map = withContext(Dispatchers.Default) {
+                snapshots.associate { (pageId, spec, snapshot) ->
+                    pageId to renderPageThumb(
+                        snapshot.strokes, snapshot.cards, spec.paper, nb.pageSize, nb.orientation,
+                        images = snapshot.images, media = snapshot.media,
+                        imageDir = repo.notebookDir(nbId).absolutePath,
+                        paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
+                    )
+                }
+            }
+            if (notebookId != nbId) return@launch   // 期间已切本:旧缩略图不覆盖新本
             thumbs.value = map
         }
     }
@@ -1567,12 +1741,11 @@ class WriterViewModel : ViewModel() {
     private suspend fun renderThumbOf(pageId: String) {
         val nb = _state.value.notebook ?: return
         val spec = nb.pageSpec(pageId)
-        val strokes = controller.page.strokes.toList()
-        val cards = controller.annotationCards()
+        val snapshot = withContext(Dispatchers.Main) { PageSnapshot.of(controller.page) }
         val bmp = withContext(Dispatchers.Default) {
             renderPageThumb(
-                strokes, cards, spec.paper, nb.pageSize, nb.orientation,
-                images = controller.images(), media = controller.media(),
+                snapshot.strokes, snapshot.cards, spec.paper, nb.pageSize, nb.orientation,
+                images = snapshot.images, media = snapshot.media,
                 imageDir = repo.notebookDir(notebookId).absolutePath,
                 paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
             )
@@ -1591,12 +1764,12 @@ class WriterViewModel : ViewModel() {
             val pageId = _state.value.currentPageId
             val nb = _state.value.notebook ?: return@launch
             val spec = nb.pageSpec(pageId)
+            val drawing = repo.loadDrawing(notebookId, pageId)
             val data = AgentBridge.PageData(
-                repo.loadPage(notebookId, pageId),
-                repo.loadAnnotations(notebookId, pageId),
+                drawing.strokes, drawing.cards,
                 spec.paper, nb.pageSize, nb.orientation,
-                images = repo.loadImages(notebookId, pageId),
-                media = repo.loadMedia(notebookId, pageId),
+                images = drawing.images,
+                media = drawing.media,
                 imageDir = repo.notebookDir(notebookId).absolutePath,
                 paperColor = spec.paperColor, pageWidthMm = spec.widthMm, pageHeightMm = spec.heightMm,
             )
@@ -1609,18 +1782,38 @@ class WriterViewModel : ViewModel() {
     fun exportPdf(onDone: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val nb = _state.value.notebook ?: return@launch
-            val pages = repo.listPages(notebookId).map {
-                Triple(it.pageId, repo.loadPage(notebookId, it.pageId), repo.loadAnnotations(notebookId, it.pageId))
+            val drawings = repo.listPages(notebookId).associate { page ->
+                page.pageId to repo.loadDrawing(notebookId, page.pageId)
             }
+            val pages = drawings.map { (pageId, drawing) -> Triple(pageId, drawing.strokes, drawing.cards) }
             val uri = PageExporter.savePdf(
                 ServiceLocator.appContext, pages, nb.paper, nb.name,
                 nb.pageSize, nb.orientation,
                 imageDir = repo.notebookDir(notebookId).absolutePath,
-                imagesOf = { pageId -> repo.loadImages(notebookId, pageId) },
-                mediaOf = { pageId -> repo.loadMedia(notebookId, pageId) },
+                imagesOf = { pageId -> drawings[pageId]?.images ?: emptyList() },
+                mediaOf = { pageId -> drawings[pageId]?.media ?: emptyList() },
                 pageSpecOf = { pageId -> nb.pageSpec(pageId) },
             )
             withContext(Dispatchers.Main) { onDone(uri) }
+        }
+    }
+
+    /**
+     * 设置流订阅:必须放在类末尾的 init —— `Dispatchers.Main.immediate` 下首个值会同步回放,
+     * 此时 `splitController` / `frontBufferFlag` / `penPresets` 等必须已完成初始化(否则 NPE)。
+     */
+    init {
+        // 设置 → 压感曲线档(笔宽是样式,换档即时生效)/ 前置缓冲开关
+        viewModelScope.launch {
+            ServiceLocator.appSettings.flow.collect { s ->
+                frontBufferFlag = s.frontBufferInk
+                val settings = _state.value.toolSettings.withPressureGamma(s.pressureGamma)
+                applyToolSettings(settings)
+                _state.value = _state.value.copy(
+                    frontBufferEnabled = s.frontBufferInk,
+                )
+                penPresets.value = PenPresets.decode(s.penPresets)
+            }
         }
     }
 }
@@ -1628,7 +1821,7 @@ class WriterViewModel : ViewModel() {
 // ---------- 页面 → 位图(缩略图与全量导出共用路径;含批注卡) ----------
 
 internal fun renderPageThumb(
-    strokes: List<com.milknote.ink.model.Stroke>,
+    strokes: List<Stroke>,
     cards: List<AnnotationCard>,
     paper: String,
     pageSize: String = "A4",

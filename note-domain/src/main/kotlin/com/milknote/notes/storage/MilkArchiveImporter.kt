@@ -61,12 +61,14 @@ data class MilkImportResult(
  * MilkNote 自有 `.milk.zip` 备份导入(纯 JVM/domain,同步 IO)。
  *
  * 导出侧见 PageExporter.saveZipBackup:ZIP 内只有一个 `<笔记名>.milk/` 根目录,
- * 根目录下包含 notebook.json、`p*.pb`、`<pageId>.ann.json` / `<pageId>.img.json`
- * sidecar、`images/` 共享图片以及 `agent/` 会话与附件。
+ * 根目录下包含 notebook.json、`p*.pb`、`<pageId>.jrnl` 操作日志、
+ * `<pageId>.ann.json` / `<pageId>.img.json` / `<pageId>.media.json` sidecar、
+ * `images/` 共享图片以及 `agent/` 会话与附件。
  *
  * 导入策略:
  * - 严格校验(单个 .milk 根、notebook.json 可解码、路径安全、无重复条目/页面 ID、
- *   pageOrder 合法、pb 可解析、条目数与体积上限);任何失败都抛 [MilkImportException]。
+ *   pageOrder 合法、pb 可解析、操作日志帧可解析且属于现有页、条目数与体积上限);
+ *   任何失败都抛 [MilkImportException]。日志尾部截断与 pb 一致地容忍(崩溃残尾)。
  * - **绝不覆盖已有笔记本**:先解压到 `notebooks/` 内的临时 staging 目录,生成新的
  *   8 位十六进制 notebook id,改写 notebook.json 的 id 后用 rename 原子落盘;
  *   失败时递归清理 staging,不留下半成品。
@@ -170,6 +172,7 @@ object MilkArchiveImporter {
             extract(zip, entries, root, staging)
             pageIds.forEach { pageId -> validatePageProto(File(staging, "$pageId.pb"), "$pageId.pb") }
             validateImageSidecars(staging)
+            validateJournals(staging, pageIds.toSet())
 
             val newId = freshNotebookId(notebooksRoot)
             rewriteAgentSessions(staging, newId)
@@ -393,8 +396,30 @@ object MilkArchiveImporter {
         }
     }
 
-    private fun validatePageSpecs(meta: NotebookMeta, pageIds: List<String>) {
-        val pages = pageIds.toSet()
+    /**
+     * 操作日志校验:文件必须属于已存在页面;损坏前缀/不可恢复帧拒绝导入,
+     * 尾部截断(崩溃残尾)与 pb 一致地容忍。
+     */
+    private fun validateJournals(dir: File, pageIds: Set<String>) {
+        val journals = dir.listFiles { f -> f.isFile && f.name.endsWith(DrawingJournal.FILE_SUFFIX) }
+            ?: return
+        journals.forEach { file ->
+            val pageId = file.name.removeSuffix(DrawingJournal.FILE_SUFFIX)
+            if (pageId !in pageIds) {
+                throw MilkImportCorruptException("备份包含孤立页面日志：${file.name}")
+            }
+            val result = try {
+                DrawingJournal.read(file, maxFrames = DrawingJournal.MAX_FRAMES)
+            } catch (e: DrawingJournalCorruptException) {
+                throw MilkImportCorruptException("页面日志损坏（${file.name}）：${e.message}", e)
+            }
+            if (result.damage == DrawingJournal.Damage.INVALID) {
+                throw MilkImportCorruptException("页面日志损坏（${file.name}）：动作帧无法恢复")
+            }
+        }
+    }
+
+    private fun validatePageSpecs(meta: NotebookMeta, pageIds: List<String>) {        val pages = pageIds.toSet()
         meta.pageSpecs.forEach { (pageId, spec) ->
             if (pageId !in pages || !spec.widthMm.isFinite() || !spec.heightMm.isFinite() ||
                 spec.widthMm <= 0f || spec.heightMm <= 0f || spec.widthMm > 2000f || spec.heightMm > 2000f

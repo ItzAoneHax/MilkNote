@@ -394,6 +394,9 @@ fun WriterScreen(
         ) {
                 val splitNb = state.splitNotebook
                 if (state.splitEnabled && splitNb != null) {
+                    // 同一本同一页:右侧重复窗格只读(状态由主窗格整体镜像,避免两个撤销栈分叉)
+                    val duplicateSplit = splitNb.id == state.notebook?.id &&
+                        state.splitPageId == state.currentPageId
                     val splitStartPad = (if (!focusMode && railMode != null) WriterExpandedRailWidth else 0.dp) + 12.dp
                     val splitEndPad = (if (!focusMode && agentDrawerOpen) 360.dp else 0.dp) + 12.dp
                     Row(
@@ -439,6 +442,16 @@ fun WriterScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (duplicateSplit) {
+                                        Text(
+                                            "同页 · 只读",
+                                            style = MilkText.monoMeta,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .padding(end = 6.dp)
+                                                .testTag("writer-split-duplicate-readonly"),
+                                        )
+                                    }
                                     SplitPageStep(
                                         icon = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
                                         label = "上一页",
@@ -461,7 +474,10 @@ fun WriterScreen(
                                 }
                             }
                             Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(6.dp))) {
-                                SplitPaperCanvas(vm, state, dark, penConnected, selectedMajorTool == WriterMajorTool.READING)
+                                SplitPaperCanvas(
+                                    vm, state, dark, penConnected,
+                                    readingMode = selectedMajorTool == WriterMajorTool.READING || duplicateSplit,
+                                )
                             }
                         }
                     }
@@ -577,6 +593,13 @@ fun WriterScreen(
                 else slideOutHorizontally(tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer)) { -it } +
                     fadeOut(tween(MilkMotion.exit, easing = MilkMotion.EaseOut)),
             ) {
+                val outlineEntries by vm.outline.collectAsState()
+                if ((railMode ?: lastRailMode) == WriterRailMode.OUTLINE) {
+                    // 大纲读取在 VM 里后台执行;组合期只触发,不做磁盘 I/O
+                    LaunchedEffect(state.notebook?.id, state.currentPageId, state.pages, state.pageMarkdown) {
+                        vm.refreshOutline()
+                    }
+                }
                 when (railMode ?: lastRailMode) {
                     WriterRailMode.PAGES -> WriterPageRail(
                         state = state,
@@ -602,7 +625,7 @@ fun WriterScreen(
                     )
                     WriterRailMode.OUTLINE -> WriterOutlineRail(
                         state = state,
-                        entries = remember(state.currentPageId, state.pages, state.pageMarkdown) { vm.outlineEntries() },
+                        entries = outlineEntries,
                         onSwitch = vm::switchPage,
                         onShowPages = { railMode = WriterRailMode.PAGES },
                         onShowSnippets = { railMode = WriterRailMode.SNIPPETS },

@@ -150,8 +150,8 @@ class ImageBudgetTest {
 class PromptEngineTest {
 
     @Test
-    fun `六意图齐备且各有契约`() {
-        assertEquals(6, Intents.all.size)
+    fun `七意图齐备且各有契约`() {
+        assertEquals(7, Intents.all.size)
         Intents.all.forEach { s ->
             assertTrue(PromptEngine.systemPrompt(s).contains(Intents.BASE_SYSTEM))
             assertTrue(PromptEngine.systemPrompt(s).contains(s.systemContract))

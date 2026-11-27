@@ -400,12 +400,13 @@ private fun performExport(
 
     return when (format) {
         ExportFormat.PDF -> {
+            // 每页只回放一次操作日志,再分发给 PDF(页/图片/媒体共用同一份快照)
+            val drawings = pageIds.associateWith { pageId ->
+                repo.loadDrawing(notebook.id, pageId)
+            }
             val pages = pageIds.map { pageId ->
-                Triple(
-                    pageId,
-                    repo.loadPage(notebook.id, pageId),
-                    repo.loadAnnotations(notebook.id, pageId),
-                )
+                val drawing = drawings.getValue(pageId)
+                Triple(pageId, drawing.strokes, drawing.cards)
             }
             val saved = PageExporter.savePdfFile(
                 context = context,
@@ -415,8 +416,8 @@ private fun performExport(
                 pageSize = notebook.pageSize,
                 orientation = notebook.orientation,
                 imageDir = dir.absolutePath,
-                imagesOf = { pageId -> repo.loadImages(notebook.id, pageId) },
-                mediaOf = { pageId -> repo.loadMedia(notebook.id, pageId) },
+                imagesOf = { pageId -> drawings[pageId]?.images ?: emptyList() },
+                mediaOf = { pageId -> drawings[pageId]?.media ?: emptyList() },
                 pageSpecOf = { pageId -> notebook.pageSpec(pageId) },
             ) ?: return ExportOutcome("PDF 保存失败，请检查存储空间", format.mimeType)
             ExportOutcome("已导出 PDF（${pageIds.size} 页）→ ${saved.location}", format.mimeType, listOf(saved))
@@ -428,14 +429,16 @@ private fun performExport(
             for ((index, pageId) in pageIds.withIndex()) {
                 val file = runCatching {
                     val spec = notebook.pageSpec(pageId)
+                    // 单次 loadDrawing:笔迹/批注/图片/媒体来自同一份回放结果
+                    val drawing = repo.loadDrawing(notebook.id, pageId)
                     val data = AgentBridge.PageData(
-                        strokes = repo.loadPage(notebook.id, pageId),
-                        cards = repo.loadAnnotations(notebook.id, pageId),
+                        strokes = drawing.strokes,
+                        cards = drawing.cards,
                         paper = spec.paper,
                         pageSize = notebook.pageSize,
                         orientation = notebook.orientation,
-                        images = repo.loadImages(notebook.id, pageId),
-                        media = repo.loadMedia(notebook.id, pageId),
+                        images = drawing.images,
+                        media = drawing.media,
                         imageDir = dir.absolutePath,
                         paperColor = spec.paperColor,
                         pageWidthMm = spec.widthMm,

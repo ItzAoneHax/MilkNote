@@ -89,6 +89,7 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Style
@@ -159,6 +160,7 @@ import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkComposerField
+import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkExpandableErrorBox
 import com.milknote.app.ui.common.MilkGroupItemDivider
@@ -538,7 +540,7 @@ private fun AgentDrawer(
                                     .padding(bottom = MilkSpace.xs),
                             )
                         }
-                        Composer(state, pageIds, onSnipToAttachment)
+                        Composer(state, pageIds, pageLabel, onSnipToAttachment)
                     }
                 }
             }
@@ -1854,6 +1856,7 @@ private fun errorTitle(e: AgentError): String = when (e) {
 private fun Composer(
     state: AgentUiState,
     pageIds: List<String>,
+    pageLabel: String,
     onSnipToAttachment: () -> Unit,
 ) {
     val agent = ServiceLocator.agentController
@@ -1861,6 +1864,7 @@ private fun Composer(
     val cs = MaterialTheme.colorScheme
     val text = state.draftText
     var attachOpen by remember { mutableStateOf(false) }
+    var proficiencyDialog by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
     var editingDraft by remember { mutableStateOf<DraftAttachment?>(null) }
     var editingBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -1881,7 +1885,12 @@ private fun Composer(
                     add(
                         "/${spec.label}" to {
                             agent.setDraftText("")
-                            agent.sendWithIntent(spec.id)
+                            // 熟练度分析必须先经过说明弹层(授权只能由用户显式发起)
+                            if (spec.id == Intents.Id.PROFICIENCY) {
+                                proficiencyDialog = true
+                            } else {
+                                agent.sendWithIntent(spec.id)
+                            }
                         },
                     )
                 }
@@ -2037,6 +2046,28 @@ private fun Composer(
                 )
             }
 
+            // 熟练度分析:用户显式申请入口(授权只覆盖本次请求与本页)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MilkChip(
+                    label = "申请熟练度分析",
+                    selected = false,
+                    onClick = { proficiencyDialog = true },
+                    small = true,
+                    role = Role.Button,
+                )
+                Spacer(Modifier.width(MilkSpace.sm))
+                Text(
+                    "仅本次 · $pageLabel",
+                    style = MilkText.monoMicro,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+
             MilkComposerField(
                 value = text,
                 onValueChange = {
@@ -2113,6 +2144,24 @@ private fun Composer(
             text = toast.orEmpty(),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = MilkSpace.sm),
         )
+
+        if (proficiencyDialog) {
+            MilkConfirmDialog(
+                title = "申请熟练度分析？",
+                body = "本次会读取并发送${pageLabel}的元素时间信息" +
+                    "(笔迹创建时间、书写时长与是否已擦除;不含笔记原文与资产路径)。" +
+                    "授权只作用于本次请求和这一页,不会带入普通对话、重试、切页或新会话。\n\n" +
+                    "分析以题目/笔记的正确性为主要依据;如需判断对错,请先附加相关页面、题目或笔记截图。",
+                confirmLabel = "申请并发送",
+                destructive = false,
+                icon = Icons.Outlined.Schedule,
+                onDismiss = { proficiencyDialog = false },
+                onConfirm = {
+                    proficiencyDialog = false
+                    agent.requestProficiencyAnalysis(text)
+                },
+            )
+        }
     }
 
     preview?.let { target ->

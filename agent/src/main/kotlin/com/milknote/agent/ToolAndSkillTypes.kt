@@ -9,7 +9,7 @@ import kotlinx.serialization.json.put
 // =====================================================================
 // Skills & Tools 可扩展架构
 // - AgentSkill:可按需阅读的「技能」(先看目录,再 read_skill 取全文)
-// - ToolSpec / ToolConfig:工具声明与用户覆盖(设置页通用键值配置由此驱动)
+// - ToolSpec / ToolConfig:工具声明与用户覆盖(内置工具只读;自定义工具的通用键值配置由此驱动)
 // - AgentTool / ToolRegistry:执行单元与注册表
 // 全部纯 Kotlin,不依赖 android.framework,便于 JVM 单测。
 // =====================================================================
@@ -55,6 +55,18 @@ data class ToolSpec(
     val defaultRequireConfirmation: Boolean = false,
     val parameters: List<ToolParameter> = emptyList(),
     val settingOptions: List<ToolSettingOption> = emptyList(),
+    /**
+     * 应用自带工具:定义与运行策略只读 —— 用户覆盖的开关/显示名/说明/确认/设置一律忽略,
+     * 危险工具的默认确认不可被关闭。自定义工具置 false 后仍由设置页通用键值驱动。
+     */
+    val builtin: Boolean = true,
+    /**
+     * 仅当用户就当前页显式申请「熟练度分析」时才对模型可见;
+     * 实际执行还需 [ToolContext.elementTimestampsPage] 匹配(缺授权直接拒绝)。
+     */
+    val requiresUserGrant: Boolean = false,
+    /** 是否把工具原始输出写入 [ToolTrace](时序类数据只进本次调用链,不落盘) */
+    val recordOutputInTrace: Boolean = true,
 )
 
 @Serializable
@@ -113,6 +125,11 @@ data class ToolContext(
     val workspace: NotebookWorkspacePort?,
     val skillStore: SkillManagerPort,
     val webSearch: WebSearchPort,
+    /**
+     * 本次请求的熟练度分析授权页(null = 未申请)。
+     * 只由用户显式「申请熟练度分析」产生,绑定发起时的页面,不落盘、不跨 turn。
+     */
+    val elementTimestampsPage: PageRef? = null,
 )
 
 data class ToolExecResult(
@@ -142,9 +159,12 @@ class ToolRegistry {
 
     fun get(id: String): AgentTool? = tools[id]
 
-    /** 合并声明默认值与用户覆盖(settings 也补齐默认项) */
+    /**
+     * 合并声明默认值与用户覆盖(settings 也补齐默认项)。
+     * 内置工具定义只读:忽略一切用户覆盖,危险工具的默认确认因此不可被关闭。
+     */
     fun effectiveConfig(spec: ToolSpec, overrides: Map<String, ToolConfig>): ToolConfig {
-        val saved = overrides[spec.id]
+        val saved = if (spec.builtin) null else overrides[spec.id]
         val defaults = spec.settingOptions.associate { it.key to it.defaultValue }
         return ToolConfig(
             id = spec.id,
@@ -162,12 +182,22 @@ class ToolRegistry {
     fun requiresConfirmation(spec: ToolSpec, config: ToolConfig?): Boolean =
         config?.requireConfirmation ?: spec.defaultRequireConfirmation
 
-    /** 已启用工具 → 模型可见声明(按注册顺序,保证提示词与 wire 稳定) */
-    fun effectiveWireTools(configs: Map<String, ToolConfig>): List<WireToolDef> =
+    /** 工具对当前请求是否可用:已启用 + (授权类工具必须在本 turn 的授权集合内) */
+    fun isVisible(spec: ToolSpec, config: ToolConfig, authorizedToolIds: Set<String>): Boolean =
+        config.enabled && (!spec.requiresUserGrant || spec.id in authorizedToolIds)
+
+    /**
+     * 已启用工具 → 模型可见声明(按注册顺序,保证提示词与 wire 稳定)。
+     * [authorizedToolIds] 只由用户显式申请产生,未授权时授权类工具不出现在 wire 中。
+     */
+    fun effectiveWireTools(
+        configs: Map<String, ToolConfig>,
+        authorizedToolIds: Set<String> = emptySet(),
+    ): List<WireToolDef> =
         tools.values.mapNotNull { tool ->
             val spec = tool.spec
             val config = effectiveConfig(spec, configs)
-            if (!config.enabled) return@mapNotNull null
+            if (!isVisible(spec, config, authorizedToolIds)) return@mapNotNull null
             WireToolDef(
                 name = spec.id,
                 description = config.customDescription?.takeIf { it.isNotBlank() } ?: spec.defaultDescription,

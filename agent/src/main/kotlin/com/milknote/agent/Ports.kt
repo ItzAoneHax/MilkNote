@@ -61,6 +61,20 @@ data class PageInfo(val pageId: String, val index: Int, val isCurrent: Boolean)
 /** 页面像素尺寸 */
 data class PageDimensions(val widthPx: Float, val heightPx: Float)
 
+/**
+ * 页面元素时间摘要(熟练度分析专用):只给时序元数据,不含笔记正文/资产路径。
+ * - [createdAtMs] 未知为 null(旧数据或非笔迹);
+ * - [durationMs] 仅笔迹可算,其余为 null;
+ * - [erased] 是否已擦除(被擦除的叠层仍占位,便于还原书写过程)。
+ */
+data class ElementTimestamp(
+    val id: String,
+    val kind: String,
+    val createdAtMs: Long?,
+    val durationMs: Long? = null,
+    val erased: Boolean = false,
+)
+
 /** 笔记本工作区:页管理 + 画布元素操作(由 app 装配层实现) */
 interface NotebookWorkspacePort {
     suspend fun listPages(notebookId: String): List<PageInfo>
@@ -100,9 +114,21 @@ interface NotebookWorkspacePort {
     ): Boolean
 
     suspend fun deleteElement(page: PageRef, elementId: String, elementKind: String?): Boolean
+
+    /**
+     * 页面元素时间摘要(熟练度分析授权内使用)。
+     * [rect] 为页面原始像素矩形([Rect4] 允许 0 宽高的点矩形),两顶点顺序由调用方归一化;
+     * 返回顺序由装配层保证:顶层 → 底层,再补历史/已擦除叠层。
+     * null = 页不可用(不存在或未接入);分页由工具层完成。
+     */
+    suspend fun elementTimestamps(
+        page: PageRef,
+        rect: Rect4,
+        includeErased: Boolean,
+    ): List<ElementTimestamp>? = null
 }
 
-/** 技能管理:读写 AgentSkill(内置技能由 AgentStore 首次加载时补齐) */
+/** 技能管理:读写自定义 AgentSkill(内置技能由 AgentStore 补齐且只读,任何覆盖都被忽略) */
 interface SkillManagerPort {
     fun listSkills(): List<AgentSkill>
 

@@ -2,18 +2,29 @@ package com.milknote.agent
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * 9 个内置工具:
+ * 10 个内置工具(定义只读,用户不能改开关/确认/名称/说明/设置):
  * - SEARCH  web_search
  * - COMPUTE calculate
  * - PAGE    add_page / delete_page(确认)
  * - CANVAS  insert_markdown / list_page_elements / modify_page_element(确认)
- * - SKILL   read_skill / create_skill
+ * - TIME    get_element_timestamps(仅用户显式申请熟练度分析时可见/可执行)
+ * - SKILL   read_skill / create_skill(内置技能不可覆盖)
  *
  * 只依赖 Ports.kt 的纯 Kotlin 端口,装配在 app 层。
  */
 object BuiltinTools {
+
+    /** 仅在熟练度分析授权内可用的时序工具 id(工具层与控制器共用) */
+    const val ELEMENT_TIMESTAMPS_TOOL_ID = "get_element_timestamps"
+
+    private const val TIMESTAMP_PAGE_DEFAULT = 20
+    private const val TIMESTAMP_PAGE_MAX = 30
+
+    /** 应用自带工具 id(AgentStore 据此忽略旧覆盖) */
+    val builtinToolIds: Set<String> by lazy { createDefaultRegistry().allSpecs().map { it.id }.toSet() }
 
     fun createDefaultRegistry(): ToolRegistry = ToolRegistry().apply {
         register(WebSearchTool())
@@ -23,6 +34,7 @@ object BuiltinTools {
         register(InsertMarkdownTool())
         register(ListPageElementsTool())
         register(ModifyPageElementTool())
+        register(GetElementTimestampsTool())
         register(ReadSkillTool())
         register(CreateSkillTool())
     }
@@ -459,6 +471,184 @@ object BuiltinTools {
         private fun numText(v: Double): String = MathEvaluator.formatNumber(v, 2)
     }
 
+    // ==================== TIMESTAMP(仅熟练度分析授权) ====================
+
+    private class GetElementTimestampsTool : AgentTool {
+        override val spec = ToolSpec(
+            id = ELEMENT_TIMESTAMPS_TOOL_ID,
+            defaultDisplayName = "读取页面元素时序",
+            defaultDescription = "读取授权页面指定区域内的元素时间信息(仅在用户就本页显式申请熟练度分析时可用)。" +
+                "坐标为页面原始像素:x1/y1 必填,x2/y2 需同时提供(都不给表示点选),两顶点顺序任意。" +
+                "返回按顶层到最底层的 id、类型、创建时间、笔迹时长与是否已擦除,不含笔记原文与资产路径。" +
+                "时间只是弱证据,不得据此推断思考耗时、熟练度或心理状态;叠层多时用 offset/limit 分页遍历。",
+            category = ToolCategory.CANVAS,
+            builtin = true,
+            requiresUserGrant = true,
+            recordOutputInTrace = false,
+            parameters = listOf(
+                ToolParameter("x1", "number", "矩形一角 X(页面原始像素)", required = true),
+                ToolParameter("y1", "number", "矩形一角 Y(页面原始像素)", required = true),
+                ToolParameter("x2", "number", "对角点 X(与 y2 同时提供;都不给表示点选)"),
+                ToolParameter("y2", "number", "对角点 Y(与 x2 同时提供;都不给表示点选)"),
+                ToolParameter("include_erased", "boolean", "是否包含已擦除元素,默认 false"),
+                ToolParameter("offset", "integer", "跳过条数,默认 0"),
+                ToolParameter("limit", "integer", "返回上限 1-$TIMESTAMP_PAGE_MAX,默认 $TIMESTAMP_PAGE_DEFAULT"),
+            ),
+        )
+
+        override fun describeAction(args: JsonObject, ctx: ToolContext): String =
+            "读取页面 ${ctx.elementTimestampsPage?.pageId ?: "?"} 的元素时序"
+
+        override suspend fun execute(args: JsonObject, ctx: ToolContext): ToolExecResult {
+            val page = ctx.elementTimestampsPage
+                ?: return ToolExecResult(
+                    false,
+                    "未获得用户本次熟练度分析申请,拒绝读取页面时间数据。" +
+                        "请提示用户点击「申请熟练度分析」后再试。",
+                )
+            val workspace = ctx.workspace
+                ?: return ToolExecResult(false, "当前未接入笔记本工作区")
+
+            // 参数严格校验:key 是否存在决定「点选/矩形/可选字段」,已提供的值必须解析成功;
+            // 不复用 ToolArgs 的宽松/截断语义(那是给其他旧工具的兼容行为)。
+            if (!provided(args, "x1") || !provided(args, "y1")) {
+                return ToolExecResult(false, "缺少 x1/y1 参数(页面原始像素坐标)")
+            }
+            val x1 = numberArg(args, "x1")
+                ?: return ToolExecResult(false, "x1 必须是有限数值")
+            val y1 = numberArg(args, "y1")
+                ?: return ToolExecResult(false, "y1 必须是有限数值")
+            val hasX2 = provided(args, "x2")
+            val hasY2 = provided(args, "y2")
+            if (hasX2 != hasY2) {
+                return ToolExecResult(false, "x2 与 y2 必须同时提供,或都不提供表示点选")
+            }
+            val x2 = if (hasX2) {
+                numberArg(args, "x2") ?: return ToolExecResult(false, "x2 必须是有限数值")
+            } else {
+                null
+            }
+            val y2 = if (hasY2) {
+                numberArg(args, "y2") ?: return ToolExecResult(false, "y2 必须是有限数值")
+            } else {
+                null
+            }
+            if (listOfNotNull(x1, y1, x2, y2).any { !it.isFinite() }) {
+                return ToolExecResult(false, "坐标必须是有限数值")
+            }
+
+            val includeErased = if (!provided(args, "include_erased")) {
+                false
+            } else {
+                boolArg(args, "include_erased")
+                    ?: return ToolExecResult(false, "include_erased 只能是 true/false")
+            }
+            val offset = if (!provided(args, "offset")) {
+                0
+            } else {
+                intArg(args, "offset")
+                    ?: return ToolExecResult(false, "offset 必须是整数(不接受小数)")
+            }
+            if (offset < 0) return ToolExecResult(false, "offset 不能为负数")
+            val limit = if (!provided(args, "limit")) {
+                TIMESTAMP_PAGE_DEFAULT
+            } else {
+                (intArg(args, "limit")
+                    ?: return ToolExecResult(false, "limit 必须是整数(不接受小数)"))
+                    .coerceIn(1, TIMESTAMP_PAGE_MAX)
+            }
+
+            val pages = runCatching { workspace.listPages(page.notebookId) }.getOrDefault(emptyList())
+            if (pages.isNotEmpty() && pages.none { it.pageId == page.pageId }) {
+                return ToolExecResult(false, "页面 ${page.pageId} 不存在")
+            }
+            val dims = workspace.pageDimensions(page)
+                ?: return ToolExecResult(false, "页面 ${page.pageId} 不可用")
+            val rect = Rect4.fromDrag(x1.toFloat(), y1.toFloat(), (x2 ?: x1).toFloat(), (y2 ?: y1).toFloat())
+            if (rect.l < 0f || rect.t < 0f || rect.r > dims.widthPx || rect.b > dims.heightPx) {
+                return ToolExecResult(
+                    false,
+                    "选区超出页面范围(页面 ${num(dims.widthPx)}×${num(dims.heightPx)}):" +
+                        "(${num(rect.l)}, ${num(rect.t)})-(${num(rect.r)}, ${num(rect.b)})",
+                )
+            }
+
+            val all = workspace.elementTimestamps(page, rect, includeErased)
+                ?: return ToolExecResult(false, "页面 ${page.pageId} 不可用(无法读取元素时序)")
+
+            val total = all.size
+            val from = offset.coerceAtMost(total)
+            val items = if (from >= total) emptyList() else all.subList(from, minOf(total, from + limit))
+            val header = buildString {
+                append("页面 ").append(page.pageId).append(" · ")
+                if (rect.width == 0f && rect.height == 0f) {
+                    append("点 (").append(num(rect.l)).append(", ").append(num(rect.t)).append(")")
+                } else {
+                    append("选区 (").append(num(rect.l)).append(", ").append(num(rect.t)).append(")-(")
+                        .append(num(rect.r)).append(", ").append(num(rect.b)).append(")")
+                }
+                append('\n')
+                append("共 ").append(total).append(" 个元素(含已擦除=").append(includeErased)
+                append("),offset=").append(offset).append(" limit=").append(limit)
+                if (items.isEmpty()) {
+                    append(",没有可返回的元素")
+                } else {
+                    append(",本次返回 ").append(from + 1).append('-').append(from + items.size)
+                }
+            }
+            val body = items.mapIndexed { index, element ->
+                buildString {
+                    append(from + index + 1).append(". id=").append(element.id)
+                    append(" kind=").append(element.kind)
+                    append(" createdAtMs=").append(element.createdAtMs?.toString() ?: "unknown")
+                    if (element.kind.equals("stroke", ignoreCase = true)) {
+                        append(" durationMs=").append(element.durationMs?.toString() ?: "unknown")
+                    }
+                    append(" erased=").append(element.erased)
+                }
+            }
+            val nextOffset = if (from + items.size < total) from + items.size else null
+            val output = buildString {
+                append(header)
+                if (body.isNotEmpty()) append('\n').append(body.joinToString("\n"))
+                if (nextOffset != null) {
+                    append("\nnextOffset=").append(nextOffset)
+                        .append("(再次调用并传 offset=").append(nextOffset).append(" 继续)")
+                }
+                append("\n提示:时序只是弱证据,结论以答题/笔记/知识点的正确性为主要依据;")
+                append("不得据此推断思考耗时、熟练度或心理状态,数据不足时明确说明。")
+            }
+            return ToolExecResult(true, output, "${items.size} 个元素时序")
+        }
+
+        private fun num(v: Float): String = MathEvaluator.formatNumber(v.toDouble(), 1)
+
+        /** 模型是否显式提供了该字段(含 null;null 会在解析阶段被拒绝) */
+        private fun provided(args: JsonObject, name: String): Boolean = args.containsKey(name)
+
+        /** 严格数值:只接受 JSON number 或数字字符串;object/array/boolean/null 均返回 null */
+        private fun numberArg(args: JsonObject, name: String): Double? {
+            val primitive = args[name] as? JsonPrimitive ?: return null
+            return primitive.content.toDoubleOrNull()
+        }
+
+        /** 严格整数:2、2.0、"2" 均可;1.5/NaN/越界/非数值类型返回 null(不截断) */
+        private fun intArg(args: JsonObject, name: String): Int? {
+            val value = numberArg(args, name) ?: return null
+            if (!value.isFinite() || value != Math.floor(value)) return null
+            if (value < Int.MIN_VALUE || value > Int.MAX_VALUE) return null
+            return value.toInt()
+        }
+
+        /** 严格布尔:只接受 true/false(JSON 布尔或字符串形式) */
+        private fun boolArg(args: JsonObject, name: String): Boolean? =
+            when ((args[name] as? JsonPrimitive)?.content) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+    }
+
     // ==================== SKILL ====================
 
     private class ReadSkillTool : AgentTool {
@@ -533,12 +723,25 @@ object BuiltinTools {
             val enabled = ToolArgs.bool(args, "enabled") ?: true
             val existing = ctx.skillStore.listSkills()
             val requested = ToolArgs.string(args, "id")
+            val builtinIds = BuiltinSkills.all.map { it.id }.toSet()
+            if (slugify(name) in builtinIds) {
+                return ToolExecResult(
+                    false,
+                    "「$name」与内置技能冲突,内置技能内容只读;请换一个名称或按内置技能规范作答。",
+                )
+            }
             val id = if (requested != null) {
                 sanitizeId(requested)
             } else {
                 uniqueId(slugify(name), existing.map { it.id }.toSet())
             }
             if (id.isBlank()) return ToolExecResult(false, "无法生成合法的技能 id")
+            if (id in builtinIds) {
+                return ToolExecResult(
+                    false,
+                    "「$id」是应用内置技能,内容只读,不能覆盖;请换一个名称/id,或按内置技能规范作答。",
+                )
+            }
             val skill = ctx.skillStore.createOrUpdateSkill(id, name, summary, content, enabled)
             val action = if (existing.any { it.id == skill.id }) "已更新" else "已新增"
             return ToolExecResult(

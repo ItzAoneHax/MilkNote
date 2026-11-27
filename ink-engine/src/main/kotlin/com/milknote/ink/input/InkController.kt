@@ -1,6 +1,7 @@
 package com.milknote.ink.input
 
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.DrawingChange
 import com.milknote.ink.model.ElementGeom
 import com.milknote.ink.model.ElementRef
 import com.milknote.ink.model.ImageElement
@@ -82,6 +83,8 @@ class InkController {
 
     /** 活动笔迹(书写中);点列表可变以避免每点拷贝 */
     private var activePoints: MutableList<InkPoint>? = null
+    /** 本笔生成时间锚(beginStroke 建立,endStroke 写入 Stroke.createdAt) */
+    private var activeStartedAtMillis = 0L
     /** 本笔工具覆盖(倒置笔 TOOL_TYPE_ERASER → 橡皮;副键按住书写 = 临时橡皮) */
     private var activeToolOverride: com.milknote.ink.model.ToolConfig? = null
     private val activeTool: com.milknote.ink.model.ToolConfig
@@ -98,6 +101,13 @@ class InkController {
 
     /** 落盘通知(每次状态变更后按序回调;必须在主线程外自行异步化) */
     var onCommit: ((InkCommit) -> Unit)? = null
+
+    /**
+     * 统一绘图变更(新增接口):每个 UI Batch 一次,覆盖笔迹/卡片/图片/媒体增删移动换层
+     * 与 undo/redo;先于 [onCommit] 回调,便于落盘层优先建立操作日志。
+     * 只应在主线程使用;落盘在仓库内异步化。
+     */
+    var onDrawingChange: ((DrawingChange) -> Unit)? = null
 
     /** 手势/按键动作回调(device-mi PenActionRouter 路由到这里) */
     var onAction: ((InkAction) -> Unit)? = null
@@ -582,12 +592,12 @@ class InkController {
         selectionGuides.clear()
     }
 
+    /** 非复制变换:保留 stable id 与 createdAt;仅形状旋转退化时改工具/点集。 */
     private fun transformedStroke(s: Stroke, t: ElementGeom.Transform): Stroke {
         val convertShape = s.tool in setOf(InkTool.RECT, InkTool.OVAL, InkTool.TRIANGLE, InkTool.STAR, InkTool.POLYGON) &&
             abs(t.rotationDeg) > 0.01f
         val source = if (convertShape) StrokeGeom.polyline(s) else s.points
         return s.copy(
-            id = UUID.randomUUID().toString(),
             tool = if (convertShape) InkTool.PEN else s.tool,
             baseWidthMm = s.baseWidthMm * t.scale,
             points = source.map { p ->
@@ -597,6 +607,7 @@ class InkController {
                     pressure = if (convertShape) 1f else p.pressure,
                 )
             },
+            createdAt = s.createdAt, // 原地变换/拆分沿用原笔生成时间
         )
     }
 
@@ -636,21 +647,21 @@ class InkController {
         )
     }
 
-    /** 移动/缩放/旋转统一提交为一个可逆 Batch；笔迹换新 id，其余元素保留 id。 */
+    /**
+     * 移动/缩放/旋转统一提交为一个可逆 Batch;笔迹与其余元素一样保留 stable id,
+     * 以 Remove→Add 同 id 表达“原笔迹被变换”;复制/拆分才需要新身份。
+     */
     private fun commitSelectionTransform(): Boolean {
         val refs = selectionRefs ?: return false
         val t = previewTransform()
         val removes = mutableListOf<InkOp>()
         val adds = mutableListOf<InkOp>()
-        val newStrokeIds = mutableMapOf<String, String>()
         page.strokes.withIndex().filter { ElementRef(ElementRef.Kind.STROKE, it.value.id) in refs }
             .sortedByDescending { it.index }.forEach { indexed ->
                 removes.add(InkOp.Remove(indexed.value, indexed.index))
             }
         page.strokes.filter { ElementRef(ElementRef.Kind.STROKE, it.id) in refs }.forEach { s ->
-            val transformed = transformedStroke(s, t)
-            newStrokeIds[s.id] = transformed.id
-            adds.add(InkOp.Add(transformed))
+            adds.add(InkOp.Add(transformedStroke(s, t)))
         }
         page.images.withIndex().filter { ElementRef(ElementRef.Kind.IMAGE, it.value.id) in refs }
             .sortedByDescending { it.index }.forEach { removes.add(InkOp.RemoveImage(it.value, it.index)) }
@@ -667,13 +678,11 @@ class InkController {
         if (removes.isEmpty()) { resetPreview(); notifyInvalidate(); return false }
         val batch = InkOp.Batch(removes + adds)
         page.apply(batch)
-        selectionRefs = refs.map { ref ->
-            if (ref.kind == ElementRef.Kind.STROKE) ref.copy(id = newStrokeIds[ref.id] ?: ref.id) else ref
-        }.toCollection(LinkedHashSet())
+        selectionRefs = refs.toCollection(LinkedHashSet()) // 笔迹 id 未变,选中集无需重映射
         resetPreview()
         selectionBox = boundsForSelection(selectionRefs!!)
         selectionStamp++
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
@@ -694,7 +703,7 @@ class InkController {
         val batch = InkOp.Batch(ops)
         clearSelection()
         page.apply(batch)
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
@@ -727,7 +736,7 @@ class InkController {
         val (before, after) = reorderedSelection(up) ?: return false
         val op = InkOp.Reorder(before, after)
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
         return true
     }
@@ -790,6 +799,7 @@ class InkController {
             color = t.color,
             baseWidthMm = t.baseWidthMm,
             points = display,
+            createdAt = activeStartedAtMillis,
         )
     }
 
@@ -803,6 +813,7 @@ class InkController {
     fun beginStroke(first: InkPoint, toolOverride: com.milknote.ink.model.ToolConfig? = null) {
         if (activePoints != null) endStroke()
         activeToolOverride = toolOverride
+        activeStartedAtMillis = System.currentTimeMillis()
         activePoints = mutableListOf(first)
         predictedTail = emptyList()
     }
@@ -822,8 +833,10 @@ class InkController {
     fun endStroke(): Stroke? {
         val pts = activePoints ?: return null
         val t = activeTool
+        val startedAt = activeStartedAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis()
         activePoints = null
         activeToolOverride = null
+        activeStartedAtMillis = 0L
         predictedTail = emptyList()
         val stroke = Stroke(
             id = UUID.randomUUID().toString(),
@@ -832,21 +845,21 @@ class InkController {
             baseWidthMm = t.baseWidthMm,
             points = pts.toList(),
             zIndex = page.nextZIndex(),
+            createdAt = startedAt,
         )
         when (t.tool) {
             InkTool.LASER -> notifyInvalidate() // 仅活动轨迹；不进入 InkOp、文件或撤销栈
             InkTool.ERASER -> {
                 page.eraseStrokes(stroke, eraserTargets)?.let { op ->
                     page.apply(op)
-                    op.ops.filterIsInstance<InkOp.Remove>()
-                        .forEach { onCommit?.invoke(InkCommit.Tombstoned(it.stroke.id)) }
+                    emitApply(op)
                     notifyInvalidate()
                 }
                 if (eraserAutoRevert) onEraserUsed?.invoke()
             }
             else -> {
                 page.apply(InkOp.Add(stroke))
-                onCommit?.invoke(InkCommit.Added(stroke))
+                emitApply(InkOp.Add(stroke))
                 notifyInvalidate()
             }
         }
@@ -855,22 +868,25 @@ class InkController {
 
     fun cancelStroke() {
         activePoints = null
+        activeStartedAtMillis = 0L
         predictedTail = emptyList()
         notifyInvalidate()
     }
 
-    /** 撤销;落盘镜像 = 反向记录(Add→Tombstone,Remove→重新 Add) */
+    /** 撤销;统一流写 Undo 动作码,旧 onCommit 仍收到反向记录(兼容) */
     fun undo() {
         clearSelection()
         val op = page.undo() ?: return
+        onDrawingChange?.invoke(DrawingChange.Undo)
         emitInverse(op)
         notifyInvalidate()
     }
 
-    /** 重做;落盘镜像 = 正向记录 */
+    /** 重做;统一流写 Redo 动作码,旧 onCommit 仍收到正向记录(兼容) */
     fun redo() {
         clearSelection()
         val op = page.redo() ?: return
+        onDrawingChange?.invoke(DrawingChange.Redo)
         emitForward(op)
         notifyInvalidate()
     }
@@ -911,7 +927,7 @@ class InkController {
         val moved = card.copy(x = card.x + dx, y = card.y + dy)
         val batch = InkOp.Batch(listOf(InkOp.RemoveCard(card, page.cards.indexOfFirst { it.id == card.id }), InkOp.AddCard(moved)))
         page.apply(batch)
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
@@ -924,9 +940,14 @@ class InkController {
     }
 
     fun addAnnotationCard(card: AnnotationCard) {
-        val op = InkOp.AddCard(card.copy(zIndex = page.nextZIndex()))
+        val op = InkOp.AddCard(
+            card.copy(
+                zIndex = page.nextZIndex(),
+                createdAt = card.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            ),
+        )
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
     }
 
@@ -943,10 +964,15 @@ class InkController {
         val old = page.cards[index]
         val batch = InkOp.Batch(listOf(
             InkOp.RemoveCard(old, index),
-            InkOp.AddCard(updated.copy(zIndex = old.zIndex)),
+            InkOp.AddCard(
+                updated.copy(
+                    zIndex = old.zIndex,
+                    createdAt = updated.createdAt.takeIf { it > 0L } ?: old.createdAt,
+                ),
+            ),
         ))
         page.apply(batch)
-        emitForward(batch)
+        emitApply(batch)
         clearSelection()
         notifyInvalidate()
         return true
@@ -957,7 +983,7 @@ class InkController {
         if (index < 0) return false
         val op = InkOp.RemoveCard(page.cards[index], index)
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
         return true
     }
@@ -966,11 +992,16 @@ class InkController {
 
     fun images(): List<ImageElement> = page.images.toList()
 
-    /** 插入图片元素(进撤销栈;落盘经 onCommit → saveImages 整表重写) */
+    /** 插入图片元素(进撤销栈;落盘经 onDrawingChange → 操作日志;旧 onCommit → saveImages 仍兼容) */
     fun addImageElement(image: ImageElement) {
-        val op = InkOp.AddImage(image.copy(zIndex = page.nextZIndex()))
+        val op = InkOp.AddImage(
+            image.copy(
+                zIndex = page.nextZIndex(),
+                createdAt = image.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            ),
+        )
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
     }
 
@@ -980,7 +1011,7 @@ class InkController {
         if (idx < 0) return false
         val op = InkOp.RemoveImage(page.images[idx], idx)
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
         return true
     }
@@ -989,11 +1020,16 @@ class InkController {
 
     fun media(): List<MediaElement> = page.media.toList()
 
-    /** 插入音视频元素(进撤销栈;落盘经 onCommit → saveMedia 整表重写) */
+    /** 插入音视频元素(进撤销栈;落盘经 onDrawingChange → 操作日志;旧 onCommit → saveMedia 仍兼容) */
     fun addMediaElement(media: MediaElement) {
-        val op = InkOp.AddMedia(media.copy(zIndex = page.nextZIndex()))
+        val op = InkOp.AddMedia(
+            media.copy(
+                zIndex = page.nextZIndex(),
+                createdAt = media.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            ),
+        )
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
     }
 
@@ -1003,7 +1039,7 @@ class InkController {
         if (idx < 0) return false
         val op = InkOp.RemoveMedia(page.media[idx], idx)
         page.apply(op)
-        emitForward(op)
+        emitApply(op)
         notifyInvalidate()
         return true
     }
@@ -1120,7 +1156,7 @@ class InkController {
     private fun commitProgrammatic(batch: InkOp, ref: ElementRef): Boolean {
         if (isSelected(ref)) clearSelection()
         page.apply(batch)
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
@@ -1177,7 +1213,7 @@ class InkController {
         val batch = InkOp.Batch(listOf(InkOp.RemoveImage(image, idx), InkOp.AddImage(moved)))
         page.apply(batch)
         imageDragStamp++
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
@@ -1205,6 +1241,12 @@ class InkController {
         is InkOp.Batch -> op.ops.reversed().forEach(::emitInverse)
     }
 
+    /** 正向动作:统一流每 Batch 一次;旧 onCommit 保持逐项回调。 */
+    private fun emitApply(op: InkOp) {
+        onDrawingChange?.invoke(DrawingChange.Apply(op))
+        emitForward(op)
+    }
+
     private fun emitForward(op: InkOp) = when (op) {
         is InkOp.Add -> onCommit?.invoke(InkCommit.Added(op.stroke))
         is InkOp.Remove -> onCommit?.invoke(InkCommit.Tombstoned(op.stroke.id))
@@ -1223,14 +1265,18 @@ class InkController {
         page.cards.clear()
         page.images.clear()
         page.media.clear()
+        activePoints = null
+        activeStartedAtMillis = 0L
+        activeToolOverride = null
+        predictedTail = emptyList()
         clearSelection()
         notifyInvalidate()
     }
 
     /**
-     * 清除当前页内容(笔迹/批注卡/图片元素),作为单个 Batch 进撤销栈。
-     * 落盘镜像经 onCommit 走既有规则:笔迹追加 tombstone,批注卡/图片整表重写空表;
-     * 撤销后反向记录恢复内容。返回是否实际清除了内容。
+     * 清除当前页内容(笔迹/批注卡/图片/音视频),作为单个 Batch 进撤销栈。
+     * 统一流把整个 Batch 记录为一帧;旧 onCommit 仍按既有规则逐项镜像。
+     * 返回是否实际清除了内容。
      */
     fun clearPageContent(): Boolean {
         if (page.strokes.isEmpty() && page.cards.isEmpty() && page.images.isEmpty() && page.media.isEmpty()) return false
@@ -1244,12 +1290,12 @@ class InkController {
         }
         val batch = InkOp.Batch(ops)
         page.apply(batch)
-        emitForward(batch)
+        emitApply(batch)
         notifyInvalidate()
         return true
     }
 
-    /** 整页加载(切页;批注卡/图片/音视频一并) */
+    /** 整页加载(切页;批注卡/图片/音视频一并;撤销栈清零,历史由文件承载) */
     fun loadStrokes(
         strokes: List<Stroke> = emptyList(),
         cards: List<AnnotationCard> = emptyList(),
@@ -1258,6 +1304,36 @@ class InkController {
     ) {
         clearSelection()
         page.reset(strokes, cards, images, media)
+        notifyInvalidate()
+    }
+
+    /**
+     * 恢复操作日志回放得到的整页状态(内容 + 撤销/重做两栈)。
+     * 与 [loadStrokes] 不同,不触发 [onCommit]/[onDrawingChange],切页恢复不会写盘。
+     */
+    fun loadDrawing(drawing: PageInkState) {
+        activePoints = null
+        activeStartedAtMillis = 0L
+        activeToolOverride = null
+        predictedTail = emptyList()
+        lassoLoop = null
+        lassoStart = null
+        lassoArmed = false
+        cardDragStarted = false
+        cardDragId = null
+        cardDragDx = 0f; cardDragDy = 0f
+        imageDragStarted = false
+        imageDragId = null
+        imageDragDx = 0f; imageDragDy = 0f
+        clearSelection()
+        page.restoreDrawing(
+            strokes = drawing.strokes.toList(),
+            cards = drawing.cards.toList(),
+            images = drawing.images.toList(),
+            media = drawing.media.toList(),
+            undo = drawing.undoStackSnapshot(),
+            redo = drawing.redoStackSnapshot(),
+        )
         notifyInvalidate()
     }
 }

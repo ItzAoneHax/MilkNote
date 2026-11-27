@@ -2,9 +2,15 @@ package com.milknote.notes.storage
 
 import com.milknote.ink.input.InkCommit
 import com.milknote.ink.model.AnnotationCard
+import com.milknote.ink.model.DrawingChange
+import com.milknote.ink.model.ElementRef
 import com.milknote.ink.model.ImageElement
+import com.milknote.ink.model.InkOp
+import com.milknote.ink.model.LayerState
 import com.milknote.ink.model.MediaElement
+import com.milknote.ink.model.PageInkState
 import com.milknote.ink.model.Stroke
+import com.milknote.ink.model.orderedElements
 import com.milknote.ink.serialize.ProtoInk
 import com.milknote.notes.model.NotebookMeta
 import com.milknote.notes.model.NotebookPage
@@ -31,10 +37,14 @@ enum class PageInsertPosition { BEFORE, AFTER, END }
  * notebooks/
  *   <name>.milk/
  *     notebook.json      # 元数据(含 pageOrder)
- *     p0001.pb           # 页面 = StrokeRecord 追加流
- *     p0002.pb
+ *     p0001.pb           # 页面 = StrokeRecord 追加流(基线)
+ *     p0001.jrnl         # 操作日志(新增/删除/换层/undo/redo 的增量帧)
+ *     p0001.ann.json     # 批注卡 sidecar(基线)
+ *     p0001.img.json     # 图片元素 sidecar(基线)
+ *     p0001.media.json   # 音视频元素 sidecar(基线)
  * ```
- * 写入策略:每笔抬起即追加(append-only,崩溃安全);undo/redo 追加反向记录。
+ * 写入策略:每 UI Batch 追加一条操作日志帧(append-only,崩溃安全);原 `.pb`/sidecar
+ * 仅作为日志建立前的基线,不再逐笔重写。读取时回放日志,恢复内容与撤销/重做两栈。
  * 全部落盘走单线程写队列(顺序保证),在调用方提供的 CoroutineScope 上执行。
  * 页面管理(插入/复制/清除/删除)先排空写队列再在同一把锁内落盘,避免与追加写交错。
  */
@@ -45,11 +55,22 @@ class NotebookRepository(
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val writeQueue = Channel<() -> Unit>(Channel.UNLIMITED)
     private val writeLock = Any()
+    /** 当前线程正在执行写队列任务(此时读取直接看锁内状态,避免自锁)。 */
+    private val inWriteOp = ThreadLocal<Boolean>()
+    /** 每个 `.jrnl` 已验证的有效文件尾(受 writeLock 保护);追加时用于 O(1) 截断残尾。 */
+    private val journalEnds = HashMap<String, Long>()
 
     init {
         rootDir.mkdirs()
         scope.launch(Dispatchers.IO) {
-            for (op in writeQueue) runCatching { synchronized(writeLock) { op() } }
+            for (op in writeQueue) {
+                inWriteOp.set(true)
+                try {
+                    runCatching { synchronized(writeLock) { op() } }
+                } finally {
+                    inWriteOp.remove()
+                }
+            }
         }
     }
 
@@ -61,6 +82,17 @@ class NotebookRepository(
     }
     private fun pageFile(notebookId: String, pageId: String): File =
         File(dirOf(notebookId), "$pageId.pb")
+
+    private fun journalFile(notebookId: String, pageId: String): File =
+        File(dirOf(notebookId), "$pageId${DrawingJournal.FILE_SUFFIX}")
+
+    private fun journalKey(notebookId: String, pageId: String): String =
+        journalFile(notebookId, pageId).absolutePath
+
+    private fun forgetJournalCache(dir: File) {
+        val prefix = dir.absolutePath + File.separator
+        journalEnds.keys.removeAll { it.startsWith(prefix) }
+    }
 
     // ---- 列表 ----
 
@@ -104,7 +136,11 @@ class NotebookRepository(
 
     fun emptyTrash(): Int = withPageWrite {
         val trashed = listTrashedNotebooks()
-        trashed.forEach { dirOf(it.id).deleteRecursively() }
+        trashed.forEach {
+            val dir = dirOf(it.id)
+            dir.deleteRecursively()
+            forgetJournalCache(dir)
+        }
         trashed.size
     }
 
@@ -166,7 +202,11 @@ class NotebookRepository(
     }
 
     fun delete(notebookId: String) {
-        withPageWrite { dirOf(notebookId).deleteRecursively() }
+        withPageWrite {
+            val dir = dirOf(notebookId)
+            dir.deleteRecursively()
+            forgetJournalCache(dir)
+        }
     }
 
     fun updateMeta(meta: NotebookMeta) = synchronized(writeLock) {
@@ -220,6 +260,9 @@ class NotebookRepository(
         val existing = pageIds(dir)
         val pageId = nextPageId(existing)
         pageFile(notebookId, pageId).createNewFile()
+        // 页号复用(删过最高页)时清理旧日志,避免历史数据复活
+        journalFile(notebookId, pageId).delete()
+        journalEnds.remove(journalKey(notebookId, pageId))
 
         val order = orderedPageIds(dir, existing).toMutableList()
         val anchorIndex = anchorPageId?.let { order.indexOf(it) } ?: -1
@@ -244,11 +287,22 @@ class NotebookRepository(
         if (!source.exists()) return@withPageWrite null
         val existing = pageIds(dir)
         val pageId = nextPageId(existing)
-        source.copyTo(pageFile(notebookId, pageId), overwrite = true)
-        copySidecar(dir, "$sourcePageId.ann.json", "$pageId.ann.json")
-        copySidecar(dir, "$sourcePageId.img.json", "$pageId.img.json")
-        copySidecar(dir, "$sourcePageId.media.json", "$pageId.media.json")
-        copySidecar(dir, "$sourcePageId.md", "$pageId.md")
+        val sourceJournal = journalFile(notebookId, sourcePageId).exists()
+        if (sourceJournal) {
+            // 有操作日志时复制「当前内容」为独立基线,不复制源历史
+            val state = readDrawingForRewriteLocked(notebookId, sourcePageId)
+                ?: return@withPageWrite null
+            writeBaselineLocked(dir, pageId, state)
+            copySidecar(dir, "$sourcePageId.md", "$pageId.md")
+        } else {
+            source.copyTo(pageFile(notebookId, pageId), overwrite = true)
+            copySidecar(dir, "$sourcePageId.ann.json", "$pageId.ann.json")
+            copySidecar(dir, "$sourcePageId.img.json", "$pageId.img.json")
+            copySidecar(dir, "$sourcePageId.media.json", "$pageId.media.json")
+            copySidecar(dir, "$sourcePageId.md", "$pageId.md")
+        }
+        journalFile(notebookId, pageId).delete()
+        journalEnds.remove(journalKey(notebookId, pageId))
         File(dir, "$pageId.ann.json.tmp").delete()
         File(dir, "$pageId.img.json.tmp").delete()
         File(dir, "$pageId.media.json.tmp").delete()
@@ -279,16 +333,32 @@ class NotebookRepository(
     }
 
     /**
-     * 清除页面内容(笔迹/批注卡/图片元素/音视频元素)但保留页面文件。
-     * 直接截断 pb 并删除三份 sidecar,不可撤销;需要撤销时应由当前页走 InkController。
+     * 清除页面内容(笔迹/批注卡/图片元素/音视频元素)但保留页面文件与 Markdown。
+     * - 无操作日志:沿用旧行为(截断 pb + 删除三份 sidecar),不可撤销。
+     * - 有操作日志:追加一条“删除当前全部元素”的日志帧,不截断基线,重启后仍可撤销。
      * 图片/音视频资产文件保留(可能被其他页面共享引用)。
      */
     fun clearPage(notebookId: String, pageId: String): Boolean = withPageWrite {
         val f = pageFile(notebookId, pageId)
         if (!f.exists()) return@withPageWrite false
+        val dir = dirOf(notebookId)
+        if (journalFile(notebookId, pageId).exists()) {
+            val state = readDrawingForRewriteLocked(notebookId, pageId)
+                ?: return@withPageWrite false
+            val ops = buildList {
+                state.strokes.indices.reversed().forEach { add(InkOp.Remove(state.strokes[it], it)) }
+                state.cards.indices.reversed().forEach { add(InkOp.RemoveCard(state.cards[it], it)) }
+                state.images.indices.reversed().forEach { add(InkOp.RemoveImage(state.images[it], it)) }
+                state.media.indices.reversed().forEach { add(InkOp.RemoveMedia(state.media[it], it)) }
+            }
+            if (ops.isNotEmpty()) {
+                appendJournalLocked(notebookId, pageId, DrawingChange.Apply(InkOp.Batch(ops)))
+            }
+            touchUpdatedAtLocked(notebookId)
+            return@withPageWrite true
+        }
         FileOutputStream(f, false).close()
         f.setLastModified(System.currentTimeMillis())
-        val dir = dirOf(notebookId)
         File(dir, "$pageId.ann.json").delete()
         File(dir, "$pageId.img.json").delete()
         File(dir, "$pageId.media.json").delete()
@@ -308,6 +378,8 @@ class NotebookRepository(
         val f = pageFile(notebookId, pageId)
         if (!f.exists()) return@withPageWrite false
         if (!f.delete()) return@withPageWrite false
+        journalFile(notebookId, pageId).delete()
+        journalEnds.remove(journalKey(notebookId, pageId))
         File(dir, "$pageId.ann.json").delete()
         File(dir, "$pageId.img.json").delete()
         File(dir, "$pageId.media.json").delete()
@@ -357,12 +429,28 @@ class NotebookRepository(
     }
 
     fun loadPage(notebookId: String, pageId: String): List<Stroke> {
-        val f = pageFile(notebookId, pageId)
-        if (!f.exists()) return emptyList()
-        return f.inputStream().buffered().use { ProtoInk.readPage(it) }
+        awaitWrites()
+        return synchronized(writeLock) { readDrawingLocked(notebookId, pageId).strokes.toList() }
     }
 
-    // ---- 增量写入(InkController.onCommit → append) ----
+    /**
+     * 一次性恢复页面内容与撤销/重做两栈(分离副本;同步调用,返回前等待本实例写队列)。
+     * 无操作日志时退化为旧 `.pb` + sidecar 基线,两栈为空。
+     */
+    fun loadDrawing(notebookId: String, pageId: String): PageInkState {
+        awaitWrites()
+        return synchronized(writeLock) { readDrawingLocked(notebookId, pageId) }
+    }
+
+    /** 记录一条统一绘图变更;每个 UI Batch 一帧,顺序与页面写入队列一致。 */
+    fun appendDrawingChange(notebookId: String, pageId: String, change: DrawingChange) {
+        writeQueue.trySend {
+            if (!pageFile(notebookId, pageId).exists()) return@trySend // 页已删除:丢弃迟到回调
+            appendJournalLocked(notebookId, pageId, change)
+        }
+    }
+
+    // ---- 增量写入(InkController.onCommit / onDrawingChange → append) ----
 
     fun appendCommit(notebookId: String, pageId: String, commit: InkCommit) {
         when (commit) {
@@ -374,6 +462,29 @@ class NotebookRepository(
             is InkCommit.Added, is InkCommit.Tombstoned -> {}
         }
         writeQueue.trySend {
+            if (!pageFile(notebookId, pageId).exists()) return@trySend // 页已删除:丢弃迟到回调
+            if (journalFile(notebookId, pageId).exists()) {
+                // 日志已建立:旧 API 转为日志 mutation,绝不追加回基线 .pb
+                val state = readDrawingLocked(notebookId, pageId)
+                when (commit) {
+                    is InkCommit.Added -> if (state.strokes.none { it.id == commit.stroke.id }) {
+                        appendJournalLocked(
+                            notebookId, pageId, DrawingChange.Apply(InkOp.Add(commit.stroke)),
+                        )
+                    }
+                    is InkCommit.Tombstoned -> {
+                        val index = state.strokes.indexOfFirst { it.id == commit.strokeId }
+                        if (index >= 0) {
+                            appendJournalLocked(
+                                notebookId, pageId,
+                                DrawingChange.Apply(InkOp.Remove(state.strokes[index], index)),
+                            )
+                        }
+                    }
+                    else -> {}
+                }
+                return@trySend
+            }
             val f = pageFile(notebookId, pageId)
             FileOutputStream(f, true).use { out ->
                 when (commit) {
@@ -392,12 +503,154 @@ class NotebookRepository(
     /** 调层后刷新全部笔迹的 zIndex；读取时按 zIndex 排序，不依赖追加位置。 */
     fun appendLayerStates(notebookId: String, pageId: String, strokes: List<Stroke>) {
         writeQueue.trySend {
+            if (!pageFile(notebookId, pageId).exists()) return@trySend
+            if (journalFile(notebookId, pageId).exists()) {
+                val state = readDrawingLocked(notebookId, pageId)
+                val current = state.strokes.associateBy { it.id }
+                if (strokes.none { current[it.id]?.zIndex != it.zIndex }) return@trySend
+                val before = state.orderedElements().map { LayerState(it.ref, it.zIndex) }
+                val after = strokes.map { LayerState(ElementRef(ElementRef.Kind.STROKE, it.id), it.zIndex) }
+                appendJournalLocked(
+                    notebookId, pageId, DrawingChange.Apply(InkOp.Reorder(before, after)),
+                )
+                return@trySend
+            }
             val f = pageFile(notebookId, pageId)
             FileOutputStream(f, true).use { out ->
                 strokes.forEach { ProtoInk.writeRecord(out, ProtoInk.recordOf(it)) }
             }
             f.setLastModified(System.currentTimeMillis())
         }
+    }
+
+    // ---- 读取:基线 + 日志回放 ----
+
+    private fun readDrawingLocked(notebookId: String, pageId: String): PageInkState {
+        // 页不存在时不回放孤儿日志/侧车,避免删除后又被直接 loadDrawing 复活。
+        if (!pageFile(notebookId, pageId).exists()) return PageInkState()
+        val dir = dirOf(notebookId)
+        val baseline = baselineStateLocked(dir, pageId)
+        val journal = journalFile(notebookId, pageId)
+        if (!journal.exists()) return baseline
+        val read = try {
+            DrawingJournal.read(journal)
+        } catch (_: DrawingJournalCorruptException) {
+            return baseline // 前缀不可信时保基线可读,不崩溃;追加会再次报错
+        }
+        journalEnds[journalKey(notebookId, pageId)] = read.validEnd
+        return try {
+            DrawingJournal.replay(baseline, read.frames)
+        } catch (_: DrawingJournalCorruptException) {
+            baselineStateLocked(dir, pageId) // 回放失败:回到基线,至少不丢旧笔记内容
+        }
+    }
+
+    /**
+     * 供复制/清除等改写操作使用:日志不可完整回放时返回 null,绝不拿基线冒充现态。
+     */
+    private fun readDrawingForRewriteLocked(notebookId: String, pageId: String): PageInkState? {
+        if (!pageFile(notebookId, pageId).exists()) return null
+        val dir = dirOf(notebookId)
+        val baseline = baselineStateLocked(dir, pageId)
+        val journal = journalFile(notebookId, pageId)
+        if (!journal.exists()) return baseline
+        return try {
+            val read = DrawingJournal.read(journal)
+            journalEnds[journalKey(notebookId, pageId)] = read.validEnd
+            DrawingJournal.replay(baseline, read.frames)
+        } catch (_: DrawingJournalCorruptException) {
+            null
+        }
+    }
+
+    private fun baselineStateLocked(dir: File, pageId: String): PageInkState {
+        val state = PageInkState()
+        state.restoreDrawing(
+            strokes = readStrokesFile(File(dir, "$pageId.pb")),
+            cards = readSidecar<AnnotationCard>(dir, "$pageId.ann.json"),
+            images = readSidecar<ImageElement>(dir, "$pageId.img.json"),
+            media = readSidecar<MediaElement>(dir, "$pageId.media.json"),
+            undo = emptyList(),
+            redo = emptyList(),
+        )
+        return state
+    }
+
+    private fun readStrokesFile(file: File): List<Stroke> = runCatching {
+        if (!file.exists()) emptyList()
+        else file.inputStream().buffered().use { ProtoInk.readPage(it) }
+    }.getOrDefault(emptyList())
+
+    private inline fun <reified T> readSidecar(dir: File, name: String): List<T> = runCatching {
+        val file = File(dir, name)
+        if (!file.exists()) emptyList() else json.decodeFromString<List<T>>(file.readText())
+    }.getOrDefault(emptyList())
+
+    private fun appendJournalLocked(notebookId: String, pageId: String, change: DrawingChange) {
+        val key = journalKey(notebookId, pageId)
+        val end = DrawingJournal.append(journalFile(notebookId, pageId), change, journalEnds[key])
+        journalEnds[key] = end
+    }
+
+    /** 把回放后的现态写成独立基线(复制页/迁移用);不复制源历史。 */
+    private fun writeBaselineLocked(dir: File, pageId: String, state: PageInkState) {
+        FileOutputStream(File(dir, "$pageId.pb"), false).use { out ->
+            state.strokes.forEach { ProtoInk.writeRecord(out, ProtoInk.recordOf(it)) }
+        }
+        writeJsonAtomic(File(dir, "$pageId.ann.json"), json.encodeToString(state.cards))
+        writeJsonAtomic(File(dir, "$pageId.img.json"), json.encodeToString(state.images))
+        writeJsonAtomic(File(dir, "$pageId.media.json"), json.encodeToString(state.media))
+    }
+
+    private fun writeJsonAtomic(target: File, text: String) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            if (!tmp.renameTo(target)) error("sidecar save failed: ${target.name}")
+        }
+    }
+
+    private fun syncElementsLocked(
+        notebookId: String,
+        pageId: String,
+        sync: (PageInkState) -> List<InkOp>,
+    ) {
+        if (!journalFile(notebookId, pageId).exists()) return
+        val ops = sync(readDrawingLocked(notebookId, pageId))
+        if (ops.isEmpty()) return
+        appendJournalLocked(notebookId, pageId, DrawingChange.Apply(InkOp.Batch(ops)))
+    }
+
+    private fun <T> elementDiff(
+        current: List<T>,
+        desired: List<T>,
+        id: (T) -> String,
+        add: (T) -> InkOp,
+        remove: (T, Int) -> InkOp,
+        /** 更新已存在元素时补回缺失的 createdAt(0 = 旧数据/未提供),避免整表保存抹掉时间。 */
+        keepCreatedAt: (current: T, wanted: T) -> T = { _, wanted -> wanted },
+    ): List<InkOp> {
+        val wanted = desired.map { item ->
+            val existing = current.firstOrNull { id(it) == id(item) }
+            if (existing == null) item else keepCreatedAt(existing, item)
+        }
+        val desiredIds = wanted.mapTo(HashSet(wanted.size)) { id(it) }
+        val ops = mutableListOf<InkOp>()
+        current.withIndex().reversed().forEach { (index, element) ->
+            if (id(element) !in desiredIds) ops += remove(element, index)
+        }
+        wanted.forEach { item ->
+            val index = current.indexOfFirst { id(it) == id(item) }
+            when {
+                index < 0 -> ops += add(item)
+                current[index] != item -> {
+                    ops += remove(current[index], index)
+                    ops += add(item)
+                }
+            }
+        }
+        return ops
     }
 
     private fun readMeta(dir: File): NotebookMeta? = runCatching {
@@ -447,14 +700,20 @@ class NotebookRepository(
         )
     }
 
-    /** 排空追加写队列后再在写锁内执行页面管理,保证复制/清除看到最新落盘内容。 */
-    private fun <T> withPageWrite(block: () -> T): T {
+    /** 排空追加写队列(在写队列任务内调用时不等待,避免自锁)。 */
+    private fun awaitWrites() {
+        if (inWriteOp.get() == true) return
         runBlocking {
             val barrier = CompletableDeferred<Unit>()
             if (writeQueue.trySend { barrier.complete(Unit) }.isSuccess) {
                 withTimeoutOrNull(5_000) { barrier.await() }
             }
         }
+    }
+
+    /** 排空追加写队列后再在写锁内执行页面管理,保证复制/清除看到最新落盘内容。 */
+    private fun <T> withPageWrite(block: () -> T): T {
+        awaitWrites()
         return synchronized(writeLock) { block() }
     }
 
@@ -466,67 +725,93 @@ class NotebookRepository(
     /** 音视频资产目录(<id>.milk/media/;MediaElement.src 相对 notebookDir) */
     fun mediaDir(notebookId: String): File = File(dirOf(notebookId), "media").apply { mkdirs() }
 
-    fun loadAnnotations(notebookId: String, pageId: String): List<AnnotationCard> = runCatching {
-        val f = File(dirOf(notebookId), "$pageId.ann.json")
-        if (!f.exists()) return emptyList()
-        json.decodeFromString<List<AnnotationCard>>(f.readText())
-    }.getOrDefault(emptyList())
+    fun loadAnnotations(notebookId: String, pageId: String): List<AnnotationCard> =
+        readPagePart(notebookId, pageId) { it.cards.toList() }
 
-    /** 整表重写(原子替换);走单线程写队列与笔迹追加保序 */
+    /** 整表重写(原子替换);日志已建立时转为日志 mutation,不改基线 sidecar */
     fun saveAnnotations(notebookId: String, pageId: String, cards: List<AnnotationCard>) {
+        val snapshot = cards.toList()
         writeQueue.trySend {
-            val dir = dirOf(notebookId)
-            val f = File(dir, "$pageId.ann.json")
-            val tmp = File(dir, "$pageId.ann.json.tmp")
-            tmp.writeText(json.encodeToString(cards))
-            if (!tmp.renameTo(f)) {
-                f.delete()
-                if (!tmp.renameTo(f)) error("annotation save failed: $pageId")
+            if (!pageFile(notebookId, pageId).exists()) return@trySend
+            if (journalFile(notebookId, pageId).exists()) {
+                syncElementsLocked(notebookId, pageId) { state ->
+                    elementDiff(
+                        state.cards, snapshot, { it.id },
+                        { InkOp.AddCard(it) },
+                        { card, index -> InkOp.RemoveCard(card, index) },
+                        { old, wanted ->
+                            if (wanted.createdAt == 0L && old.createdAt > 0L) {
+                                wanted.copy(createdAt = old.createdAt)
+                            } else wanted
+                        },
+                    )
+                }
+                return@trySend
             }
+            writeJsonAtomic(File(dirOf(notebookId), "$pageId.ann.json"), json.encodeToString(snapshot))
         }
     }
 
     // ---- 图片元素(贴图层;JSON sidecar `<pageId>.img.json`,整表原子重写;参照批注卡)----
 
-    fun loadImages(notebookId: String, pageId: String): List<ImageElement> = runCatching {
-        val f = File(dirOf(notebookId), "$pageId.img.json")
-        if (!f.exists()) return emptyList()
-        json.decodeFromString<List<ImageElement>>(f.readText())
-    }.getOrDefault(emptyList())
+    fun loadImages(notebookId: String, pageId: String): List<ImageElement> =
+        readPagePart(notebookId, pageId) { it.images.toList() }
 
-    /** 整表重写(原子替换:临时文件 + rename);走单线程写队列与笔迹追加保序 */
+    /** 整表重写(原子替换);日志已建立时转为日志 mutation,不改基线 sidecar */
     fun saveImages(notebookId: String, pageId: String, images: List<ImageElement>) {
+        val snapshot = images.toList()
         writeQueue.trySend {
-            val dir = dirOf(notebookId)
-            val f = File(dir, "$pageId.img.json")
-            val tmp = File(dir, "$pageId.img.json.tmp")
-            tmp.writeText(json.encodeToString(images))
-            if (!tmp.renameTo(f)) {
-                f.delete()
-                if (!tmp.renameTo(f)) error("image list save failed: $pageId")
+            if (!pageFile(notebookId, pageId).exists()) return@trySend
+            if (journalFile(notebookId, pageId).exists()) {
+                syncElementsLocked(notebookId, pageId) { state ->
+                    elementDiff(
+                        state.images, snapshot, { it.id },
+                        { InkOp.AddImage(it) },
+                        { image, index -> InkOp.RemoveImage(image, index) },
+                        { old, wanted ->
+                            if (wanted.createdAt == 0L && old.createdAt > 0L) {
+                                wanted.copy(createdAt = old.createdAt)
+                            } else wanted
+                        },
+                    )
+                }
+                return@trySend
             }
+            writeJsonAtomic(File(dirOf(notebookId), "$pageId.img.json"), json.encodeToString(snapshot))
         }
     }
 
     // ---- 音视频元素(本地录制/导入;JSON sidecar `<pageId>.media.json`,整表原子重写)----
 
-    fun loadMedia(notebookId: String, pageId: String): List<MediaElement> = runCatching {
-        val f = File(dirOf(notebookId), "$pageId.media.json")
-        if (!f.exists()) return emptyList()
-        json.decodeFromString<List<MediaElement>>(f.readText())
-    }.getOrDefault(emptyList())
+    fun loadMedia(notebookId: String, pageId: String): List<MediaElement> =
+        readPagePart(notebookId, pageId) { it.media.toList() }
 
-    /** 整表重写(原子替换:临时文件 + rename);走单线程写队列与笔迹追加保序 */
+    /** 整表重写(原子替换);日志已建立时转为日志 mutation,不改基线 sidecar */
     fun saveMedia(notebookId: String, pageId: String, media: List<MediaElement>) {
+        val snapshot = media.toList()
         writeQueue.trySend {
-            val dir = dirOf(notebookId)
-            val f = File(dir, "$pageId.media.json")
-            val tmp = File(dir, "$pageId.media.json.tmp")
-            tmp.writeText(json.encodeToString(media))
-            if (!tmp.renameTo(f)) {
-                f.delete()
-                if (!tmp.renameTo(f)) error("media list save failed: $pageId")
+            if (!pageFile(notebookId, pageId).exists()) return@trySend
+            if (journalFile(notebookId, pageId).exists()) {
+                syncElementsLocked(notebookId, pageId) { state ->
+                    elementDiff(
+                        state.media, snapshot, { it.id },
+                        { InkOp.AddMedia(it) },
+                        { item, index -> InkOp.RemoveMedia(item, index) },
+                        { old, wanted ->
+                            if (wanted.createdAt == 0L && old.createdAt > 0L) {
+                                wanted.copy(createdAt = old.createdAt)
+                            } else wanted
+                        },
+                    )
+                }
+                return@trySend
             }
+            writeJsonAtomic(File(dirOf(notebookId), "$pageId.media.json"), json.encodeToString(snapshot))
         }
+    }
+
+    private fun <T> readPagePart(notebookId: String, pageId: String, select: (PageInkState) -> T): T {
+        awaitWrites()
+        return synchronized(writeLock) { select(readDrawingLocked(notebookId, pageId)) }
     }
 }

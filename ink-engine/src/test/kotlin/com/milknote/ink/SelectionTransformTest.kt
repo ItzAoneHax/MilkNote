@@ -105,6 +105,70 @@ class SelectionTransformTest {
         assertEquals(InkTool.PEN, c.page.strokes.single().tool)
     }
 
+    @Test fun `选区移动保留 stable id 且旧镜像与 Proto 重放正确`() {
+        listOf(1_700_000_000_123L, 0L).forEach { created ->
+            val c = InkController()
+            c.loadStrokes(listOf(stroke("a").copy(createdAt = created)))
+            val commits = mutableListOf<InkCommit>()
+            c.onCommit = commits::add
+            selectAll(c)
+
+            c.beginSelectionDrag(20f, 20f)
+            c.moveSelectionDrag(30f, 40f)
+            assertTrue("created=$created", c.endSelectionDrag())
+
+            val moved = c.page.strokes.single()
+            assertEquals("created=$created", "a", moved.id)          // 非复制变换不移交身份
+            assertEquals("created=$created", created, moved.createdAt) // 不伪造时间
+            assertEquals("created=$created", 50f, moved.points.first().x, 0.001f)
+            assertEquals("created=$created", 60f, moved.points.first().y, 0.001f)
+            assertTrue("created=$created", c.page.removedStrokes().isEmpty())
+
+            // 旧 onCommit 镜像:先 tombstone 原 id,再 added 同 id
+            assertEquals("created=$created", 2, commits.size)
+            assertTrue(commits[0] is InkCommit.Tombstoned)
+            assertEquals("created=$created", "a", (commits[0] as InkCommit.Tombstoned).strokeId)
+            assertTrue(commits[1] is InkCommit.Added)
+            assertEquals("created=$created", "a", (commits[1] as InkCommit.Added).stroke.id)
+
+            // 旧 .pb 追加流重放:tombstone + 同 id 新内容
+            val out = ByteArrayOutputStream()
+            ProtoInk.writeRecord(out, ProtoInk.tombstoneOf("a"))
+            ProtoInk.writeRecord(out, ProtoInk.recordOf(moved))
+            val replayed = ProtoInk.readPage(ByteArrayInputStream(out.toByteArray()))
+            assertEquals("created=$created", listOf("a"), replayed.map { it.id })
+            assertEquals("created=$created", created, replayed.single().createdAt)
+            assertEquals("created=$created", moved.points, replayed.single().points)
+
+            // 真正删除仍然进入 erased 查询
+            assertTrue("created=$created", c.deleteSelection())
+            assertEquals("created=$created", listOf("a"), c.page.removedStrokes().map { it.id })
+        }
+    }
+
+    @Test fun `整页旋转保留 stable id 且不误报擦除`() {
+        val c = InkController()
+        c.loadStrokes(listOf(stroke("a").copy(createdAt = 111L), stroke("b")))
+        val commits = mutableListOf<InkCommit>()
+        c.onCommit = commits::add
+
+        assertTrue(c.rotateAllContent(200f, 100f))
+
+        assertEquals(listOf("a", "b"), c.page.strokes.map { it.id })
+        assertEquals(111L, c.page.strokes.first { it.id == "a" }.createdAt)
+        assertEquals(0L, c.page.strokes.first { it.id == "b" }.createdAt)
+        assertTrue(c.page.removedStrokes().isEmpty())
+        assertEquals(4, commits.size)
+        assertEquals(listOf("a", "b"), commits.filterIsInstance<InkCommit.Added>().map { it.stroke.id })
+
+        c.undo()
+        assertEquals(listOf("a", "b"), c.page.strokes.map { it.id })
+        assertTrue(c.page.removedStrokes().isEmpty())
+        c.redo()
+        assertEquals(listOf("a", "b"), c.page.strokes.map { it.id })
+        assertTrue(c.page.removedStrokes().isEmpty())
+    }
+
     @Test fun `混合旋转同时提交图片角度和卡片内容缩放`() {
         val c = controller()
         val commits = mutableListOf<InkCommit>()

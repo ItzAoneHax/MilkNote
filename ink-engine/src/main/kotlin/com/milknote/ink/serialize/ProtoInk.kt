@@ -27,6 +27,7 @@ object ProtoInk {
             .setColor(color.toHex())
             .setBaseWidth(baseWidthMm)
             .setZIndex(zIndex)
+        if (createdAt > 0L) b.setCreatedAt(createdAt)
         points.forEach {
             b.addPts(
                 PointPb.newBuilder()
@@ -45,6 +46,7 @@ object ProtoInk {
         baseWidthMm = baseWidth,
         points = ptsList.map { InkPoint(it.x, it.y, it.p, it.tx, it.ty, it.t) },
         zIndex = zIndex,
+        createdAt = if (hasCreatedAt()) createdAt else 0L,
     )
 
     fun Long.toHex(): String = "#%08X".format(this)

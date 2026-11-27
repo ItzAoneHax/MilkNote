@@ -1,13 +1,29 @@
 package com.milknote.app.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
@@ -16,33 +32,54 @@ import androidx.compose.material.icons.outlined.LibraryAdd
 import androidx.compose.material.icons.outlined.OpenWith
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.milknote.agent.AgentSkill
 import com.milknote.agent.ToolCategory
 import com.milknote.agent.ToolConfig
 import com.milknote.agent.ToolSpec
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCapabilityEditorPanel
 import com.milknote.app.ui.common.MilkCapabilityRow
 import com.milknote.app.ui.common.MilkCapabilitySectionHeader
+import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkInlineAction
 import com.milknote.app.ui.common.MilkInlineTone
+import com.milknote.app.ui.common.MilkSectionLabel
+import com.milknote.app.ui.common.MilkStatusBadge
 import com.milknote.app.ui.common.MilkStatusTone
 import com.milknote.app.ui.common.MilkSwitch
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.MilkToolSettingField
+import com.milknote.app.ui.theme.LocalMilkDark
+import com.milknote.app.ui.theme.MilkRadius
+import com.milknote.app.ui.theme.MilkSpace
+import com.milknote.app.ui.theme.MilkText
 
 /**
- * 技能与工具:技能可增删改、内置技能可恢复默认;工具由声明驱动——开关、确认策略、
- * 名称/说明与设置字段全部来自 [ToolSpec],新增工具不需要改这一页。
+ * 技能与工具:
+ * - 应用自带(内置)技能/工具严格只读:只有名称与说明展示,可打开只读查看,无编辑/删除/开关/覆盖;
+ * - 自定义技能保持增删改与启用开关;
+ * - 自定义工具继续由 [ToolSpec] 声明驱动通用设置(开关/确认/名称/说明/设置字段)。
  */
 @Composable
 internal fun SkillsAndToolsPage() {
@@ -50,23 +87,46 @@ internal fun SkillsAndToolsPage() {
     val state by agent.state.collectAsState()
     var creatingSkill by remember { mutableStateOf(false) }
     var editingSkill by remember { mutableStateOf<AgentSkill?>(null) }
+    var viewingSkill by remember { mutableStateOf<AgentSkill?>(null) }
+    var viewingTool by remember { mutableStateOf<ToolSpec?>(null) }
     var editingToolSpec by remember { mutableStateOf<ToolSpec?>(null) }
+
+    val builtinSkills = state.skills.filter { it.builtin }
+    val customSkills = state.skills.filterNot { it.builtin }
+    val builtinTools = state.toolSpecs.filter { it.builtin }
+    val customTools = state.toolSpecs.filterNot { it.builtin }
 
     SettingsPageHeader("技能与工具")
 
     SettingsGroup {
+        MilkCapabilitySectionHeader(title = "内置技能", count = builtinSkills.size)
+        SettingsCard {
+            builtinSkills.forEachIndexed { index, skill ->
+                if (index > 0) Hairline()
+                ReadOnlyCapabilityRow(
+                    title = skill.name,
+                    subtitle = skill.summary,
+                    icon = Icons.Outlined.AutoStories,
+                    badges = listOf("只读" to MilkStatusTone.NEUTRAL),
+                    onClick = { viewingSkill = skill },
+                )
+            }
+        }
+    }
+
+    SettingsGroup {
         MilkCapabilitySectionHeader(
-            title = "技能",
-            count = state.skills.size,
+            title = "我的技能",
+            count = customSkills.size,
             actionLabel = "新建",
             actionIcon = Icons.Outlined.Add,
             onAction = { creatingSkill = true },
         )
         SettingsCard {
-            if (state.skills.isEmpty()) {
-                MilkEmptyState(title = "暂无技能", icon = Icons.Outlined.AutoStories)
+            if (customSkills.isEmpty()) {
+                MilkEmptyState(title = "暂无自定义技能", icon = Icons.Outlined.AutoStories)
             } else {
-                state.skills.forEachIndexed { index, skill ->
+                customSkills.forEachIndexed { index, skill ->
                     if (index > 0) Hairline()
                     MilkCapabilityRow(
                         title = skill.name,
@@ -82,12 +142,31 @@ internal fun SkillsAndToolsPage() {
     }
 
     SettingsGroup {
-        MilkCapabilitySectionHeader(title = "工具", count = state.toolSpecs.size)
+        MilkCapabilitySectionHeader(title = "内置工具", count = builtinTools.size)
         SettingsCard {
-            if (state.toolSpecs.isEmpty()) {
-                MilkEmptyState(title = "暂无工具", icon = Icons.Outlined.Build)
-            } else {
-                state.toolSpecs.forEachIndexed { index, spec ->
+            builtinTools.forEachIndexed { index, spec ->
+                if (index > 0) Hairline()
+                val badges = buildList {
+                    if (spec.defaultRequireConfirmation) add("需确认" to MilkStatusTone.WARNING)
+                    if (spec.requiresUserGrant) add("需申请" to MilkStatusTone.ACCENT)
+                    add("只读" to MilkStatusTone.NEUTRAL)
+                }
+                ReadOnlyCapabilityRow(
+                    title = spec.defaultDisplayName,
+                    subtitle = spec.defaultDescription,
+                    icon = toolIconFor(spec.id, spec.category),
+                    badges = badges,
+                    onClick = { viewingTool = spec },
+                )
+            }
+        }
+    }
+
+    if (customTools.isNotEmpty()) {
+        SettingsGroup {
+            MilkCapabilitySectionHeader(title = "自定义工具", count = customTools.size)
+            SettingsCard {
+                customTools.forEachIndexed { index, spec ->
                     if (index > 0) Hairline()
                     val cfg = state.toolConfigs[spec.id]
                     MilkCapabilityRow(
@@ -123,11 +202,6 @@ internal fun SkillsAndToolsPage() {
                 creatingSkill = false
                 editingSkill = null
             },
-            onReset = {
-                initial?.let { agent.resetBuiltinSkill(it.id) }
-                creatingSkill = false
-                editingSkill = null
-            },
         )
     }
 
@@ -146,6 +220,14 @@ internal fun SkillsAndToolsPage() {
             },
         )
     }
+
+    viewingSkill?.let { skill ->
+        BuiltinSkillViewer(skill = skill, onDismiss = { viewingSkill = null })
+    }
+
+    viewingTool?.let { spec ->
+        BuiltinToolViewer(spec = spec, onDismiss = { viewingTool = null })
+    }
 }
 
 /** 工具图标:已知工具给语义图标,未知工具按类别兜底 */
@@ -157,6 +239,7 @@ private fun toolIconFor(id: String, category: ToolCategory): ImageVector = when 
     "insert_markdown" -> Icons.AutoMirrored.Outlined.Article
     "list_page_elements" -> Icons.Outlined.Layers
     "modify_page_element" -> Icons.Outlined.OpenWith
+    "get_element_timestamps" -> Icons.Outlined.Schedule
     "read_skill" -> Icons.AutoMirrored.Outlined.MenuBook
     "create_skill" -> Icons.Outlined.LibraryAdd
     else -> when (category) {
@@ -168,7 +251,201 @@ private fun toolIconFor(id: String, category: ToolCategory): ImageVector = when 
     }
 }
 
-// ==================== 技能编辑 ====================
+// ==================== 内置能力只读行 ====================
+
+/** 只读能力行:与 MilkCapabilityRow 同尺寸,但无开关、无编辑入口;点开只读查看 */
+@Composable
+private fun ReadOnlyCapabilityRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    badges: List<Pair<String, MilkStatusTone>>,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val dark = LocalMilkDark.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 54.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(MilkRadius.sm))
+                .background(cs.primary.copy(alpha = if (dark) 0.18f else 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp),
+                tint = cs.onSurface,
+            )
+        }
+        Spacer(Modifier.width(MilkSpace.md))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MilkText.rowTitle,
+                color = cs.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MilkText.caption,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        badges.forEach { (text, tone) ->
+            Spacer(Modifier.width(MilkSpace.xs))
+            MilkStatusBadge(text = text, tone = tone)
+        }
+        Spacer(Modifier.width(MilkSpace.xs))
+        Icon(
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = cs.onSurfaceVariant.copy(alpha = 0.55f),
+        )
+    }
+}
+
+// ==================== 内置能力只读查看 ====================
+
+@Composable
+private fun BuiltinSkillViewer(skill: AgentSkill, onDismiss: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    MilkCenterPanel(
+        title = skill.name,
+        subtitle = "应用自带 · 只读",
+        onDismiss = onDismiss,
+        icon = {
+            Icon(
+                Icons.Outlined.AutoStories,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = cs.onSurfaceVariant,
+            )
+        },
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "关闭", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(MilkSpace.md),
+        ) {
+            if (skill.summary.isNotBlank()) {
+                Text(skill.summary, style = MilkText.body, color = cs.onSurfaceVariant)
+            }
+            SettingsCard {
+                Text(
+                    skill.content.trim(),
+                    modifier = Modifier.padding(16.dp),
+                    style = MilkText.body,
+                    color = cs.onSurface,
+                )
+            }
+            Text(
+                "内置技能随应用提供,不可编辑、关闭或删除;用户补充的方法请建为「我的技能」。",
+                style = MilkText.caption,
+                color = cs.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun BuiltinToolViewer(spec: ToolSpec, onDismiss: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    MilkCenterPanel(
+        title = spec.defaultDisplayName,
+        subtitle = "应用自带 · 只读",
+        onDismiss = onDismiss,
+        icon = {
+            Icon(
+                toolIconFor(spec.id, spec.category),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = cs.onSurfaceVariant,
+            )
+        },
+        footer = {
+            Spacer(Modifier.weight(1f))
+            MilkButton(label = "关闭", onClick = onDismiss, variant = MilkButtonVariant.SECONDARY)
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(MilkSpace.md),
+        ) {
+            Text(spec.defaultDescription, style = MilkText.body, color = cs.onSurface)
+            if (spec.defaultRequireConfirmation) {
+                Text(
+                    "高危操作:执行前必须由用户确认,该策略不可关闭。",
+                    style = MilkText.caption,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+            if (spec.requiresUserGrant) {
+                Text(
+                    "仅在用户主动「申请熟练度分析」时对模型可见;执行时还要求授权页与发起页一致。",
+                    style = MilkText.caption,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+            if (spec.parameters.isNotEmpty()) {
+                MilkSectionLabel("参数")
+                SettingsCard {
+                    spec.parameters.forEachIndexed { index, parameter ->
+                        if (index > 0) Hairline()
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                        ) {
+                            Text(
+                                buildString {
+                                    append(parameter.name)
+                                    if (parameter.required) append(" · 必填")
+                                },
+                                style = MilkText.monoBody,
+                                color = cs.onSurface,
+                            )
+                            Text(
+                                parameter.description,
+                                style = MilkText.caption,
+                                color = cs.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                "内置工具的开关、名称、说明与确认策略由应用固定,不可修改。",
+                style = MilkText.caption,
+                color = cs.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// ==================== 自定义技能编辑 ====================
 
 @Composable
 private fun SkillEditorDialog(
@@ -176,7 +453,6 @@ private fun SkillEditorDialog(
     onDismiss: () -> Unit,
     onSave: (AgentSkill) -> Unit,
     onDelete: () -> Unit,
-    onReset: () -> Unit,
 ) {
     var name by remember(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
     var summary by remember(initial?.id) { mutableStateOf(initial?.summary.orEmpty()) }
@@ -184,13 +460,6 @@ private fun SkillEditorDialog(
     var enabled by remember(initial?.id) { mutableStateOf(initial?.enabled ?: true) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    val resetAction: @Composable RowScope.() -> Unit = {
-        MilkInlineAction(
-            label = "恢复默认",
-            onClick = onReset,
-            icon = Icons.Outlined.RestartAlt,
-        )
-    }
     val deleteAction: @Composable RowScope.() -> Unit = {
         MilkInlineAction(
             label = "删除",
@@ -199,17 +468,12 @@ private fun SkillEditorDialog(
             tone = MilkInlineTone.DANGER,
         )
     }
-    val leading: (@Composable RowScope.() -> Unit)? = when {
-        initial == null -> null
-        initial.builtin -> resetAction
-        else -> deleteAction
-    }
 
     MilkCapabilityEditorPanel(
         title = if (initial == null) "新建技能" else "编辑技能",
         icon = Icons.Outlined.AutoStories,
         onDismiss = onDismiss,
-        leadingAction = leading,
+        leadingAction = if (initial == null) null else deleteAction,
         saveEnabled = name.isNotBlank() && content.isNotBlank(),
         onSave = {
             onSave(
@@ -219,7 +483,7 @@ private fun SkillEditorDialog(
                     summary = summary.trim(),
                     content = content,
                     enabled = enabled,
-                    builtin = initial?.builtin ?: false,
+                    builtin = false,
                 ),
             )
         },
@@ -266,7 +530,7 @@ private fun SkillEditorDialog(
     }
 }
 
-// ==================== 工具编辑 ====================
+// ==================== 自定义工具编辑 ====================
 
 @Composable
 private fun ToolEditorDialog(

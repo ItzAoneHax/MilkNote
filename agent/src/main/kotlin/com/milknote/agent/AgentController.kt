@@ -100,6 +100,10 @@ class AgentController(
     val state: StateFlow<AgentUiState> = _state
 
     private var session: AgentSession? = null
+    /** 绑定代际:每次真实的页/会话导航 +1;授权分析只在发起代际有效,导航后永不复活 */
+    @Volatile private var bindingEpoch = 0L
+    /** 关键区锁:导航换绑(代际 + session)与授权落盘(复验 + 取快照 + 写盘)互斥 */
+    private val bindingLock = Any()
     private var sendJob: Job? = null
     private var lastProvider: AgentProvider? = null   // stop() 取消在途请求用
     private val summaryJobs = HashMap<String, Job>()  // sessionId → 在途摘要任务
@@ -124,6 +128,8 @@ class AgentController(
             content: String,
             enabled: Boolean,
         ): AgentSkill {
+            BuiltinSkills.all.firstOrNull { id != null && it.id.equals(id, ignoreCase = true) }
+                ?.let { return it }
             val existing = _state.value.skills.firstOrNull {
                 id != null && it.id.equals(id, ignoreCase = true)
             }
@@ -135,7 +141,7 @@ class AgentController(
                 summary = summary.trim(),
                 content = content,
                 enabled = enabled,
-                builtin = existing?.builtin ?: false,
+                builtin = false,
                 updatedAt = clockMs(),
             )
             persistSkills(_state.value.skills.filterNot { it.id == skill.id } + skill)
@@ -211,15 +217,17 @@ class AgentController(
         update { it.copy(skills = skills) }
     }
 
-    /** 新增或更新技能(内置技能保留 builtin 标记;id 为空时按名称生成安全 slug) */
+    /** 新增或更新自定义技能(内置技能只读:任何覆盖都被忽略;id 为空时按名称生成安全 slug) */
     fun upsertSkill(skill: AgentSkill) {
-        val existing = _state.value.skills.firstOrNull { it.id == skill.id }
         val id = skill.id.ifBlank { uniqueSkillId(slugifySkillId(skill.name)) }
-        val builtin = existing?.builtin ?: BuiltinSkills.all.any { it.id == id }
+        if (BuiltinSkills.all.any { it.id == id }) {
+            update { it.copy(toast = "内置技能只读,不能修改或覆盖") }
+            return
+        }
         val next = skill.copy(
             id = id,
             name = skill.name.trim().ifBlank { "未命名技能" },
-            builtin = builtin,
+            builtin = false,
             updatedAt = clockMs(),
         )
         persistSkills(_state.value.skills.filterNot { it.id == next.id } + next)
@@ -227,37 +235,48 @@ class AgentController(
 
     fun toggleSkill(id: String, enabled: Boolean) {
         val skills = _state.value.skills
-        if (skills.none { it.id == id }) return
+        val target = skills.firstOrNull { it.id == id } ?: return
+        if (target.builtin || BuiltinSkills.all.any { it.id == id }) {
+            update { it.copy(toast = "内置技能只读,不可关闭") }
+            return
+        }
         persistSkills(
             skills.map { if (it.id == id) it.copy(enabled = enabled, updatedAt = clockMs()) else it },
         )
     }
 
-    /** 删除技能:内置技能只可关闭/重置,不可删除 */
+    /** 删除技能:内置技能只读,不可删除 */
     fun deleteSkill(id: String) {
         val skill = _state.value.skills.firstOrNull { it.id == id } ?: return
-        if (skill.builtin) {
-            update { it.copy(toast = "内置技能不可删除,可关闭或重置") }
+        if (skill.builtin || BuiltinSkills.all.any { it.id == id }) {
+            update { it.copy(toast = "内置技能只读,不可删除") }
             return
         }
         persistSkills(_state.value.skills.filterNot { it.id == id })
     }
 
-    /** 恢复内置技能默认内容并重新启用 */
+    /** 内置技能定义恒为规范版本;保留入口仅做幂等校正(用户不可编辑内容) */
     fun resetBuiltinSkill(id: String) {
         val base = BuiltinSkills.all.firstOrNull { it.id == id } ?: return
-        val next = base.copy(enabled = true, updatedAt = clockMs())
-        persistSkills(_state.value.skills.filterNot { it.id == id } + next)
+        persistSkills(_state.value.skills.filterNot { it.id == id } + base)
     }
 
     fun updateToolConfig(config: ToolConfig) {
+        if (toolRegistry.get(config.id)?.spec?.builtin == true || config.id in BuiltinTools.builtinToolIds) {
+            update { it.copy(toast = "内置工具只读,不能修改设置") }
+            return
+        }
         val next = _state.value.toolConfigs + (config.id to config)
         store.saveToolConfigs(next)
         update { it.copy(toolConfigs = next) }
     }
 
     fun toggleTool(id: String, enabled: Boolean) {
-        if (toolRegistry.get(id) == null) return
+        val spec = toolRegistry.get(id)?.spec ?: return
+        if (spec.builtin) {
+            update { it.copy(toast = "内置工具只读,不可关闭") }
+            return
+        }
         val existing = _state.value.toolConfigs[id] ?: ToolConfig(id = id)
         updateToolConfig(existing.copy(id = id, enabled = enabled))
     }
@@ -571,7 +590,7 @@ class AgentController(
             return
         }
         val target = store.latestSession(page.notebookId, page.pageId) ?: newSession(page)
-        session = target
+        rebindSession(target)
         update { st ->
             st.copy(
                 boundPage = page,
@@ -605,13 +624,17 @@ class AgentController(
     /** /清空:开新会话(旧会话落盘保留可回看;离开旧会话时补一次摘要) */
     fun clearSession() {
         val p = _state.value.boundPage ?: session?.let { PageRef(it.notebookId, it.pageId) } ?: return
-        val cur = session
-        if (cur != null && cur.messages.isNotEmpty()) {
-            store.saveSession(cur)
-            maybeScheduleAutoSummary(cur, leaving = true)
-        }
         val fresh = newSession(p)
-        session = fresh
+        var departing: AgentSession? = null
+        synchronized(bindingLock) {
+            // 旧会话落盘与换绑同临界区:避免在途授权分析的写入被旧快照覆盖或反向
+            departing = session?.takeIf { it.messages.isNotEmpty() }
+            departing?.let { store.saveSession(it) }
+            bindingEpoch++
+            session = fresh
+        }
+        val left = departing
+        if (left != null) maybeScheduleAutoSummary(left, leaving = true)
         update {
             it.copy(
                 messages = emptyList(),
@@ -659,7 +682,7 @@ class AgentController(
         if (departing != null && departing.id != target.id) {
             maybeScheduleAutoSummary(departing, leaving = true)
         }
-        session = target
+        rebindSession(target)
         // 仍停留在同一笔记本时保留当前页:切到旧会话后「当前页」/框选仍作用于正在看的页面
         val bound = _state.value.boundPage
         val nextPage = if (bound != null && bound.notebookId == target.notebookId) {
@@ -694,7 +717,7 @@ class AgentController(
             val next = remaining.firstOrNull { it.pageId == target.pageId }
                 ?: remaining.firstOrNull()
                 ?: newSession(PageRef(target.notebookId, target.pageId))
-            session = next
+            rebindSession(next)
             update {
                 it.copy(
                     boundPage = PageRef(next.notebookId, next.pageId),
@@ -768,9 +791,37 @@ class AgentController(
 
     fun setDraftText(text: String) = update { it.copy(draftText = text) }
 
-    /** ④ 意图条「发送 ↵」:带意图首轮(或抽屉开着时多选区累积后发送) */
+    /** ④ 意图条「发送 ↵」:带意图首轮(或抽屉开着时多选区累积后发送);授权类意图必须走显式申请入口 */
     fun sendWithIntent(intent: Intents.Id, extraText: String = "") {
+        if (intent == Intents.Id.PROFICIENCY) {
+            update { it.copy(toast = "请点击「申请熟练度分析」并确认后再发送") }
+            return
+        }
         launchSend(intent, extraText)
+    }
+
+    /**
+     * 用户主动「申请熟练度分析」的唯一入口(UI 说明弹层确认后调用)。
+     * 授权绑定「发起时的页 + 会话 + 绑定代际」:不落盘、不继承到普通对话/重试/切页/新会话/摘要;
+     * 后台分析期间任何导航都会永久废止本次授权(不再读时序、不再执行工具、不写任何会话)。
+     * 模型、工具与附件文本都无法触发本方法。
+     */
+    fun requestProficiencyAnalysis(extraText: String = "") {
+        val page = _state.value.boundPage
+        val current = session
+        if (page == null || current == null) {
+            update { it.copy(toast = "请先打开一个页面") }
+            return
+        }
+        if (sendJob?.isActive == true) {
+            update { it.copy(toast = "回复生成中,请先停止") }
+            return
+        }
+        launchSend(
+            Intents.Id.PROFICIENCY,
+            extraText,
+            grant = ProficiencyGrant(page, current.id, bindingEpoch),
+        )
     }
 
     // ---- 📎 附件面板(A2.6,ZCode 式:附件挂 composer、✕ 可移除、随下一条消息发出) ----
@@ -1140,16 +1191,56 @@ class AgentController(
             draftAttachments = s.draftAttachments + restored,
         )
         session = session?.copy(messages = session!!.messages.subList(0, lastUser))
-        launchSend(userMsg.intent, "")
+        // 重试不继承熟练度分析授权;保留原文字,让模型知道用户想重试什么
+        launchSend(
+            userMsg.intent,
+            if (userMsg.intent == Intents.Id.PROFICIENCY) userMsg.text else "",
+        )
     }
 
     fun consumeToast() = update { it.copy(toast = null) }
 
     // ---- 发送管线 ----
 
-    private fun launchSend(intent: Intents.Id?, extraText: String) {
+    /**
+     * 熟练度分析授权:只属于发起那一次「页 + 会话 + 绑定代际」。
+     * 任何真实的页/会话导航(切页、切会话、清空、删除当前会话)都会递增代际,
+     * 在途分析随之永久废止——离开后再回到同一页同一会话也不会复活。
+     */
+    private data class ProficiencyGrant(
+        val page: PageRef,
+        val sessionId: String,
+        val epoch: Long,
+    )
+
+    /** 导航换绑:代际递增与 session 切换在同一临界区,在途授权分析随之永久失效 */
+    private fun rebindSession(target: AgentSession) {
+        synchronized(bindingLock) {
+            bindingEpoch++
+            session = target
+        }
+    }
+
+    /**
+     * 授权是否仍是发起那一次绑定;普通对话(grant=null)恒为真。
+     * 代际是主判定:导航只增不减,所以授权一旦失效就不会被「回到原页原会话」重新激活。
+     */
+    private fun grantActive(grant: ProficiencyGrant?): Boolean {
+        if (grant == null) return true
+        if (bindingEpoch != grant.epoch) return false
+        if (session?.id != grant.sessionId) return false
+        val bound = _state.value.boundPage ?: return false
+        return bound.notebookId == grant.page.notebookId && bound.pageId == grant.page.pageId
+    }
+
+    /** 落盘前的复验(需持有 [bindingLock]):代际与会话身份都必须仍是发起时那份快照 */
+    private fun grantStillBoundLocked(grant: ProficiencyGrant, snapshot: AgentSession): Boolean =
+        bindingEpoch == grant.epoch && snapshot.id == grant.sessionId
+
+    private fun launchSend(intent: Intents.Id?, extraText: String, grant: ProficiencyGrant? = null) {
         val s = _state.value
         val page = s.boundPage
+        val grantPage = grant?.page
         val profile = s.profiles.firstOrNull { it.id == s.activeProfileId }
         val model = profile?.activeModel()
         if (profile == null || model == null || !model.vision || keyFor(profile.apiKeyAlias).isNullOrEmpty()) {
@@ -1163,8 +1254,12 @@ class AgentController(
         sendJob?.cancel()
 
         val spec = intent?.let { Intents.byId(it) }
+            // 没有本次授权时不使用「已授权」模板(例如重试),避免模型误以为拿到了时序数据
+            ?.takeIf { it.id != Intents.Id.PROFICIENCY || grantPage != null }
         val intentForChips = intent
         scope.launch {
+            // 授权分析:协程还没跑起来就换了页/会话(连点申请、立即切页)→ 直接撤销,不留消息
+            if (!grantActive(grant)) return@launch
             val phase0 = _state.value
             val drafts = phase0.draftAttachments
             // 1. 视觉图拍平:多页文档按逐页展开(每页一条),单图草稿一条
@@ -1204,7 +1299,9 @@ class AgentController(
             val userMsg = UiMessage(
                 id = UUID.randomUUID().toString().substring(0, 8),
                 role = AgentMessage.Role.USER,
-                text = extraText.ifBlank { spec?.label?.let { "[$it]" } ?: "" },
+                text = extraText.ifBlank {
+                    intent?.let { "[${Intents.byId(it).label}]" } ?: ""
+                },
                 attachments = atts,
                 intent = intent,
                 anchor = finalVisuals.firstOrNull { it.draft.anchor != null }?.draft?.anchor,
@@ -1234,13 +1331,25 @@ class AgentController(
             val userWire = if (spec != null) PromptEngine.userText(spec, extraText) else extraText
             val mentionsUsed = userWire.contains("@") || extraText.contains("@")
             val labels = finalVisuals.map { if (mentionsUsed) it.label else "" }
-            // 工具与技能:按用户开关生成 wire 声明,技能只注入目录(正文按需 read_skill)
-            val wireTools = toolRegistry.effectiveWireTools(_state.value.toolConfigs)
+            // 工具与技能:按用户开关生成 wire 声明,技能只注入目录(正文按需 read_skill);
+            // 授权类工具(时序)只在本 turn 的显式申请内出现
+            val authorizedTools = if (grantPage != null) {
+                setOf(BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID)
+            } else {
+                emptySet()
+            }
+            val wireTools = toolRegistry.effectiveWireTools(_state.value.toolConfigs, authorizedTools)
             val enabledSkills = _state.value.skills.filter { it.enabled }
-            val promptSpec = Intents.byId(intent ?: lastIntent() ?: Intents.Id.EXPLAIN)
+            val requestedIntent = intent ?: lastIntent() ?: Intents.Id.EXPLAIN
+            // 普通 turn 不隐式延续熟练度分析:没有本次授权时,即使上一条是分析意图也回落到讲解
+            val promptSpec = if (requestedIntent == Intents.Id.PROFICIENCY && grantPage == null) {
+                Intents.byId(Intents.Id.EXPLAIN)
+            } else {
+                Intents.byId(requestedIntent)
+            }
             val req = ChatRequest(
                 model = model.id,
-                system = PromptEngine.systemPrompt(promptSpec, enabledSkills, wireTools),
+                system = PromptEngine.systemPrompt(promptSpec, enabledSkills, wireTools, grantPage),
                 history = history,
                 newUserText = PromptEngine.assembleRichUserContent(userWire, labels, docBlocks),
                 images = finalVisuals.map { java.util.Base64.getEncoder().encodeToString(it.bytes) },
@@ -1252,7 +1361,7 @@ class AgentController(
                 sessionId = session?.id ?: "milknote-${profile.id}",
                 tools = wireTools,
             )
-            runExchange(profile, model, req, userMsg, asstMsg, intentForChips)
+            runExchange(profile, model, req, userMsg, asstMsg, intentForChips, grant)
         }
     }
 
@@ -1274,10 +1383,14 @@ class AgentController(
         userMsg: UiMessage,
         asstMsg: UiMessage,
         intent: Intents.Id?,
+        grant: ProficiencyGrant? = null,
     ) {
         // 模型级协议覆盖(OpenCode Go 一家多协议):请求前把 profile 的默认协议替换为实际协议
         val effectiveProfile = profile.copy(protocol = profile.effectiveProtocol(model.id))
+        val proficiencyGrantPage = grant?.page
         sendJob = scope.launch {
+            // 授权分析:调度间隙又换了页/会话 → 连请求都不发(消息随切页已从当前会话移除)
+            if (!grantActive(grant)) return@launch
             var attempt = 0
             val text = StringBuilder()
             val thinking = StringBuilder()
@@ -1289,7 +1402,11 @@ class AgentController(
             generationStartedAt = clockMs()
             generationFirstTokenAt = 0L
 
+            // 授权分析换页/换会话后即撤销:不再改当前会话 UI、不读时序、不落盘、不发下一轮
+            fun granted(): Boolean = grantActive(grant)
+
             fun replaceAssistant(transform: (UiMessage) -> UiMessage) {
+                if (!granted()) return
                 update { s ->
                     s.copy(messages = s.messages.map { if (it.id == asstMsg.id) transform(it) else it })
                 }
@@ -1315,6 +1432,7 @@ class AgentController(
             )
 
             fun finishDone() {
+                if (!granted()) return
                 val usage = successUsage()
                 val genMs = measuredGenerationMs(generationStartedAt, generationFirstTokenAt, usage.completionTokens)
                 val snapshot = tracesSnapshot()
@@ -1330,14 +1448,16 @@ class AgentController(
                         toolTraces = snapshot,
                     )
                 }
-                update { it.copy(phase = AgentMessage.Phase.DONE) }
+                if (granted()) update { it.copy(phase = AgentMessage.Phase.DONE) }
                 persistWith(
                     userMsg, asstMsg, text.toString(), AgentMessage.Phase.DONE, intent, usage,
                     model.id, thinking.toString(), genMs, usage.promptTokens, usage.completionTokens, snapshot,
+                    grant = grant,
                 )
             }
 
             fun finishFailed(error: AgentError) {
+                if (!granted()) return
                 val usage = accumulatedUsage()
                 val genMs = measuredGenerationMs(
                     generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0,
@@ -1353,15 +1473,17 @@ class AgentController(
                         toolTraces = snapshot,
                     )
                 }
-                update { it.copy(phase = AgentMessage.Phase.FAILED, error = error) }
+                if (granted()) update { it.copy(phase = AgentMessage.Phase.FAILED, error = error) }
                 persistWith(
                     userMsg, asstMsg, text.toString(), AgentMessage.Phase.FAILED, intent, usage,
                     model.id, thinking.toString(), genMs,
                     usage?.promptTokens ?: 0, usage?.completionTokens ?: 0, snapshot,
+                    grant = grant,
                 )
             }
 
             fun finishInterrupted() {
+                if (!granted()) return
                 val usage = accumulatedUsage()
                 val genMs = measuredGenerationMs(
                     generationStartedAt, generationFirstTokenAt, usage?.completionTokens ?: 0,
@@ -1377,11 +1499,12 @@ class AgentController(
                         toolTraces = snapshot,
                     )
                 }
-                update { it.copy(phase = AgentMessage.Phase.INTERRUPTED) }
+                if (granted()) update { it.copy(phase = AgentMessage.Phase.INTERRUPTED) }
                 persistWith(
                     userMsg, asstMsg, text.toString(), AgentMessage.Phase.INTERRUPTED, intent, usage,
                     model.id, thinking.toString(), genMs,
                     usage?.promptTokens ?: 0, usage?.completionTokens ?: 0, snapshot,
+                    grant = grant,
                 )
             }
 
@@ -1453,12 +1576,18 @@ class AgentController(
                         return@launch
                     }
 
+                    // 授权分析在流式期间换页/换会话:彻底撤销,不读时序、不发下一轮、不落盘
+                    if (!granted()) return@launch
                     round++
                     attempt = 0
                     val continuation = ArrayList<WireMessage>(1 + roundCalls.size)
                     continuation.add(WireMessage("assistant", roundText, toolCalls = roundCalls))
                     for (call in roundCalls) {
-                        val output = executeToolCall(call, traces) { applyTraces() }
+                        val output = executeToolCall(
+                            call, traces, proficiencyGrantPage, { granted() },
+                        ) { applyTraces() }
+                        // 工具执行或确认等待期间换了页/会话:原始数据不再流向任何新一轮
+                        if (!granted()) return@launch
                         continuation.add(
                             WireMessage("tool", output, toolCallId = call.id, toolName = call.name),
                         )
@@ -1528,10 +1657,13 @@ class AgentController(
     /**
      * 执行单个工具调用:未注册/已关闭 → 回传错误;需确认 → 挂起等待 UI;
      * 拒绝 → DENIED;执行后写 DONE/ERROR 并返回给模型的文本结果。
+     * [grantActive] 为授权分析的存活判定:切页/换会话后连工具都不再执行。
      */
     private suspend fun executeToolCall(
         call: ToolCall,
         traces: MutableList<ToolTrace>,
+        grantPage: PageRef?,
+        grantActive: () -> Boolean = { true },
         onTracesChanged: () -> Unit,
     ): String {
         val tool = toolRegistry.get(call.name)
@@ -1551,12 +1683,33 @@ class AgentController(
         }
 
         val spec = tool.spec
+        // 授权分析在切页/换会话后立即失效:任何工具都不再执行(不读、不改当前页面)
+        if (!grantActive()) {
+            return "用户的熟练度分析授权已随页面/会话切换撤销,本次不再读取或修改任何页面数据。请直接回答。"
+        }
         val config = effectiveConfigOf(spec)
         val displayName = toolRegistry.effectiveDisplayName(spec, config)
         val args = ToolArgs.parse(call.argumentsJson)
         val normalizedArgs = ToolArgs.encode(args)
-        val action = runCatching { tool.describeAction(args, toolContext(config)) }
+        val action = runCatching { tool.describeAction(args, toolContext(config, grantPage)) }
             .getOrDefault(displayName)
+
+        // 授权类工具的执行硬门禁:即使模型伪造调用,没有本 turn 授权也不触达页面
+        if (spec.requiresUserGrant && grantPage == null) {
+            traces += ToolTrace(
+                callId = call.id,
+                toolName = spec.id,
+                displayName = displayName,
+                argumentsJson = normalizedArgs,
+                status = ToolTrace.Status.ERROR,
+                actionSummary = action,
+                resultSummary = "未获授权",
+                output = "未获授权",
+            )
+            onTracesChanged()
+            return "工具「$displayName」只在用户本轮显式申请熟练度分析时可用;本轮未获得授权," +
+                "不能读取页面时间数据。请提示用户点击「申请熟练度分析」后再试,不要重复调用。"
+        }
 
         if (!config.enabled) {
             traces += ToolTrace(
@@ -1612,8 +1765,18 @@ class AgentController(
             onTracesChanged()
         }
 
+        // 授权在等待确认期间被撤销(换页/换会话):任何工具都不再对当前页面生效
+        if (!grantActive()) {
+            updateTrace(traces, call.id) {
+                it.copy(status = ToolTrace.Status.DENIED, resultSummary = "授权已撤销", output = "")
+            }
+            onTracesChanged()
+            return "本次熟练度分析的授权已随页面/会话切换撤销,该操作未执行,页面时间数据也不再读取。" +
+                "请直接回答用户当前页面的问题。"
+        }
+
         val result = try {
-            tool.execute(args, toolContext(config))
+            tool.execute(args, toolContext(config, grantPage))
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
@@ -1624,7 +1787,8 @@ class AgentController(
             it.copy(
                 status = if (result.ok) ToolTrace.Status.DONE else ToolTrace.Status.ERROR,
                 resultSummary = result.summary.ifBlank { if (result.ok) "完成" else "失败" },
-                output = result.output.take(TOOL_OUTPUT_MAX),
+                // 时序类工具只把原始数据回传本次调用链;轨迹/历史仅保留计数摘要
+                output = if (spec.recordOutputInTrace) result.output.take(TOOL_OUTPUT_MAX) else "",
             )
         }
         onTracesChanged()
@@ -1644,12 +1808,13 @@ class AgentController(
         if (index >= 0) traces[index] = transform(traces[index])
     }
 
-    private fun toolContext(config: ToolConfig) = ToolContext(
+    private fun toolContext(config: ToolConfig, grantPage: PageRef? = null) = ToolContext(
         boundPage = _state.value.boundPage,
         config = config,
         workspace = workspace,
         skillStore = skillManager,
         webSearch = webSearch,
+        elementTimestampsPage = grantPage,
     )
 
     /** 首 token → 完成耗时;单块快速返回时按 50ms 兜底(速度不至于除零) */
@@ -1672,45 +1837,60 @@ class AgentController(
         promptTokens: Int = usage?.promptTokens ?: 0,
         completionTokens: Int = usage?.completionTokens ?: 0,
         toolTraces: List<ToolTrace> = emptyList(),
+        grant: ProficiencyGrant? = null,
     ) {
-        val s = session ?: return
-        val now = clockMs()
-        val u = AgentMessage(
-            id = userMsg.id, role = AgentMessage.Role.USER, sentAt = now,
-            text = userMsg.text, attachments = userMsg.attachments, intent = intent?.name,
-        )
-        val a = AgentMessage(
-            id = asstMsg.id, role = AgentMessage.Role.ASSISTANT, sentAt = now,
-            text = asstText, reasoning = thinkingText, modelId = modelId,
-            promptTokens = promptTokens,
-            completionTokens = completionTokens,
-            phase = phase.name,
-            generationMs = generationMs,
-            toolTraces = toolTraces,
-        )
-        val messages = (s.messages.filter { it.id != userMsg.id && it.id != asstMsg.id } + u + a)
-            .sortedBy { it.sentAt }
-        val title = s.title.ifBlank {
-            messages.firstOrNull { it.role == AgentMessage.Role.USER && it.text.isNotBlank() }
-                ?.text?.lineSequence()?.firstOrNull()?.trim()?.take(40) ?: ""
+        // 写回只使用调用时读到的会话快照;授权分析还要在同一临界区里复验代际,
+        // 避免 guard 通过后被主线程切页,把旧页的分析写进碰巧换到的新会话目录。
+        fun writeExchange(s: AgentSession): AgentSession {
+            val now = clockMs()
+            val u = AgentMessage(
+                id = userMsg.id, role = AgentMessage.Role.USER, sentAt = now,
+                text = userMsg.text, attachments = userMsg.attachments, intent = intent?.name,
+            )
+            val a = AgentMessage(
+                id = asstMsg.id, role = AgentMessage.Role.ASSISTANT, sentAt = now,
+                text = asstText, reasoning = thinkingText, modelId = modelId,
+                promptTokens = promptTokens,
+                completionTokens = completionTokens,
+                phase = phase.name,
+                generationMs = generationMs,
+                toolTraces = toolTraces,
+            )
+            val messages = (s.messages.filter { it.id != userMsg.id && it.id != asstMsg.id } + u + a)
+                .sortedBy { it.sentAt }
+            val title = s.title.ifBlank {
+                messages.firstOrNull { it.role == AgentMessage.Role.USER && it.text.isNotBlank() }
+                    ?.text?.lineSequence()?.firstOrNull()?.trim()?.take(40) ?: ""
+            }
+            val withExchange = s.copy(
+                messages = messages,
+                updatedAt = now,
+                providerId = _state.value.activeProfileId ?: s.providerId,
+                modelId = modelId,
+                title = title,
+            )
+            store.saveSession(withExchange)
+            // 会话内消息状态同步(重试/清空后的内存视图)
+            val uiById = _state.value.messages.associateBy { it.id }
+            val synced = withExchange.copy(
+                messages = withExchange.messages.map { m ->
+                    val ui = uiById[m.id]
+                    if (ui != null) m.copy(insertedAnnotationId = ui.insertedAnnotationId) else m
+                },
+            )
+            session = synced
+            return synced
         }
-        session = s.copy(
-            messages = messages,
-            updatedAt = now,
-            providerId = _state.value.activeProfileId ?: s.providerId,
-            modelId = modelId,
-            title = title,
-        )
-        store.saveSession(session!!)
-        // 会话内消息状态同步(重试/清空后的内存视图)
-        val uiById = _state.value.messages.associateBy { it.id }
-        session = session?.copy(
-            messages = session!!.messages.map { m ->
-                val ui = uiById[m.id]
-                if (ui != null) m.copy(insertedAnnotationId = ui.insertedAnnotationId) else m
-            },
-        )
-        val saved = session ?: return
+
+        val saved = if (grant == null) {
+            writeExchange(session ?: return)
+        } else {
+            synchronized(bindingLock) {
+                val snapshot = session
+                if (snapshot == null || !grantStillBoundLocked(grant, snapshot)) null
+                else writeExchange(snapshot)
+            }
+        } ?: return
         refreshSessions()
         // 首轮完成/每 3 轮增量/离开会话时后台刷新摘要
         maybeScheduleAutoSummary(saved)

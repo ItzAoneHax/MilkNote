@@ -107,42 +107,37 @@ object PageRenderer {
             data.pageWidthMm * MM_TO_PX to data.pageHeightMm * MM_TO_PX
         } else pageDimsPx(data.pageSize, data.orientation)
 
+    /**
+     * 页面数据:内存优先(书写页同帧快照);否则从磁盘用单次 `repo.loadDrawing` 读取,
+     * 笔迹/批注/图片/音视频来自同一份快照(不再分层各读一次造成跨层不一致)。
+     * 页不存在(含 notebook 存在但 page id 不在列表)返回 null,由调用方回落空态而非伪造空白页。
+     */
     private suspend fun loadData(page: PageRef): AgentBridge.PageData? {
-        // 内存优先;图片层由磁盘补齐(pageProvider 的快照可能不含 images/imageDir)
-        AgentBridge.pageProvider?.invoke(page)?.let { return fillImages(page, it) }
-        // 回退:从磁盘读(非当前页的整章页;图片一并,notebookDir 解析 src)
-        return runCatching {
-            val repo = com.milknote.app.di.ServiceLocator.repository
-            val meta = repo.listNotebooks().firstOrNull { it.id == page.notebookId } ?: return null
-            val spec = meta.pageSpec(page.pageId)
-            AgentBridge.PageData(
-                strokes = repo.loadPage(page.notebookId, page.pageId),
-                cards = repo.loadAnnotations(page.notebookId, page.pageId),
-                paper = spec.paper,
-                pageSize = meta.pageSize,
-                orientation = meta.orientation,
-                images = repo.loadImages(page.notebookId, page.pageId),
-                media = repo.loadMedia(page.notebookId, page.pageId),
-                imageDir = repo.notebookDir(page.notebookId).absolutePath,
-                paperColor = spec.paperColor,
-                pageWidthMm = spec.widthMm,
-                pageHeightMm = spec.heightMm,
-            )
-        }.getOrNull()
-    }
-
-    /** 图片层补齐:<pageId>.img.json 在磁盘上则注入(快照未携带时) */
-    private suspend fun fillImages(page: PageRef, data: AgentBridge.PageData): AgentBridge.PageData {
-        if (data.images.isNotEmpty() && data.imageDir != null) return data
-        return runCatching {
-            val repo = com.milknote.app.di.ServiceLocator.repository
-            val imgs = repo.loadImages(page.notebookId, page.pageId)
-            if (imgs.isEmpty() && data.imageDir != null) data
-            else data.copy(
-                images = if (data.images.isEmpty()) imgs else data.images,
-                imageDir = data.imageDir ?: repo.notebookDir(page.notebookId).absolutePath,
-            )
-        }.getOrDefault(data)
+        AgentBridge.pageProvider?.invoke(page)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val repo = com.milknote.app.di.ServiceLocator.repository
+                val meta = repo.getNotebook(page.notebookId) ?: return@withContext null
+                if (repo.listPages(page.notebookId).none { it.pageId == page.pageId }) {
+                    return@withContext null
+                }
+                val drawing = repo.loadDrawing(page.notebookId, page.pageId)
+                val spec = meta.pageSpec(page.pageId)
+                AgentBridge.PageData(
+                    strokes = drawing.strokes,
+                    cards = drawing.cards,
+                    paper = spec.paper,
+                    pageSize = meta.pageSize,
+                    orientation = meta.orientation,
+                    images = drawing.images,
+                    media = drawing.media,
+                    imageDir = repo.notebookDir(page.notebookId).absolutePath,
+                    paperColor = spec.paperColor,
+                    pageWidthMm = spec.widthMm,
+                    pageHeightMm = spec.heightMm,
+                )
+            }.getOrNull()
+        }
     }
 
     /** 旧签名兼容:纯笔迹页(strokes only) */

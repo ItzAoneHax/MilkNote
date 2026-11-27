@@ -12,11 +12,13 @@ import com.milknote.agent.Rect4
 import com.milknote.agent.SnipResult
 import com.milknote.agent.SnipSource
 import com.milknote.app.di.ServiceLocator
+import com.milknote.ink.input.InkController
 import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.ElementGeom
 import com.milknote.ink.model.ElementRef
 import com.milknote.ink.model.ImageElement
 import com.milknote.ink.model.MediaElement
+import com.milknote.ink.model.PageInkState
 import com.milknote.ink.model.Stroke
 import com.milknote.ink.model.StrokeGeom
 import com.milknote.ink.render.AnnotationCardRenderer
@@ -129,39 +131,45 @@ class AppNotebookWorkspacePort : NotebookWorkspacePort {
         widthPx: Float,
     ): String? {
         handler?.let { return it.insertMarkdownCard(page, markdown, xPx, yPx, widthPx) }
-        val repo = repository ?: return null
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val card = AnnotationCard(
-                    id = UUID.randomUUID().toString().substring(0, 8),
-                    x = xPx,
-                    y = yPx,
-                    width = widthPx.coerceAtLeast(80f),
-                    kind = AnnotationCard.Kind.MARKDOWN,
-                    text = markdown,
-                    createdAt = System.currentTimeMillis(),
-                )
-                val cards = repo.loadAnnotations(page.notebookId, page.pageId).toMutableList()
-                val top = (cards.maxOfOrNull { it.zIndex } ?: 0L) + 1L
-                cards.add(card.copy(zIndex = top))
-                repo.saveAnnotations(page.notebookId, page.pageId, cards)
-                card.id
-            }.getOrNull()
-        }
+        val card = AnnotationCard(
+            id = UUID.randomUUID().toString().substring(0, 8),
+            x = xPx,
+            y = yPx,
+            width = widthPx.coerceAtLeast(80f),
+            kind = AnnotationCard.Kind.MARKDOWN,
+            text = markdown,
+            createdAt = System.currentTimeMillis(),
+        )
+        val inserted = editOffscreen(page) { it.addAnnotationCard(card) } != null
+        return if (inserted) card.id else null
     }
 
     override suspend fun listElements(page: PageRef): List<PageElementSummary> {
         handler?.let { return it.listElements(page) }
-        val repo = repository ?: return emptyList()
         val dims = pageDimensions(page) ?: return emptyList()
+        val drawing = pageSnapshot(page) ?: return emptyList()
         return withContext(Dispatchers.Default) {
-            val strokes = withContext(Dispatchers.IO) { repo.loadPage(page.notebookId, page.pageId) }
-            val cards = withContext(Dispatchers.IO) { repo.loadAnnotations(page.notebookId, page.pageId) }
-            val images = withContext(Dispatchers.IO) { repo.loadImages(page.notebookId, page.pageId) }
-            val media = withContext(Dispatchers.IO) { repo.loadMedia(page.notebookId, page.pageId) }
-            WorkspaceElementSummaries.of(strokes, cards, images, media, dims.widthPx, dims.heightPx)
+            WorkspaceElementSummaries.of(
+                drawing.strokes, drawing.cards, drawing.images, drawing.media,
+                dims.widthPx, dims.heightPx,
+            )
         }
     }
+
+    override suspend fun elementTimestamps(
+        page: PageRef,
+        rect: Rect4,
+        includeErased: Boolean,
+    ) = handler?.elementTimestamps(page, rect, includeErased)
+        ?: pageSnapshot(page)?.let { drawing ->
+            // 平面列表与已删除笔迹已从同一份快照取得,几何在后台
+            withContext(Dispatchers.Default) {
+                WorkspaceElementTimestamps.of(
+                    drawing.strokes, drawing.cards, drawing.images, drawing.media,
+                    rect, if (includeErased) drawing.removedStrokes() else emptyList(),
+                )
+            }
+        }
 
     override suspend fun moveElement(
         page: PageRef,
@@ -173,127 +181,46 @@ class AppNotebookWorkspacePort : NotebookWorkspacePort {
         dy: Float?,
     ): Boolean {
         handler?.let { return it.moveElement(page, elementId, elementKind, targetX, targetY, dx, dy) }
-        val repo = repository ?: return false
         if (targetX == null && targetY == null && dx == null && dy == null) return false
         val kind = WorkspaceElementSummaries.parseKind(elementKind)
-        return withContext(Dispatchers.IO) {
-            WorkspaceSidecarOps.move(repo, page, kind, elementId, targetX, targetY, dx, dy)
-        }
+        return editOffscreen(page) {
+            it.moveElementById(kind, elementId, targetX, targetY, dx, dy)
+        } ?: false
     }
 
     override suspend fun deleteElement(page: PageRef, elementId: String, elementKind: String?): Boolean {
         handler?.let { return it.deleteElement(page, elementId, elementKind) }
-        val repo = repository ?: return false
         val kind = WorkspaceElementSummaries.parseKind(elementKind)
-        return withContext(Dispatchers.IO) { WorkspaceSidecarOps.delete(repo, page, kind, elementId) }
+        return editOffscreen(page) { it.deleteElementById(kind, elementId) } ?: false
     }
-}
 
-/**
- * 回退路径的 sidecar 整表重写(没有内存控制器时的唯一手段):
- * 卡片/图片/媒体按 id 改坐标或删除;笔迹在追加式 pb 流里没有原地改写语义,返回 false。
- */
-internal object WorkspaceSidecarOps {
-
-    fun move(
-        repo: NotebookRepository,
-        page: PageRef,
-        kind: ElementRef.Kind?,
-        id: String,
-        targetX: Float?,
-        targetY: Float?,
-        dx: Float?,
-        dy: Float?,
-    ): Boolean {
-        val notebookId = page.notebookId
-        val pageId = page.pageId
-        val cards = repo.loadAnnotations(notebookId, pageId)
-        val images = repo.loadImages(notebookId, pageId)
-        val media = repo.loadMedia(notebookId, pageId)
-        val resolved = kind ?: when {
-            cards.any { it.id == id } -> ElementRef.Kind.CARD
-            images.any { it.id == id } -> ElementRef.Kind.IMAGE
-            media.any { it.id == id } -> ElementRef.Kind.MEDIA
-            else -> null
-        } ?: return false
-        return when (resolved) {
-            ElementRef.Kind.CARD -> {
-                val index = cards.indexOfFirst { it.id == id }
-                if (index < 0) return false
-                val old = cards[index]
-                val moved = old.copy(
-                    x = targetX ?: (old.x + (dx ?: 0f)),
-                    y = targetY ?: (old.y + (dy ?: 0f)),
-                )
-                if (moved.x == old.x && moved.y == old.y) return true
-                repo.saveAnnotations(notebookId, pageId, cards.toMutableList().also { it[index] = moved })
-                true
-            }
-            ElementRef.Kind.IMAGE -> {
-                val index = images.indexOfFirst { it.id == id }
-                if (index < 0) return false
-                val old = images[index]
-                val moved = old.copy(
-                    x = targetX ?: (old.x + (dx ?: 0f)),
-                    y = targetY ?: (old.y + (dy ?: 0f)),
-                )
-                if (moved.x == old.x && moved.y == old.y) return true
-                repo.saveImages(notebookId, pageId, images.toMutableList().also { it[index] = moved })
-                true
-            }
-            ElementRef.Kind.MEDIA -> {
-                val index = media.indexOfFirst { it.id == id }
-                if (index < 0) return false
-                val old = media[index]
-                val moved = old.copy(
-                    x = targetX ?: (old.x + (dx ?: 0f)),
-                    y = targetY ?: (old.y + (dy ?: 0f)),
-                )
-                if (moved.x == old.x && moved.y == old.y) return true
-                repo.saveMedia(notebookId, pageId, media.toMutableList().also { it[index] = moved })
-                true
-            }
-            ElementRef.Kind.STROKE -> false
+    /** 磁盘页平面快照:单次 `loadDrawing`(页不存在 null,不伪造空页) */
+    private suspend fun pageSnapshot(page: PageRef): PageInkState? {
+        val repo = repository ?: return null
+        return withContext(Dispatchers.IO) {
+            if (repo.listPages(page.notebookId).none { it.pageId == page.pageId }) null
+            else repo.loadDrawing(page.notebookId, page.pageId)
         }
     }
 
-    fun delete(
-        repo: NotebookRepository,
-        page: PageRef,
-        kind: ElementRef.Kind?,
-        id: String,
-    ): Boolean {
-        val notebookId = page.notebookId
-        val pageId = page.pageId
-        val cards = repo.loadAnnotations(notebookId, pageId)
-        val images = repo.loadImages(notebookId, pageId)
-        val media = repo.loadMedia(notebookId, pageId)
-        val resolved = kind ?: when {
-            cards.any { it.id == id } -> ElementRef.Kind.CARD
-            images.any { it.id == id } -> ElementRef.Kind.IMAGE
-            media.any { it.id == id } -> ElementRef.Kind.MEDIA
-            else -> null
-        } ?: return false
-        return when (resolved) {
-            ElementRef.Kind.CARD -> {
-                val remaining = cards.filterNot { it.id == id }
-                if (remaining.size == cards.size) return false
-                repo.saveAnnotations(notebookId, pageId, remaining)
-                true
+    /**
+     * 离屏页编辑(没有书写页内存控制器时):同一页载入临时控制器,
+     * 用既有 InkOp 语义改动,每条变更作为单条日志落盘 —— 与书写路径共用 Journal,
+     * 不再整表重写 sidecar(否则磁盘与撤销历史会分叉)。
+     * 返回 null = 页不存在;否则返回 [block] 结果。
+     */
+    private suspend fun <T> editOffscreen(page: PageRef, block: (InkController) -> T): T? {
+        val repo = repository ?: return null
+        return withContext(Dispatchers.Default) {
+            val drawing = withContext(Dispatchers.IO) {
+                if (repo.listPages(page.notebookId).none { it.pageId == page.pageId }) null
+                else repo.loadDrawing(page.notebookId, page.pageId)
+            } ?: return@withContext null
+            val controller = InkController().apply { loadDrawing(drawing) }
+            controller.onDrawingChange = { change ->
+                repo.appendDrawingChange(page.notebookId, page.pageId, change)
             }
-            ElementRef.Kind.IMAGE -> {
-                val remaining = images.filterNot { it.id == id }
-                if (remaining.size == images.size) return false
-                repo.saveImages(notebookId, pageId, remaining)
-                true
-            }
-            ElementRef.Kind.MEDIA -> {
-                val remaining = media.filterNot { it.id == id }
-                if (remaining.size == media.size) return false
-                repo.saveMedia(notebookId, pageId, remaining)
-                true
-            }
-            ElementRef.Kind.STROKE -> false
+            block(controller)
         }
     }
 }

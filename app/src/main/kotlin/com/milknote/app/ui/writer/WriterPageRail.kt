@@ -334,9 +334,9 @@ internal fun WriterPageRail(
         ConfirmPagePanel(
             title = "清除页面 $pageId？",
             message = if (pageId == state.currentPageId) {
-                "将清除本页内容；当前页清理进撤销栈，可在本页撤销恢复。"
+                "将清除本页内容；清除会写入撤销记录，可在本页撤销恢复。"
             } else {
-                "跨页清除无法撤销；页面内容会清空，图片资产文件保留。"
+                "将清除本页内容；清除会写入撤销记录，打开该页后可撤销恢复。图片资产文件保留。"
             },
             confirmLabel = "清除页面",
             onConfirm = { clearTarget = null; onClearPage(pageId) },

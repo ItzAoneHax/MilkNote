@@ -1,6 +1,9 @@
 package com.milknote.agent
 
-/** 内置学习技能:首次加载由 AgentStore 写入 skills.json,用户可编辑/关闭/重置 */
+/**
+ * 内置学习技能:始终按此规范定义提供(只读投影,不回写;文件里的旧记录原样保留但不生效)。
+ * 只读 —— 用户不能编辑、关闭、删除或覆盖;自定义方法请建为用户技能。
+ */
 object BuiltinSkills {
 
     val mathSolutionSteps = AgentSkill(
