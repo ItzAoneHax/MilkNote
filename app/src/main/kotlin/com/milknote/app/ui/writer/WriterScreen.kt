@@ -2,6 +2,9 @@ package com.milknote.app.ui.writer
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -209,6 +212,10 @@ fun WriterScreen(
     var shapeWidth by remember { mutableStateOf(state.tool.baseWidthMm) }
     var newPageAnchor by remember { mutableStateOf<String?>(null) }
     var playbackElement by remember { mutableStateOf<MediaElement?>(null) }
+    // 从悬浮笔匣色点直接进取色:关闭时收起整个笔面板而不是退回笔设置
+    var colorDetailDirect by remember { mutableStateOf(false) }
+    // Studio 抽屉当前占用宽度(自身调宽时会上报),笔匣与画布据此让位
+    var agentDrawerWidth by remember { mutableStateOf(360.dp) }
 
     fun setCentralPanel(panel: WriterPanel, visible: Boolean) {
         centralPanelState = if (visible) centralPanelState.open(panel) else centralPanelState.dismiss()
@@ -217,6 +224,7 @@ fun WriterScreen(
     fun closeCentralPanel() {
         centralPanelState = centralPanelState.dismiss()
         detailColor = null
+        colorDetailDirect = false
     }
     fun openToolPanel(tool: InkTool, colorIndex: Int? = null) {
         detailTool = tool
@@ -379,6 +387,36 @@ fun WriterScreen(
     ) {
         // 第二代:chrome 仅 44dp 顶栏;笔匣悬浮在画布之上,不占布局高度
         val chromeHeight = if (focusMode) 0.dp else WriterMajorToolbarHeight
+        val reduced = LocalMilkMotion.current
+        // 左侧栏宽度:与页面栏自身的滑入/滑出同步,画布与笔匣随之平移而不是跳变
+        val railWidth by animateDpAsState(
+            targetValue = if (!focusMode && railMode != null) WriterExpandedRailWidth else 0.dp,
+            animationSpec = when {
+                reduced -> tween(MilkMotion.reduced)
+                !focusMode && railMode != null -> tween(MilkMotion.drawerEnter, easing = MilkMotion.EaseDrawer)
+                else -> tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer)
+            },
+            label = "writerRailWidth",
+        )
+        // Studio 抽屉占用宽度:开合与调宽时与抽屉本体同步(抽屉右滑关闭时随之收缩)
+        val studioInsetAnim = remember {
+            Animatable(if (!focusMode && agentDrawerOpen) agentDrawerWidth.value else 0f)
+        }
+        LaunchedEffect(agentDrawerOpen, focusMode, reduced) {
+            val target = if (!focusMode && agentDrawerOpen) agentDrawerWidth.value else 0f
+            val spec: AnimationSpec<Float> = when {
+                reduced -> tween(MilkMotion.reduced)
+                target > studioInsetAnim.value -> tween(MilkMotion.drawerEnter, easing = MilkMotion.EaseDrawer)
+                else -> tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer)
+            }
+            studioInsetAnim.animateTo(target, spec)
+        }
+        LaunchedEffect(agentDrawerWidth, agentDrawerOpen, focusMode) {
+            if (!focusMode && agentDrawerOpen && !studioInsetAnim.isRunning) {
+                studioInsetAnim.snapTo(agentDrawerWidth.value)
+            }
+        }
+        val studioInset = studioInsetAnim.value.dp
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
@@ -389,8 +427,8 @@ fun WriterScreen(
                     // 同一本同一页:右侧重复窗格只读(状态由主窗格整体镜像,避免两个撤销栈分叉)
                     val duplicateSplit = splitNb.id == state.notebook?.id &&
                         state.splitPageId == state.currentPageId
-                    val splitStartPad = (if (!focusMode && railMode != null) WriterExpandedRailWidth else 0.dp) + 12.dp
-                    val splitEndPad = (if (!focusMode && agentDrawerOpen) 360.dp else 0.dp) + 12.dp
+                    val splitStartPad = railWidth + 12.dp
+                    val splitEndPad = studioInset + 12.dp
                     Row(
                         Modifier
                             .fillMaxSize()
@@ -528,6 +566,7 @@ fun WriterScreen(
                     onInsertCard = { vm.insertLibraryCard(it, state.currentPageId) },
                     onSaveMessageCard = vm::saveTextAsCard,
                     allNotebooks = remember(state.notebook?.id) { ServiceLocator.repository.listNotebooks(includeTrashed = false) },
+                    onOccupiedWidthChange = { agentDrawerWidth = it },
                     modifier = Modifier.align(Alignment.CenterEnd).padding(top = chromeHeight),
                 )
                 // 混合选区操作条:锚定当前选框,空间不足时自动换到下方。
@@ -569,8 +608,6 @@ fun WriterScreen(
             }
 
         if (!focusMode) {
-            val reduced = LocalMilkMotion.current
-            val railWidth = if (railMode == null) 0.dp else WriterExpandedRailWidth
             val minorVisible = !minorCollapsed && selectedMajorTool != WriterMajorTool.READING
             // 记住最近非空页签:退出动画期间继续渲染旧内容,不做空切
             var lastRailMode by remember { mutableStateOf(WriterRailMode.PAGES) }
@@ -650,8 +687,6 @@ fun WriterScreen(
                 dockPreview = null
             }
             val onDockCancel: () -> Unit = { dockPreview = null }
-            val railWidthNow = railWidth
-            val studioInset = if (agentDrawerOpen) 360.dp else 0.dp
             // 笔设置入口:按当前工具打开对应面板(钢笔/荧光笔/图案笔/激光 → 笔设置;其余 → 各自面板)
             val openTune: () -> Unit = {
                 when (selectedMajorTool) {
@@ -675,7 +710,7 @@ fun WriterScreen(
                     shapeColor = shapeColor,
                     shapeWidth = shapeWidth,
                     dock = dock,
-                    maxWidth = maxWidth - railWidthNow - studioInset - 24.dp,
+                    maxWidth = (maxWidth - railWidth - studioInset - 24.dp).coerceAtLeast(160.dp),
                     maxHeight = maxHeight - chromeHeight - 24.dp,
                     onDockDrag = onDockDrag,
                     onDockDrop = onDockDrop,
@@ -685,6 +720,13 @@ fun WriterScreen(
                     onCollapse = { minorCollapsed = true },
                     onTool = onMajorTool,
                     onColor = vm::setColor,
+                    onColorDetail = { index ->
+                        colorDetailDirect = true
+                        openToolPanel(
+                            writerInkTool(selectedMajorTool, state.toolSettings),
+                            colorIndex = index,
+                        )
+                    },
                     onWidth = vm::setWidth,
                     onEraserWidth = vm::setEraserWidth,
                     onLassoMode = vm::setLassoMode,
@@ -784,15 +826,15 @@ fun WriterScreen(
                 val dockModifier = when (minorDock) {
                     MinorDock.TOP -> Modifier
                         .align(Alignment.TopCenter)
-                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
                         .padding(top = chromeHeight + 10.dp)
                     MinorDock.BOTTOM -> Modifier
                         .align(Alignment.BottomCenter)
-                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
                         .padding(bottom = 14.dp)
                     MinorDock.LEFT -> Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
+                        .padding(start = railWidth + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
                     MinorDock.RIGHT -> Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = studioInset + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
@@ -805,19 +847,19 @@ fun WriterScreen(
                 val previewModifier = when (preview) {
                     MinorDock.TOP -> Modifier
                         .align(Alignment.TopCenter)
-                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
                         .padding(top = chromeHeight + 10.dp)
                         .width(320.dp)
                         .height(WriterMinorToolbarHeight + 8.dp)
                     MinorDock.BOTTOM -> Modifier
                         .align(Alignment.BottomCenter)
-                        .offset(x = railWidthNow / 2 - studioInset / 2)
+                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
                         .padding(bottom = 14.dp)
                         .width(320.dp)
                         .height(WriterMinorToolbarHeight + 8.dp)
                     MinorDock.LEFT -> Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 10.dp, top = chromeHeight + 12.dp)
+                        .padding(start = railWidth + 10.dp, top = chromeHeight + 12.dp)
                         .width(WriterMinorBarThickness)
                         .height(220.dp)
                     MinorDock.RIGHT -> Modifier
@@ -935,7 +977,7 @@ fun WriterScreen(
                         onDismiss = ::closeCentralPanel,
                         onWidth = vm::setWidth,
                         onSelectColor = vm::setColor,
-                        onColorDetail = { detailColor = it },
+                        onColorDetail = { colorDetailDirect = false; detailColor = it },
                         onEraserWidth = vm::setEraserWidth,
                         onEraseTarget = vm::setEraserTarget,
                         onAutoRevert = vm::setEraserAutoRevert,
@@ -951,7 +993,10 @@ fun WriterScreen(
                 state.toolSettings.palettes[tool]?.getOrNull(colorIndex)?.let { color ->
                     ColorSettingsDialog(
                         initialColor = color,
-                        onDismiss = { detailColor = null },
+                        onDismiss = {
+                            // 从笔匣色点直达:关闭时收起整个笔面板,不退回笔设置
+                            if (colorDetailDirect) closeCentralPanel() else detailColor = null
+                        },
                         onColorChange = { vm.setPaletteColor(colorIndex, it) },
                     )
                 }

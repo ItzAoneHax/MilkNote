@@ -117,6 +117,7 @@ private class MinorItems(
     val shapeColor: Long,
     val shapeWidth: Float,
     val onColor: (Long) -> Unit,
+    val onColorDetail: (Int) -> Unit,
     val onWidth: (Float) -> Unit,
     val onEraserWidth: (Float) -> Unit,
     val onLassoMode: (LassoMode) -> Unit,
@@ -158,6 +159,7 @@ internal fun WriterMinorToolbar(
     onCollapse: () -> Unit,
     onTool: (WriterMajorTool) -> Unit,
     onColor: (Long) -> Unit,
+    onColorDetail: (Int) -> Unit = {},
     onWidth: (Float) -> Unit,
     onEraserWidth: (Float) -> Unit,
     onLassoMode: (LassoMode) -> Unit,
@@ -179,7 +181,7 @@ internal fun WriterMinorToolbar(
     val spec = writerMinorSpec(selectedTool, state.toolSettings)
     val items = MinorItems(
         state, selectedTool, textStyle, shapeTool, shapeColor, shapeWidth,
-        onColor, onWidth, onEraserWidth, onLassoMode, onLassoFilter, onLassoSettings,
+        onColor, onColorDetail, onWidth, onEraserWidth, onLassoMode, onLassoFilter, onLassoSettings,
         onImage, onTextEditor, onTextStyle, onShapeTool, onShapeColor,
         onShapeWidth, onStartShape, onSnip, onTape, onMaterials,
     )
@@ -507,7 +509,9 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                     active = state.tool.color == color,
                     enabled = enabled,
                     modifier = Modifier.testTag("writer-minor-color-$index"),
-                    onClick = { items.onColor(color) },
+                    onClick = {
+                        if (state.tool.color == color) items.onColorDetail(index) else items.onColor(color)
+                    },
                 )
             }
             if (spec.kind != WriterMinorKind.LASER) {

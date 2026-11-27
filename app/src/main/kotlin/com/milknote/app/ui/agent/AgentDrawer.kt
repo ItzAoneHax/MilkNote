@@ -196,6 +196,7 @@ fun AgentDrawerHost(
     onSaveMessageCard: (String) -> Unit = {},
     allNotebooks: List<com.milknote.notes.model.NotebookMeta> = emptyList(),
     onSnipToAttachment: () -> Unit = onSnip,
+    onOccupiedWidthChange: (Dp) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
     val state by agent.state.collectAsState()
@@ -223,6 +224,14 @@ fun AgentDrawerHost(
         listOf(minW, defaultW, maxW).minBy { abs(it - value) }
 
     val reducedNow by rememberUpdatedState(reduced)
+
+    // 抽屉实际占用的横向空间(调宽拖动 / 头部右滑关闭时随之收缩),用于让笔匣与画布同步让位;
+    // 收起后回报「稳定宽度」,下次展开从抽屉真实宽度开始动画,而不是从旧值瞬间跳到新值
+    val visibleWidthDp = with(density) { (widthAnim.value - offsetAnim.value).coerceAtLeast(0f).toDp() }
+    val settledWidthDp = with(density) { widthAnim.value.toDp() }
+    LaunchedEffect(state.drawerOpen, visibleWidthDp, settledWidthDp) {
+        onOccupiedWidthChange(if (state.drawerOpen) visibleWidthDp else settledWidthDp)
+    }
 
     val headerDragState = rememberDraggableState { delta ->
         rawOffset += delta

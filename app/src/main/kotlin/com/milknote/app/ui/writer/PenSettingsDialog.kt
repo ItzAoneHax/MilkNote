@@ -34,19 +34,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import com.milknote.app.ui.common.MilkButton
+import com.milknote.app.ui.common.MilkButtonSize
+import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkSectionLabel
@@ -369,136 +380,448 @@ private fun StrokePreview(tool: InkTool, color: Long, widthMm: Float, compact: B
     }
 }
 
-private enum class ColorPickerTab { GRID, SLIDERS }
+private enum class ColorPickerTab { GRID, SPECTRUM, SLIDERS }
 
-/** 颜色精细面板:网格 / 滑块两页签(分段控件),不透明度滑条,当前/原色对照 */
+/** 取色来源:决定这次改动回写哪些输入框,避免正在输入的内容被自身覆盖 */
+private enum class ColorSource { GRID, SPECTRUM, HUE, OPACITY, RGB_SLIDER, RGB_TEXT, HEX, RESTORE }
+
+/**
+ * 取色面板(2026-11 升级):三页签(网格 / 色谱 / 滑块)+ 常驻不透明度行 + 底部精度条
+ * (当前/原色对照 + HEX)。`current` 是唯一真源,所有改动都经 [emit] 统一回写;
+ * 只有影响 RGB 的改动才重算 HSV —— 调不透明度不会再把色相/饱和度/明度打回原形。
+ */
 @Composable
 internal fun ColorSettingsDialog(
     initialColor: Long,
     onDismiss: () -> Unit,
     onColorChange: (Long) -> Unit,
 ) {
-    val initialHsv = remember { argbToHsv(initialColor) }
-    var current by remember { mutableStateOf(initialColor) }
+    // 打开面板时的原色快照:编辑期间调色板条目会跟着变,「还原」必须回到打开时的颜色
+    val originalColor = remember { initialColor }
+    val initialHsv = remember { argbToHsv(originalColor) }
+    var current by remember { mutableStateOf(originalColor) }
     var hue by remember { mutableFloatStateOf(initialHsv[0]) }
     var saturation by remember { mutableFloatStateOf(initialHsv[1]) }
     var value by remember { mutableFloatStateOf(initialHsv[2]) }
-    var opacity by remember { mutableFloatStateOf(((initialColor ushr 24) and 0xFF) / 255f) }
-    var tab by remember { mutableStateOf(ColorPickerTab.GRID) }
+    var opacity by remember { mutableFloatStateOf(((originalColor ushr 24) and 0xFF) / 255f) }
+    var tab by remember { mutableStateOf(ColorPickerTab.SPECTRUM) }
+    var hexInput by remember { mutableStateOf(formatHexRgb(originalColor)) }
+    var redText by remember { mutableStateOf(((originalColor shr 16) and 0xFF).toString()) }
+    var greenText by remember { mutableStateOf(((originalColor shr 8) and 0xFF).toString()) }
+    var blueText by remember { mutableStateOf((originalColor and 0xFF).toString()) }
+    // 初次组合也会收到 hasFocus=false,只有「真正失焦」才归一,避免开面板就回写一次颜色
+    var hexHadFocus by remember { mutableStateOf(false) }
 
-    fun updateColor(rgb: Long, syncHsv: Boolean = true) {
+    fun alphaByte(): Int = (opacity * 255f).roundToInt().coerceIn(0, 255)
+
+    fun syncChannelTexts(argb: Long) {
+        val (r, g, b) = argbToRgb(argb)
+        redText = r.toString()
+        greenText = g.toString()
+        blueText = b.toString()
+    }
+
+    fun emit(source: ColorSource, argb: Long, syncHsv: Boolean = true) {
         if (syncHsv) {
-            val hsv = argbToHsv(rgb)
-            hue = hsv[0]; saturation = hsv[1]; value = hsv[2]
+            val hsv = argbToHsv(argb)
+            hue = hsv[0]
+            saturation = hsv[1]
+            value = hsv[2]
         }
-        val alpha = (opacity * 255f).roundToInt().coerceIn(0, 255).toLong()
-        current = (alpha shl 24) or (rgb and 0xFFFFFF)
-        onColorChange(current)
+        current = argb
+        opacity = ((argb ushr 24) and 0xFF) / 255f
+        if (source != ColorSource.RGB_TEXT) syncChannelTexts(argb)
+        if (source != ColorSource.HEX) hexInput = formatHexRgb(argb)
+        onColorChange(argb)
+    }
+
+    fun restore() = emit(ColorSource.RESTORE, originalColor)
+
+    fun applyHexInput(raw: String) {
+        val cleaned = raw.filter { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }.take(8).uppercase()
+        hexInput = cleaned
+        if (cleaned.length == 6 || cleaned.length == 8) {
+            parseHexColor(cleaned, alphaByte())?.let { emit(ColorSource.HEX, it) }
+        }
+    }
+
+    // 输入结束(回车 / 失焦):补全三位简写,并把显示归一到六位;颜色未变则不回写
+    fun normalizeHex() {
+        parseHexColor(hexInput, alphaByte())?.let { if (it != current) emit(ColorSource.HEX, it) }
+        hexInput = formatHexRgb(current)
     }
 
     MilkCenterPanel(
-        title = "颜色",
-        subtitle = "网格快速取色，或用滑块精细调整",
+        title = "取色",
         onDismiss = onDismiss,
-        maxWidth = 500.dp,
-        maxHeight = 720.dp,
+        maxWidth = 520.dp,
+        maxHeight = 760.dp,
         footer = {
+            MilkButton(
+                label = "还原",
+                onClick = ::restore,
+                variant = MilkButtonVariant.TEXT,
+                size = MilkButtonSize.SMALL,
+                enabled = current != originalColor,
+            )
             Spacer(Modifier.weight(1f))
             MilkButton(label = "完成", onClick = onDismiss)
         },
     ) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 600.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("writer-panel-scroll"),
+        ) {
             Spacer(Modifier.height(10.dp))
             MilkSegmented(
                 options = ColorPickerTab.entries,
                 selected = tab,
-                label = { if (it == ColorPickerTab.GRID) "网格取色" else "滑块取色" },
+                label = {
+                    when (it) {
+                        ColorPickerTab.GRID -> "网格"
+                        ColorPickerTab.SPECTRUM -> "色谱"
+                        ColorPickerTab.SLIDERS -> "滑块"
+                    }
+                },
                 onSelect = { tab = it },
+                testTagFor = { "color-picker-tab-${it.name.lowercase()}" },
             )
-            Spacer(Modifier.height(18.dp))
-            if (tab == ColorPickerTab.GRID) {
-                MilkSectionLabel("色相", description = "按行由浅到深，末列为灰阶")
-                Spacer(Modifier.height(10.dp))
-                ColorGrid(current = current, onSelect = { updateColor(it) })
-            } else {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    GradientColorSlider(
-                        label = "色相",
-                        brush = Brush.horizontalGradient((0..6).map { Color.hsv(it * 60f, 1f, 1f) }),
-                        value = hue / 360f,
-                        onChange = {
-                            hue = it * 360f
-                            updateColor(Color.hsv(hue, saturation, value).toArgb().toLong() and 0xFFFFFFFFL, false)
-                        },
-                    )
-                    GradientColorSlider(
-                        label = "饱和度",
-                        brush = Brush.horizontalGradient(listOf(Color.White, Color.hsv(hue, 1f, value))),
-                        value = saturation,
-                        onChange = {
-                            saturation = it
-                            updateColor(Color.hsv(hue, saturation, value).toArgb().toLong() and 0xFFFFFFFFL, false)
-                        },
-                    )
-                    GradientColorSlider(
-                        label = "明暗",
-                        brush = Brush.horizontalGradient(listOf(Color.Black, Color.hsv(hue, saturation, 1f))),
+            Spacer(Modifier.height(16.dp))
+            when (tab) {
+                ColorPickerTab.GRID -> ColorGrid(
+                    current = current,
+                    onSelect = { cell ->
+                        emit(ColorSource.GRID, (alphaByte().toLong() shl 24) or (cell and 0xFFFFFF))
+                    },
+                )
+
+                ColorPickerTab.SPECTRUM -> Column(Modifier.fillMaxWidth()) {
+                    SpectrumField(
+                        hue = hue,
+                        saturation = saturation,
                         value = value,
-                        onChange = {
-                            value = it
-                            updateColor(Color.hsv(hue, saturation, value).toArgb().toLong() and 0xFFFFFFFFL, false)
+                        onChange = { s, v ->
+                            saturation = s
+                            value = v
+                            emit(ColorSource.SPECTRUM, hsvToArgb(hue, s, v, alphaByte()), syncHsv = false)
                         },
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("色相", style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "${hue.roundToInt()}°",
+                            style = MilkText.monoMeta,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    MilkSlider(
+                        value = hue / 360f,
+                        onValueChange = {
+                            hue = it * 360f
+                            emit(ColorSource.HUE, hsvToArgb(hue, saturation, value, alphaByte()), syncHsv = false)
+                        },
+                        trackBrush = Brush.horizontalGradient((0..6).map { Color.hsv(it * 60f, 1f, 1f) }),
                     )
                 }
+
+                ColorPickerTab.SLIDERS -> {
+                    val (r, g, b) = argbToRgb(current)
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RgbChannelRow(
+                            label = "R",
+                            text = redText,
+                            channel = r,
+                            trackBrush = Brush.horizontalGradient(
+                                listOf(Color(rgbToArgb(0, g, b).toInt()), Color(rgbToArgb(255, g, b).toInt())),
+                            ),
+                            testTag = "color-picker-r",
+                            onTextChange = { raw ->
+                                val digits = raw.filter { it.isDigit() }.take(3)
+                                redText = digits
+                                parseChannelByte(digits)?.let {
+                                    emit(ColorSource.RGB_TEXT, rgbToArgb(it, g, b, alphaByte()))
+                                }
+                            },
+                            onChannelChange = { emit(ColorSource.RGB_SLIDER, rgbToArgb(it, g, b, alphaByte())) },
+                            onNormalize = { syncChannelTexts(current) },
+                        )
+                        RgbChannelRow(
+                            label = "G",
+                            text = greenText,
+                            channel = g,
+                            trackBrush = Brush.horizontalGradient(
+                                listOf(Color(rgbToArgb(r, 0, b).toInt()), Color(rgbToArgb(r, 255, b).toInt())),
+                            ),
+                            testTag = "color-picker-g",
+                            onTextChange = { raw ->
+                                val digits = raw.filter { it.isDigit() }.take(3)
+                                greenText = digits
+                                parseChannelByte(digits)?.let {
+                                    emit(ColorSource.RGB_TEXT, rgbToArgb(r, it, b, alphaByte()))
+                                }
+                            },
+                            onChannelChange = { emit(ColorSource.RGB_SLIDER, rgbToArgb(r, it, b, alphaByte())) },
+                            onNormalize = { syncChannelTexts(current) },
+                        )
+                        RgbChannelRow(
+                            label = "B",
+                            text = blueText,
+                            channel = b,
+                            trackBrush = Brush.horizontalGradient(
+                                listOf(Color(rgbToArgb(r, g, 0).toInt()), Color(rgbToArgb(r, g, 255).toInt())),
+                            ),
+                            testTag = "color-picker-b",
+                            onTextChange = { raw ->
+                                val digits = raw.filter { it.isDigit() }.take(3)
+                                blueText = digits
+                                parseChannelByte(digits)?.let {
+                                    emit(ColorSource.RGB_TEXT, rgbToArgb(r, g, it, alphaByte()))
+                                }
+                            },
+                            onChannelChange = { emit(ColorSource.RGB_SLIDER, rgbToArgb(r, g, it, alphaByte())) },
+                            onNormalize = { syncChannelTexts(current) },
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("不透明度", style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.weight(1f))
-                Text("${(opacity * 100).roundToInt()}%", style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${(opacity * 100).roundToInt()}%",
+                    style = MilkText.monoMeta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            MilkSlider(
-                value = opacity,
-                onValueChange = {
-                    opacity = it
-                    updateColor(current)
-                },
-                trackBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color(current.toInt()).copy(alpha = 1f))),
-            )
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth()) {
+                // 棋盘格垫在滑轨正后方,透明段如实反映"这里没有颜色"
+                Checkerboard(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .align(Alignment.Center),
+                    shape = RoundedCornerShape(3.dp),
+                    cell = 3.dp,
+                )
+                MilkSlider(
+                    value = opacity,
+                    onValueChange = {
+                        opacity = it
+                        val alpha = (it * 255f).roundToInt().coerceIn(0, 255).toLong()
+                        emit(ColorSource.OPACITY, (alpha shl 24) or (current and 0xFFFFFF), syncHsv = false)
+                    },
+                    trackBrush = Brush.horizontalGradient(
+                        listOf(Color(current.toInt()).copy(alpha = 0f), Color(current.toInt()).copy(alpha = 1f)),
+                    ),
+                )
+            }
             Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Box(
-                        Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(MilkRadius.lg))
-                            .background(Color(current.toInt()))
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(MilkRadius.lg)),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text("当前", style = MilkText.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SplitSwatch(current = current, initial = originalColor, onRestore = ::restore)
+                MilkTextField(
+                    value = hexInput,
+                    onValueChange = ::applyHexInput,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("color-picker-hex")
+                        .onFocusChanged {
+                            if (hexHadFocus && !it.hasFocus) normalizeHex()
+                            hexHadFocus = it.hasFocus
+                        },
+                    placeholder = "RRGGBB",
+                    mono = true,
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Done,
+                    onDone = ::normalizeHex,
+                    textStyle = MilkText.monoBody,
+                    leading = {
+                        Text(
+                            "#",
+                            style = MilkText.monoMeta,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                )
+            }
+            Spacer(Modifier.height(MilkSpace.lg))
+        }
+    }
+}
+
+/** 2D 饱和度(S,横向)× 明度(V,纵向)取色画布:点按与拖动都即时生效 */
+@Composable
+private fun SpectrumField(
+    hue: Float,
+    saturation: Float,
+    value: Float,
+    onChange: (saturation: Float, value: Float) -> Unit,
+) {
+    val shape = RoundedCornerShape(MilkRadius.md)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(188.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), shape)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val w = size.width.toFloat()
+                    val h = size.height.toFloat()
+                    if (w > 0f && h > 0f) {
+                        down.consume()
+                        onChange((down.position.x / w).coerceIn(0f, 1f), 1f - (down.position.y / h).coerceIn(0f, 1f))
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+                            onChange(
+                                (change.position.x / w).coerceIn(0f, 1f),
+                                1f - (change.position.y / h).coerceIn(0f, 1f),
+                            )
+                        }
+                    }
                 }
-                Spacer(Modifier.width(20.dp))
-                Column {
-                    Box(
-                        Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(initialColor.toInt()))
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text("原色", style = MilkText.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            },
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(Brush.horizontalGradient(listOf(Color.White, Color.hsv(hue, 1f, 1f))))
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+        }
+        Canvas(Modifier.matchParentSize()) {
+            val center = Offset(saturation * size.width, (1f - value) * size.height)
+            val radius = 10.dp.toPx()
+            drawCircle(Color(hsvToArgb(hue, saturation, value).toInt()), radius = radius, center = center)
+            drawCircle(Color.White, radius = radius, center = center, style = Stroke(width = 2.5.dp.toPx()))
+            drawCircle(
+                Color.Black.copy(alpha = 0.28f),
+                radius = radius + 1.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx()),
+            )
+        }
+    }
+}
+
+/** 单通道精度行:通道名 + 动态渐变滑条 + 三位数字输入(输入与滑条互为镜像) */
+@Composable
+private fun RgbChannelRow(
+    label: String,
+    text: String,
+    channel: Int,
+    trackBrush: Brush,
+    testTag: String,
+    onTextChange: (String) -> Unit,
+    onChannelChange: (Int) -> Unit,
+    onNormalize: () -> Unit,
+) {
+    // 初次组合也会收到 hasFocus=false;只在真正失焦时归一,避免开面板就改写输入框
+    var hadFocus by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            label,
+            style = MilkText.label,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(18.dp),
+        )
+        Box(Modifier.weight(1f)) {
+            MilkSlider(
+                value = channel / 255f,
+                onValueChange = { onChannelChange((it * 255f).roundToInt().coerceIn(0, 255)) },
+                trackBrush = trackBrush,
+            )
+        }
+        MilkTextField(
+            value = text,
+            onValueChange = onTextChange,
+            modifier = Modifier
+                .width(68.dp)
+                .testTag(testTag)
+                .onFocusChanged {
+                    if (hadFocus && !it.hasFocus) onNormalize()
+                    hadFocus = it.hasFocus
+                },
+            mono = true,
+            keyboardType = KeyboardType.Number,
+            imeAction = ImeAction.Done,
+            onDone = onNormalize,
+            textStyle = MilkText.monoBody,
+        )
+    }
+}
+
+/** 当前色 / 原色左右对照色块(压在棋盘格上,半透明色如实显示);点按还原原色 */
+@Composable
+private fun SplitSwatch(current: Long, initial: Long, onRestore: () -> Unit) {
+    val shape = RoundedCornerShape(MilkRadius.md)
+    Box(
+        Modifier
+            .width(96.dp)
+            .height(42.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onRestore)
+            .semantics { contentDescription = "还原原色" },
+    ) {
+        Checkerboard(Modifier.matchParentSize(), shape = shape, cell = 5.dp)
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxHeight().background(Color(current.toInt())))
+            Box(Modifier.weight(1f).fillMaxHeight().background(Color(initial.toInt())))
+        }
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(Color.Black.copy(alpha = 0.18f)),
+        )
+    }
+}
+
+/** 透明色背景棋盘格(白 / 浅灰双色),用于不透明度轨道与对照色块 */
+@Composable
+private fun Checkerboard(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(MilkRadius.md),
+    cell: Dp = 4.dp,
+) {
+    Canvas(modifier.clip(shape)) {
+        drawRect(Color.White)
+        val step = cell.toPx()
+        if (step > 0f) {
+            var row = 0
+            var y = 0f
+            while (y < size.height) {
+                var x = if (row % 2 == 0) step else 0f
+                while (x < size.width) {
+                    drawRect(Color(0xFFDCDCDC), topLeft = Offset(x, y), size = Size(step, step))
+                    x += step * 2
                 }
-                Spacer(Modifier.weight(1f))
-                Text("#%06X".format(0xFFFFFFL and current), style = MilkText.monoMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                y += step
+                row++
             }
         }
     }
 }
 
-/** 12 色相 × 8 明暗行 + 灰阶列;格间 2dp 缝,选中格白描边 + 外圈 */
+/** 12 色相 × 8 明暗行 + 灰阶列;选中格 = 深色外圈 + 白色内圈,深浅格上都清晰 */
 @Composable
 private fun ColorGrid(current: Long, onSelect: (Long) -> Unit) {
     val hues = (0 until 12).map { it * 30f }
@@ -510,15 +833,15 @@ private fun ColorGrid(current: Long, onSelect: (Long) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .height(196.dp)
-            .clip(RoundedCornerShape(MilkRadius.lg))
+            .height(200.dp)
+            .clip(RoundedCornerShape(MilkRadius.md))
             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         styles.forEachIndexed { row, (saturation, value) ->
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 hues.forEach { hue ->
-                    val argb = Color.hsv(hue, saturation, value).toArgb().toLong() and 0xFFFFFFFFL
+                    val argb = hsvToArgb(hue, saturation, value)
                     ColorGridCell(argb, current, onSelect, Modifier.weight(1f).fillMaxHeight())
                 }
                 ColorGridCell(grays[row], current, onSelect, Modifier.weight(1f).fillMaxHeight())
@@ -535,46 +858,20 @@ private fun ColorGridCell(
     modifier: Modifier,
 ) {
     val selected = (current and 0xFFFFFF) == (argb and 0xFFFFFF)
+    val ringShape = RoundedCornerShape(MilkRadius.xs)
     Box(
         modifier
-            .fillMaxHeight()
             .background(Color(argb.toInt()))
-            .then(if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(MilkRadius.xs)) else Modifier)
-            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { onSelect(argb) }),
+            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { onSelect(argb) })
+            .then(
+                if (selected) {
+                    Modifier
+                        .border(1.5.dp, Color.Black.copy(alpha = 0.55f), ringShape)
+                        .padding(1.5.dp)
+                        .border(2.dp, Color.White, ringShape)
+                } else {
+                    Modifier
+                },
+            ),
     )
-}
-
-@Composable
-private fun GradientColorSlider(
-    label: String,
-    brush: Brush,
-    value: Float,
-    onChange: (Float) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Text(label, style = MilkText.label, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(8.dp))
-        MilkSlider(
-            value = value,
-            onValueChange = onChange,
-            trackBrush = brush,
-        )
-    }
-}
-
-private fun argbToHsv(color: Long): FloatArray {
-    val r = ((color shr 16) and 0xFF) / 255f
-    val g = ((color shr 8) and 0xFF) / 255f
-    val b = (color and 0xFF) / 255f
-    val max = maxOf(r, g, b)
-    val min = minOf(r, g, b)
-    val delta = max - min
-    var hue = when {
-        delta == 0f -> 0f
-        max == r -> 60f * (((g - b) / delta) % 6f)
-        max == g -> 60f * ((b - r) / delta + 2f)
-        else -> 60f * ((r - g) / delta + 4f)
-    }
-    if (hue < 0f) hue += 360f
-    return floatArrayOf(hue, if (max == 0f) 0f else delta / max, max)
 }
