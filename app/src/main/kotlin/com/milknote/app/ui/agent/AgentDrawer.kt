@@ -26,8 +26,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -101,11 +99,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -243,22 +243,61 @@ fun AgentDrawerHost(
         scope.launch { offsetAnim.snapTo(target) }
     }
 
-    AnimatedVisibility(
-        visible = state.drawerOpen,
-        enter = if (reduced) fadeIn(tween(MilkMotion.reduced))
-        else slideInHorizontally(tween(MilkMotion.drawerEnter, easing = MilkMotion.EaseDrawer)) { it } +
-            fadeIn(tween(MilkMotion.enter, easing = MilkMotion.EaseOut)),
-        exit = if (swipedClosePending) ExitTransition.None   // 滑关:已随手指离屏,不播退出动画(避免二次位移)
-        else if (reduced) fadeOut(tween(MilkMotion.reduced))
-        else slideOutHorizontally(tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer)) { it } +
-            fadeOut(tween(MilkMotion.exit, easing = MilkMotion.EaseOut)),
-        modifier = modifier,
-    ) {
+    // ---- 开合:GPU 位移 + 保活 ----
+    // AnimatedVisibility 会在关闭时销毁整棵抽屉树:每次展开都要冷组合 ~2400 行面板,
+    // 再叠一整块 360×1000dp 的 alpha 淡入 —— 首帧必然掉帧。改为常驻挂载 + 纯位移:
+    // 关闭后以 0×0 布局隐藏(0 绘制 / 0 命中 / 语义清空),展开首帧就是热的。
+    val openProgress = remember { Animatable(if (state.drawerOpen) 1f else 0f) }
+    var mounted by remember { mutableStateOf(state.drawerOpen) }
+    // 展开先挂载、再播位移动画(预热后通常已挂载,这里只兜底冷启动)
+    LaunchedEffect(state.drawerOpen) { if (state.drawerOpen) mounted = true }
+    // 静默预热:书写页稳定 400ms 后在后台把抽屉组合好,首次展开不再现场组装
+    LaunchedEffect(Unit) {
+        if (!mounted) {
+            delay(400)
+            mounted = true
+        }
+    }
+    LaunchedEffect(state.drawerOpen, reduced) {
+        when {
+            state.drawerOpen -> openProgress.animateTo(
+                1f,
+                if (reduced) tween(MilkMotion.reduced)
+                else tween(MilkMotion.drawerEnter, easing = MilkMotion.EaseDrawer),
+            )
+            // 右滑关闭:手指已把抽屉滑出屏外,进度直接归零,不再补一段退场位移
+            swipedClosePending -> openProgress.snapTo(0f)
+            openProgress.value <= 0.001f -> Unit
+            else -> openProgress.animateTo(
+                0f,
+                if (reduced) tween(MilkMotion.reduced)
+                else tween(MilkMotion.drawerExit, easing = MilkMotion.EaseDrawer),
+            )
+        }
+    }
+    val drawerOpenNow by rememberUpdatedState(state.drawerOpen)
+    // 仅在「真的收起且动画结束」时翻转一次:动画过程中不因进度变化重组宿主
+    val hidden by remember { derivedStateOf { !drawerOpenNow && openProgress.value <= 0.001f } }
+    if (mounted) {
         // 调宽手势挂在父级:只观察左缘、永不消费点按,子级按钮(附件/页签/模型胶囊)照常收到点击
         Box(
-            Modifier
+            modifier
                 .fillMaxHeight()
-                .graphicsLayer { translationX = offsetAnim.value }
+                .layout { measurable, constraints ->
+                    if (hidden) {
+                        layout(0, 0) {}
+                    } else {
+                        val placeable = measurable.measure(constraints)
+                        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                    }
+                }
+                // 隐藏时不把抽屉文字漏进语义树(无障碍/测试读不到收起的内容)
+                .then(if (hidden) Modifier.clearAndSetSemantics {} else Modifier)
+                .graphicsLayer {
+                    translationX = if (reduced) offsetAnim.value
+                    else (1f - openProgress.value) * widthAnim.value + offsetAnim.value
+                    if (reduced) alpha = openProgress.value
+                }
                 .pointerInput(Unit) {
                     val edgePx = 48.dp.toPx()
                     val headerPx = 84.dp.toPx()
@@ -354,6 +393,7 @@ fun AgentDrawerHost(
                                     initialVelocity = velocity,
                                 )
                                 swipedClosePending = true
+                                openProgress.snapTo(0f)   // 已随手指离屏:进度归零,不再补退场位移
                                 agent.closeDrawer()
                                 offsetAnim.snapTo(0f)   // 已不可见,复位不影响视觉
                                 rawOffset = 0f
@@ -436,15 +476,17 @@ private fun AgentDrawer(
             if (pageMarkdown.isBlank()) content else pageMarkdown.trimEnd() + "\n\n" + content,
         )
     }
-    // 页码顺序由当前笔记本页序决定;拖动调宽与页码加载互不影响
+    // 页码顺序由当前笔记本页序决定;拖动调宽与页码加载互不影响。
+    // 页序读取走 IO 线程:绑定页面那一刻不能再同步扫盘卡住展开动画的首帧
     LaunchedEffect(state.boundPage?.notebookId) {
         val notebookId = state.boundPage?.notebookId
         pageIds = if (notebookId == null) {
             emptyList()
         } else {
-            runCatching {
-                ServiceLocator.agentSnipSource.pagesOf(notebookId).map { it.pageId }
-            }.getOrDefault(emptyList())
+            withContext(Dispatchers.IO) {
+                runCatching { ServiceLocator.agentSnipSource.pagesOf(notebookId).map { it.pageId } }
+                    .getOrDefault(emptyList())
+            }
         }
     }
     Column(
@@ -1189,7 +1231,8 @@ private fun Messages(
     val pendingCallId = state.pendingConfirmation?.callId
     LaunchedEffect(state.messages.size, streamingLength, pendingCallId) {
         val n = state.messages.size
-        val grew = n > prevSize
+        val initial = prevSize < 0
+        val grew = prevSize >= 0 && n > prevSize
         prevSize = n
         // 工具轨迹或待确认条出现时同样贴底,避免被新增内容推出视口
         val pendingChanged = pendingCallId != prevPendingCallId
@@ -1197,7 +1240,15 @@ private fun Messages(
         val last = state.messages.lastOrNull()
         // 目标永远是最末的 1dp 锚点:滚到消息本体只会把它顶到视口顶端
         val anchor = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+        // 首帧尚未测量,锚点按条目结构直接算:n 条消息 + 可选错误条,末位是 1dp 锚点
+        val initialAnchor = (n + if (state.error != null) 1 else 0).coerceAtLeast(0)
         when {
+            // 首次挂载:瞬时落到底部。若用动画,会和抽屉滑入抢同一帧,前几帧直接顶满主线程
+            initial -> {
+                autoFollow = true
+                if (n > 0) listState.scrollToItem(initialAnchor)
+            }
+
             grew -> {
                 autoFollow = true
                 if (n > 0) listState.animateScrollToItem(anchor)

@@ -585,8 +585,12 @@ class AgentController(
     fun bindPage(page: PageRef) {
         val cur = session
         if (cur != null && cur.pageId == page.pageId && cur.notebookId == page.notebookId) {
+            // 同页重复绑定(展开抽屉必然命中)不必再同步扫盘 + JSON 解析全部会话文件:
+            // 新会话/切会话/删除/发送各自都会 refreshSessions(),这里只补「列表还空着」的情况
+            val before = _state.value
+            val needsRefresh = before.sessions.isEmpty() || before.boundPage?.notebookId != page.notebookId
             update { it.copy(boundPage = page, currentSessionId = cur.id) }
-            refreshSessions()
+            if (needsRefresh) refreshSessions()
             return
         }
         val target = store.latestSession(page.notebookId, page.pageId) ?: newSession(page)

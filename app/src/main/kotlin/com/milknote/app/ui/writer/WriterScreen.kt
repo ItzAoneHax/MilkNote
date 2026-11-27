@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -73,6 +75,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.milknote.app.ui.common.MilkIcons
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.style.TextAlign
@@ -388,8 +392,10 @@ fun WriterScreen(
         // 第二代:chrome 仅 44dp 顶栏;笔匣悬浮在画布之上,不占布局高度
         val chromeHeight = if (focusMode) 0.dp else WriterMajorToolbarHeight
         val reduced = LocalMilkMotion.current
-        // 左侧栏宽度:与页面栏自身的滑入/滑出同步,画布与笔匣随之平移而不是跳变
-        val railWidth by animateDpAsState(
+        // 左侧栏宽度:与页面栏自身的滑入/滑出同步,画布与笔匣随之平移而不是跳变。
+        // 这里只保留 State、不读值,逐个下发给真正需要它的子层:栏宽每帧变化时
+        // 纸面画布(AndroidView update)、抽屉、顶栏、选区条都不再跟着整树重组
+        val railWidthState = animateDpAsState(
             targetValue = if (!focusMode && railMode != null) WriterExpandedRailWidth else 0.dp,
             animationSpec = when {
                 reduced -> tween(MilkMotion.reduced)
@@ -398,6 +404,7 @@ fun WriterScreen(
             },
             label = "writerRailWidth",
         )
+        val railWidth: () -> Dp = { railWidthState.value }
         // Studio 抽屉占用宽度:开合与调宽时与抽屉本体同步(抽屉右滑关闭时随之收缩)
         val studioInsetAnim = remember {
             Animatable(if (!focusMode && agentDrawerOpen) agentDrawerWidth.value else 0f)
@@ -416,7 +423,7 @@ fun WriterScreen(
                 studioInsetAnim.snapTo(agentDrawerWidth.value)
             }
         }
-        val studioInset = studioInsetAnim.value.dp
+        val studioInset: () -> Dp = { studioInsetAnim.value.dp }
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
@@ -427,12 +434,15 @@ fun WriterScreen(
                     // 同一本同一页:右侧重复窗格只读(状态由主窗格整体镜像,避免两个撤销栈分叉)
                     val duplicateSplit = splitNb.id == state.notebook?.id &&
                         state.splitPageId == state.currentPageId
-                    val splitStartPad = railWidth + 12.dp
-                    val splitEndPad = studioInset + 12.dp
                     Row(
                         Modifier
                             .fillMaxSize()
-                            .padding(top = chromeHeight, start = splitStartPad, end = splitEndPad, bottom = 12.dp),
+                            .padding(top = chromeHeight, bottom = 12.dp)
+                            // 左右让位在布局期读取:栏宽/抽屉动画只重测两个窗格,不重组画布
+                            .railInsets(
+                                start = { railWidth() + 12.dp },
+                                end = { studioInset() + 12.dp },
+                            ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -701,7 +711,8 @@ fun WriterScreen(
                     else -> openToolPanel(state.toolSettings.currentTool)
                 }
             }
-            val minorBar: @Composable (MinorDock) -> Unit = { dock ->
+            // 笔匣内容按「可用尺寸」参数化:栏宽/抽屉宽只在笔匣层内读取,不再污染根作用域
+            val minorBar: @Composable (MinorDock, Dp, Dp) -> Unit = { dock, contentMaxWidth, contentMaxHeight ->
                 WriterMinorToolbar(
                     state = state,
                     selectedTool = selectedMajorTool,
@@ -710,8 +721,8 @@ fun WriterScreen(
                     shapeColor = shapeColor,
                     shapeWidth = shapeWidth,
                     dock = dock,
-                    maxWidth = (maxWidth - railWidth - studioInset - 24.dp).coerceAtLeast(160.dp),
-                    maxHeight = maxHeight - chromeHeight - 24.dp,
+                    maxWidth = contentMaxWidth,
+                    maxHeight = contentMaxHeight,
                     onDockDrag = onDockDrag,
                     onDockDrop = onDockDrop,
                     onDockCancel = onDockCancel,
@@ -821,80 +832,35 @@ fun WriterScreen(
                 onMoreDismiss = { moreExpanded = false },
                 moreContent = moreContent,
             )
-            // 悬浮笔匣:居中浮动于画布之上(避开左侧抽屉与右侧 Studio),按停靠边落位
-            if (minorVisible) {
-                val dockModifier = when (minorDock) {
-                    MinorDock.TOP -> Modifier
-                        .align(Alignment.TopCenter)
-                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
-                        .padding(top = chromeHeight + 10.dp)
-                    MinorDock.BOTTOM -> Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
-                        .padding(bottom = 14.dp)
-                    MinorDock.LEFT -> Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = railWidth + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
-                    MinorDock.RIGHT -> Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = studioInset + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
-                }
-                Box(dockModifier) { minorBar(minorDock) }
-            }
-            // 拖拽中的停靠预览:目标边显示半透明落位条(松手前可见"会停到哪")
-            dockPreview?.let { preview ->
-                val previewShape = RoundedCornerShape(999.dp)
-                val previewModifier = when (preview) {
-                    MinorDock.TOP -> Modifier
-                        .align(Alignment.TopCenter)
-                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
-                        .padding(top = chromeHeight + 10.dp)
-                        .width(320.dp)
-                        .height(WriterMinorToolbarHeight + 8.dp)
-                    MinorDock.BOTTOM -> Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset { IntOffset(((railWidth - studioInset) / 2).roundToPx(), 0) }
-                        .padding(bottom = 14.dp)
-                        .width(320.dp)
-                        .height(WriterMinorToolbarHeight + 8.dp)
-                    MinorDock.LEFT -> Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = railWidth + 10.dp, top = chromeHeight + 12.dp)
-                        .width(WriterMinorBarThickness)
-                        .height(220.dp)
-                    MinorDock.RIGHT -> Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = studioInset + 10.dp, top = chromeHeight + 12.dp)
-                        .width(WriterMinorBarThickness)
-                        .height(220.dp)
-                }
-                Box(
-                    previewModifier
-                        .padding(6.dp)
-                        .clip(previewShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                        .border(1.dp, MaterialTheme.colorScheme.primary, previewShape)
-                        .testTag("writer-dock-preview"),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        MilkIcons.GripDots,
-                        "停靠预览",
-                        Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+            // 悬浮笔匣 + 拖拽落位预览:栏宽/抽屉宽只在独立层内读取,
+            // 展开/收起 Studio 抽屉时不再把纸面画布与顶栏一起拖进重组
+            if (minorVisible || dockPreview != null) {
+                WriterMinorDockLayer(
+                    availableWidth = maxWidth,
+                    availableHeight = maxHeight,
+                    chromeHeight = chromeHeight,
+                    dock = minorDock,
+                    preview = dockPreview,
+                    showDock = minorVisible,
+                    railWidth = railWidth,
+                    studioInset = studioInset,
+                    dockContent = minorBar,
+                )
             }
             val isReading = selectedMajorTool == WriterMajorTool.READING
             val showRestoreMinor = minorCollapsed && !isReading
             val showPagePill = railMode == null
             if (isReading || showRestoreMinor || showPagePill) {
-                val startInset = railWidth + if (minorVisible && minorDock == MinorDock.LEFT) WriterMinorBarThickness else 0.dp
                 val bottomInset = if (minorVisible && minorDock == MinorDock.BOTTOM) WriterMinorToolbarHeight + 22.dp else 12.dp
                 Row(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = startInset + 12.dp, bottom = bottomInset),
+                        // 左栏宽只在布局期读取:页面栏开合不会让这排胶囊触发重组
+                        .offset { IntOffset(railWidth().roundToPx(), 0) }
+                        .padding(
+                            start = 12.dp + if (minorVisible && minorDock == MinorDock.LEFT) WriterMinorBarThickness else 0.dp,
+                            bottom = bottomInset,
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1447,3 +1413,112 @@ private fun quickAgentIntent(vm: WriterViewModel, intent: com.milknote.agent.Int
         it.quickIntent(intent)
     }
 }
+
+/**
+ * 悬浮笔匣与拖拽落位预览的独立层:页面栏宽 / Studio 抽屉宽的读取全部收在这里,
+ * 抽屉开合与调宽只重组这一小块,纸面画布、顶栏、选区条不再跟着整树重组。
+ */
+@Composable
+private fun BoxScope.WriterMinorDockLayer(
+    availableWidth: Dp,
+    availableHeight: Dp,
+    chromeHeight: Dp,
+    dock: MinorDock,
+    preview: MinorDock?,
+    showDock: Boolean,
+    railWidth: () -> Dp,
+    studioInset: () -> Dp,
+    dockContent: @Composable (MinorDock, Dp, Dp) -> Unit,
+) {
+    // 笔匣可用宽度随两侧栏宽收缩;顶/底停靠的居中偏移走布局期,动画期间零重组
+    val contentMaxWidth = (availableWidth - railWidth() - studioInset() - 24.dp).coerceAtLeast(160.dp)
+    val contentMaxHeight = availableHeight - chromeHeight - 24.dp
+    if (showDock) {
+        val dockModifier = when (dock) {
+            MinorDock.TOP -> Modifier
+                .align(Alignment.TopCenter)
+                .offset { IntOffset(((railWidth() - studioInset()) / 2).roundToPx(), 0) }
+                .padding(top = chromeHeight + 10.dp)
+            MinorDock.BOTTOM -> Modifier
+                .align(Alignment.BottomCenter)
+                .offset { IntOffset(((railWidth() - studioInset()) / 2).roundToPx(), 0) }
+                .padding(bottom = 14.dp)
+            MinorDock.LEFT -> Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = railWidth() + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
+            MinorDock.RIGHT -> Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = studioInset() + 10.dp, top = chromeHeight + 12.dp, bottom = 60.dp)
+        }
+        Box(dockModifier) { dockContent(dock, contentMaxWidth, contentMaxHeight) }
+    }
+    // 拖拽中的停靠预览:目标边显示半透明落位条(松手前可见"会停到哪")
+    preview?.let { target ->
+        val previewShape = RoundedCornerShape(999.dp)
+        val previewModifier = when (target) {
+            MinorDock.TOP -> Modifier
+                .align(Alignment.TopCenter)
+                .offset { IntOffset(((railWidth() - studioInset()) / 2).roundToPx(), 0) }
+                .padding(top = chromeHeight + 10.dp)
+                .width(320.dp)
+                .height(WriterMinorToolbarHeight + 8.dp)
+            MinorDock.BOTTOM -> Modifier
+                .align(Alignment.BottomCenter)
+                .offset { IntOffset(((railWidth() - studioInset()) / 2).roundToPx(), 0) }
+                .padding(bottom = 14.dp)
+                .width(320.dp)
+                .height(WriterMinorToolbarHeight + 8.dp)
+            MinorDock.LEFT -> Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = railWidth() + 10.dp, top = chromeHeight + 12.dp)
+                .width(WriterMinorBarThickness)
+                .height(220.dp)
+            MinorDock.RIGHT -> Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = studioInset() + 10.dp, top = chromeHeight + 12.dp)
+                .width(WriterMinorBarThickness)
+                .height(220.dp)
+        }
+        Box(
+            previewModifier
+                .padding(6.dp)
+                .clip(previewShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                .border(1.dp, MaterialTheme.colorScheme.primary, previewShape)
+                .testTag("writer-dock-preview"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                MilkIcons.GripDots,
+                "停靠预览",
+                Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/**
+ * 横向让位(左侧页面栏 + 右侧 Studio 抽屉):宽度在布局阶段才读取,
+ * 栏宽动画只驱动重测/重放,不驱动组合 —— 分屏画布与笔匣随之平移而不重组。
+ */
+private fun Modifier.railInsets(start: () -> Dp, end: () -> Dp): Modifier =
+    layout { measurable, constraints ->
+        val startPx = start().roundToPx()
+        val endPx = end().roundToPx()
+        val contentWidth = if (constraints.hasBoundedWidth) {
+            (constraints.maxWidth - startPx - endPx).coerceAtLeast(0)
+        } else {
+            constraints.maxWidth
+        }
+        val placeable = measurable.measure(
+            Constraints(
+                minWidth = contentWidth,
+                maxWidth = contentWidth,
+                minHeight = constraints.minHeight,
+                maxHeight = constraints.maxHeight,
+            ),
+        )
+        val containerWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else placeable.width + startPx + endPx
+        layout(containerWidth, placeable.height) { placeable.place(startPx, 0) }
+    }
