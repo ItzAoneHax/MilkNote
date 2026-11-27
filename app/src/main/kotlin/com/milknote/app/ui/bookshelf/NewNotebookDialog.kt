@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +39,7 @@ import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkColorDot
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.NotebookAdvancedOptions
@@ -127,7 +126,7 @@ fun NewNotebookDialog(
                         mono = false,
                         leading = {
                             Icon(
-                                Icons.Outlined.AutoStories,
+                                MilkIcons.Book,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp),

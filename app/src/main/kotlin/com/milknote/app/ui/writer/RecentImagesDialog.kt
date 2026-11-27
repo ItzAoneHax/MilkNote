@@ -39,9 +39,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Collections
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +55,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.milknote.app.ui.common.MilkIconBadge
+import com.milknote.app.ui.common.MilkIcons
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -142,20 +141,12 @@ internal fun RecentImagesDialog(
         maxWidth = maxWidth,
         maxHeight = maxHeight,
         icon = {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(MilkRadius.md))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.Collections,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
+            MilkIconBadge(
+                icon = MilkIcons.PhotoLibrary,
+                boxSize = 34.dp,
+                iconSize = 18.dp,
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
         },
     ) {
         when {
@@ -203,7 +194,7 @@ private fun PermissionRationaleBody(
         } else {
             "为了挑选最近的图片插入笔记,MilkNote 需要读取设备上的照片。照片只在本地使用,不会被上传。"
         },
-        icon = Icons.Outlined.Collections,
+        icon = MilkIcons.PhotoLibrary,
         actionLabel = if (permanentlyDenied) "去系统设置" else "重新授权",
         onAction = if (permanentlyDenied) onOpenSettings else onRetry,
     )
@@ -238,7 +229,7 @@ private fun EmptyBody() {
     MilkEmptyState(
         title = "相册里还没有图片",
         description = "拍几张照片或截几张图,再回到这里挑选",
-        icon = Icons.Outlined.Collections,
+        icon = MilkIcons.PhotoLibrary,
     )
 }
 

@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,6 +49,7 @@ import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkPanelHeader
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkSegmented
@@ -321,7 +320,7 @@ internal fun ShapeOverlay(config: ShapeConfig, onComplete: (Offset, Offset) -> U
                 style = MilkText.caption,
             )
             Spacer(Modifier.width(MilkSpace.xs))
-            MilkIconButton(Icons.Outlined.Close, "退出图形", onClick = onCancel, iconSize = 18.dp)
+            MilkIconButton(MilkIcons.Close, "退出图形", onClick = onCancel, iconSize = 18.dp)
         }
     }
 }

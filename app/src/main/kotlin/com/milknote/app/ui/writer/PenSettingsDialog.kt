@@ -23,9 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -93,7 +90,19 @@ internal fun PenSettingsDialog(
             title = "橡皮",
             onDismiss = onDismiss,
             maxWidth = 460.dp,
-            icon = { RealPenIcon(InkTool.ERASER, 0L, modifier = Modifier.size(36.dp)) },
+            icon = {
+                val cs = MaterialTheme.colorScheme
+                val dark = LocalMilkDark.current
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(MilkRadius.sm))
+                        .background(cs.primary.copy(alpha = if (dark) 0.18f else 0.10f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    RealPenIcon(InkTool.ERASER, 0L, modifier = Modifier.size(19.dp))
+                }
+            },
             footer = {
                 Spacer(Modifier.weight(1f))
                 MilkButton(label = "完成", onClick = onDismiss)
@@ -162,14 +171,16 @@ internal fun PenSettingsDialog(
             MilkPanelHeader(
                 title = title,
                 icon = {
+                    val cs = MaterialTheme.colorScheme
+                    val dark = LocalMilkDark.current
                     Box(
                         Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(MilkRadius.lg))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(MilkRadius.sm))
+                            .background(cs.primary.copy(alpha = if (dark) 0.18f else 0.10f)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        RealPenIcon(tool, current.color, modifier = Modifier.size(34.dp))
+                        RealPenIcon(tool, current.color, modifier = Modifier.size(19.dp))
                     }
                 },
                 onDismiss = onDismiss,

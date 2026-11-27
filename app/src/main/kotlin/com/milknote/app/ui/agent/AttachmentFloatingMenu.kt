@@ -48,26 +48,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.RotateLeft
-import androidx.compose.material.icons.automirrored.outlined.RotateRight
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.Brightness6
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Crop
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Flip
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -117,6 +97,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
 import com.milknote.agent.AgentMessage
 import com.milknote.agent.AgentUiState
+import com.milknote.app.ui.common.MilkIconBadge
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.agent.Attachment
 import com.milknote.agent.DraftAttachment
 import com.milknote.agent.PageRef
@@ -414,7 +396,7 @@ private fun AttachPanelHeader(
     ) {
         if (onBack != null) {
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                imageVector = MilkIcons.ArrowLeft,
                 contentDescription = "返回附件菜单",
                 onClick = onBack,
                 touchSize = 36.dp,
@@ -430,7 +412,7 @@ private fun AttachPanelHeader(
             }
         }
         MilkIconButton(
-            imageVector = Icons.Outlined.Close,
+            imageVector = MilkIcons.Close,
             contentDescription = "收起附件菜单",
             onClick = onDismiss,
             touchSize = 36.dp,
@@ -451,25 +433,25 @@ private fun RootMenu(
 ) {
     Column(Modifier.fillMaxWidth().padding(MilkSpace.xs)) {
         AttachChoiceRow(
-            icon = Icons.Outlined.PhotoLibrary,
+            icon = MilkIcons.PhotoLibrary,
             title = "系统图片",
             trailing = "相册",
             onClick = onSystemImages,
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.Description,
+            icon = MilkIcons.Article,
             title = "导入文档",
             trailing = "MD · PDF · PPT",
             onClick = onDocuments,
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.AutoStories,
+            icon = MilkIcons.Book,
             title = "笔记页面",
             trailing = "选页 / 页码范围",
             onClick = onPages,
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.CropFree,
+            icon = MilkIcons.SnipSpark,
             title = "画布框选",
             trailing = "拖框选区",
             onClick = onSnip,
@@ -494,7 +476,7 @@ private fun AttachChoiceRow(
             .padding(horizontal = MilkSpace.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = cs.primary)
+        MilkIconBadge(icon = icon, tint = cs.primary)
         Spacer(Modifier.width(MilkSpace.md))
         Text(title, style = MilkText.rowTitle, color = cs.onSurface, modifier = Modifier.weight(1f))
         if (trailing != null) {
@@ -502,7 +484,7 @@ private fun AttachChoiceRow(
             Spacer(Modifier.width(MilkSpace.xs))
         }
         Icon(
-            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            MilkIcons.ChevronRight,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = cs.onSurfaceVariant.copy(alpha = 0.6f),
@@ -576,7 +558,7 @@ private fun SystemImagesPanel(
             MilkEmptyState(
                 title = "需要相册访问权限",
                 description = "也可以直接从文件中选择图片",
-                icon = Icons.Outlined.PhotoLibrary,
+                icon = MilkIcons.PhotoLibrary,
                 actionLabel = "允许访问相册",
                 onAction = { permissionLauncher.launch(RecentImages.requiredPermission()) },
             )
@@ -588,7 +570,7 @@ private fun SystemImagesPanel(
                     size = MilkButtonSize.SMALL,
                     leading = {
                         Icon(
-                            Icons.Outlined.Add,
+                            MilkIcons.Add,
                             contentDescription = null,
                             modifier = Modifier.size(15.dp),
                             tint = cs.onSurfaceVariant,
@@ -615,7 +597,7 @@ private fun SystemImagesPanel(
                 onClick = { filePicker.launch("image/*") },
                 leading = {
                     Icon(
-                        Icons.Outlined.Add,
+                        MilkIcons.Add,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = cs.primary,
@@ -662,7 +644,7 @@ private fun SystemImagesPanel(
 
                 filtered.isEmpty() -> MilkEmptyState(
                     title = if (images.isEmpty()) "相册里还没有图片" else "该相册没有图片",
-                    icon = Icons.Outlined.PhotoLibrary,
+                    icon = MilkIcons.PhotoLibrary,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
@@ -754,7 +736,7 @@ private fun SystemImageCell(item: SystemImageItem, onClick: () -> Unit) {
             )
         } else {
             Icon(
-                Icons.Outlined.PhotoLibrary,
+                MilkIcons.PhotoLibrary,
                 contentDescription = item.displayName,
                 modifier = Modifier.size(18.dp).align(Alignment.Center),
                 tint = cs.onSurfaceVariant.copy(alpha = 0.5f),
@@ -890,7 +872,7 @@ fun ImageEditorFloatingPanel(
                         )
                     }
                     MilkIconButton(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = MilkIcons.Close,
                         contentDescription = "关闭图片编辑",
                         onClick = onDismiss,
                         touchSize = 40.dp,
@@ -994,7 +976,7 @@ fun ImageEditorFloatingPanel(
                         enabled = edits.hasEdits() && !encoding,
                         leading = {
                             Icon(
-                                Icons.Outlined.RestartAlt,
+                                MilkIcons.Reset,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
                                 tint = if (edits.hasEdits()) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.4f),
@@ -1234,7 +1216,7 @@ private fun CropControls(
         Spacer(Modifier.height(MilkSpace.xxs))
         Row(verticalAlignment = Alignment.CenterVertically) {
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.RotateLeft,
+                imageVector = MilkIcons.RotateLeft,
                 contentDescription = "向左旋转 90°",
                 onClick = onRotateLeft,
                 touchSize = 40.dp,
@@ -1243,7 +1225,7 @@ private fun CropControls(
                 tint = cs.onSurfaceVariant,
             )
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.RotateRight,
+                imageVector = MilkIcons.RotateRight,
                 contentDescription = "向右旋转 90°",
                 onClick = onRotateRight,
                 touchSize = 40.dp,
@@ -1253,7 +1235,7 @@ private fun CropControls(
             )
             Spacer(Modifier.width(MilkSpace.xs))
             MilkIconButton(
-                imageVector = Icons.Outlined.Flip,
+                imageVector = MilkIcons.FlipHorizontal,
                 contentDescription = "水平翻转",
                 onClick = onFlipH,
                 touchSize = 40.dp,
@@ -1261,12 +1243,10 @@ private fun CropControls(
                 iconSize = 18.dp,
                 tint = cs.onSurfaceVariant,
             )
-            // 水平翻转图标的 90° 旋转 = 语义清晰的垂直翻转(不再借用「置顶」图标)
             MilkIconButton(
-                imageVector = Icons.Outlined.Flip,
+                imageVector = MilkIcons.FlipVertical,
                 contentDescription = "垂直翻转",
                 onClick = onFlipV,
-                modifier = Modifier.graphicsLayer { rotationZ = 90f },
                 touchSize = 40.dp,
                 visualSize = 32.dp,
                 iconSize = 18.dp,
@@ -1290,7 +1270,7 @@ private fun AdjustControls(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Outlined.Brightness6,
+                        MilkIcons.Brightness,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = cs.onSurfaceVariant,
@@ -1331,7 +1311,7 @@ private fun AdjustControls(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Outlined.Crop,
+                MilkIcons.DocumentEnhance,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = cs.onSurfaceVariant,
@@ -1357,7 +1337,7 @@ private fun DoodleControls(
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Outlined.Brush,
+                MilkIcons.PatternBrush,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = cs.onSurfaceVariant,
@@ -1377,14 +1357,14 @@ private fun DoodleControls(
             MilkInlineAction(
                 label = "撤销",
                 onClick = onUndo,
-                icon = Icons.AutoMirrored.Outlined.Undo,
+                icon = MilkIcons.Undo,
                 enabled = canUndo,
             )
             Spacer(Modifier.width(MilkSpace.xs))
             MilkInlineAction(
                 label = "清空",
                 onClick = onClear,
-                icon = Icons.Outlined.DeleteSweep,
+                icon = MilkIcons.ClearSweep,
                 enabled = canUndo,
             )
         }
@@ -1581,7 +1561,7 @@ private fun DocumentImportPanel(
             .padding(horizontal = MilkSpace.xs, vertical = MilkSpace.xs),
     ) {
         AttachChoiceRow(
-            icon = Icons.Outlined.Description,
+            icon = MilkIcons.Article,
             title = "Markdown",
             trailing = "MD · TXT",
             onClick = {
@@ -1597,7 +1577,7 @@ private fun DocumentImportPanel(
             },
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.Description,
+            icon = MilkIcons.FilePdf,
             title = "PDF",
             trailing = "逐页预览",
             onClick = {
@@ -1605,7 +1585,7 @@ private fun DocumentImportPanel(
             },
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.Description,
+            icon = MilkIcons.Cards,
             title = "演示文稿",
             trailing = "PPT · PPTX",
             onClick = {
@@ -1619,7 +1599,7 @@ private fun DocumentImportPanel(
             },
         )
         AttachChoiceRow(
-            icon = Icons.Outlined.Add,
+            icon = MilkIcons.Add,
             title = "全部支持的文档",
             trailing = "MD · PDF · PPT",
             onClick = {
@@ -1696,7 +1676,7 @@ private fun DocumentImportPanel(
                         }
                     }
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        MilkIcons.ChevronRight,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = cs.onSurfaceVariant.copy(alpha = 0.6f),
@@ -1810,7 +1790,7 @@ fun DocumentPagePreviewFloatingPanel(
                         }
                     }
                     MilkIconButton(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = MilkIcons.Close,
                         contentDescription = "关闭文档预览",
                         onClick = onDismiss,
                         touchSize = 40.dp,
@@ -1847,7 +1827,7 @@ fun DocumentPagePreviewFloatingPanel(
                             if (text.isBlank()) {
                                 MilkEmptyState(
                                     title = "本页没有可提取文字",
-                                    icon = Icons.Outlined.Description,
+                                    icon = MilkIcons.Article,
                                     modifier = Modifier.align(Alignment.Center),
                                 )
                             } else if (doc.kind == DocumentKind.MARKDOWN || doc.kind == DocumentKind.TEXT) {
@@ -1891,7 +1871,7 @@ fun DocumentPagePreviewFloatingPanel(
                             } else {
                                 MilkEmptyState(
                                     title = "本页无法渲染",
-                                    icon = Icons.Outlined.Description,
+                                    icon = MilkIcons.Article,
                                     modifier = Modifier.align(Alignment.Center),
                                 )
                             }
@@ -1906,7 +1886,7 @@ fun DocumentPagePreviewFloatingPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MilkIconButton(
-                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                        imageVector = MilkIcons.ChevronLeft,
                         contentDescription = "上一页",
                         onClick = { focused = (focused - 1).coerceAtLeast(1) },
                         enabled = focused > 1,
@@ -1923,7 +1903,7 @@ fun DocumentPagePreviewFloatingPanel(
                         modifier = Modifier.widthIn(min = 96.dp),
                     )
                     MilkIconButton(
-                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        imageVector = MilkIcons.ChevronRight,
                         contentDescription = "下一页",
                         onClick = { focused = (focused + 1).coerceAtMost(doc.pageCount) },
                         enabled = focused < doc.pageCount,
@@ -1940,7 +1920,7 @@ fun DocumentPagePreviewFloatingPanel(
                                 if (focused in selected) selected - focused else selected + focused,
                             )
                         },
-                        icon = if (focused in selected) Icons.Outlined.Check else Icons.Outlined.Add,
+                        icon = if (focused in selected) MilkIcons.Check else MilkIcons.Add,
                         tone = if (focused in selected) MilkInlineTone.ACCENT else MilkInlineTone.NEUTRAL,
                         minWidth = 96.dp,
                     )
@@ -2141,7 +2121,7 @@ private fun DocumentPageStripItem(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Outlined.Check,
+                        MilkIcons.Check,
                         contentDescription = null,
                         modifier = Modifier.size(10.dp),
                         tint = cs.onPrimary,
@@ -2219,7 +2199,7 @@ private fun NotebookPagesPanel(
         if (pages.isEmpty()) {
             MilkEmptyState(
                 title = "当前没有可附加的页面",
-                icon = Icons.Outlined.AutoStories,
+                icon = MilkIcons.Book,
             )
             return@Column
         }
@@ -2313,7 +2293,7 @@ private fun NotebookPagesPanel(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
-                                    Icons.Outlined.Check,
+                                    MilkIcons.Check,
                                     contentDescription = null,
                                     modifier = Modifier.size(11.dp),
                                     tint = cs.onPrimary,
@@ -2377,7 +2357,7 @@ private fun NotebookPagesPanel(
                     size = MilkButtonSize.SMALL,
                     leading = {
                         Icon(
-                            Icons.Outlined.CropFree,
+                            MilkIcons.SnipSpark,
                             contentDescription = null,
                             modifier = Modifier.size(15.dp),
                             tint = cs.onSurfaceVariant,
@@ -2434,7 +2414,7 @@ private fun NotebookPageThumb(page: PageRef, gate: Semaphore, onLoaded: (ImageBi
         onLoaded(bitmap)
     }
     Icon(
-        Icons.Outlined.AutoStories,
+        MilkIcons.Book,
         contentDescription = null,
         modifier = Modifier.size(15.dp),
         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),

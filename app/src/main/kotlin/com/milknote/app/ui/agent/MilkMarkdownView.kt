@@ -21,16 +21,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckBox
-import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.OpenInFull
-import androidx.compose.material.icons.outlined.PostAdd
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.milknote.app.ui.common.MilkIcons
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -191,7 +182,7 @@ private fun TaskItemBlock(block: MarkdownLite.Block.TaskItem, actions: MarkdownA
         verticalAlignment = Alignment.Top,
     ) {
         Icon(
-            imageVector = if (block.checked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
+            imageVector = if (block.checked) MilkIcons.CheckBoxChecked else MilkIcons.CheckBoxUnchecked,
             contentDescription = if (block.checked) "已完成" else "未完成",
             tint = if (block.checked) cs.primary else cs.onSurfaceVariant,
             modifier = Modifier.size(17.dp).padding(top = 1.dp),
@@ -494,7 +485,7 @@ private fun CodeBlockView(block: MarkdownLite.Block.CodeBlock) {
                     clipboard.setText(AnnotatedString(block.code))
                     copied = true
                 },
-                icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                icon = if (copied) MilkIcons.Check else MilkIcons.Copy,
                 tone = if (copied) MilkInlineTone.SUCCESS else MilkInlineTone.NEUTRAL,
                 minWidth = 74.dp,
             )
@@ -553,7 +544,7 @@ private fun GeneratedDocumentCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.AutoMirrored.Outlined.Article,
+                imageVector = MilkIcons.Article,
                 contentDescription = null,
                 tint = cs.primary,
                 modifier = Modifier.size(18.dp),
@@ -593,7 +584,7 @@ private fun GeneratedDocumentCard(
                     MilkInlineAction(
                         label = "悬浮预览",
                         onClick = { preview(doc) },
-                        icon = Icons.Outlined.OpenInFull,
+                        icon = MilkIcons.ExpandOpen,
                         tone = MilkInlineTone.ACCENT,
                     )
                 }
@@ -601,21 +592,21 @@ private fun GeneratedDocumentCard(
                     MilkInlineAction(
                         label = "写入笔记",
                         onClick = { save(doc) },
-                        icon = Icons.Outlined.PostAdd,
+                        icon = MilkIcons.NoteInsert,
                     )
                 }
                 actions.onExportDocument?.let { export ->
                     MilkInlineAction(
                         label = "导出",
                         onClick = { export(doc) },
-                        icon = Icons.Outlined.FileDownload,
+                        icon = MilkIcons.Export,
                     )
                 }
                 actions.onSaveDocumentCard?.let { card ->
                     MilkInlineAction(
                         label = "存卡片",
                         onClick = { card(doc) },
-                        icon = Icons.Outlined.BookmarkBorder,
+                        icon = MilkIcons.Bookmark,
                     )
                 }
             }

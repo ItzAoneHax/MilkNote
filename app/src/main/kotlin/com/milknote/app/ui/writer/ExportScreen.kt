@@ -31,15 +31,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Image as ImageIcon
-import androidx.compose.material.icons.outlined.Photo
-import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -68,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.app.agent.AgentBridge
 import com.milknote.app.agent.PageRenderer
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
@@ -509,7 +501,7 @@ private fun ExportTopBar(notebookName: String, onBack: () -> Unit, scrolled: Boo
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MilkIconButton(
-            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+            imageVector = MilkIcons.ArrowLeft,
             contentDescription = "返回书写",
             onClick = onBack,
         )
@@ -591,7 +583,7 @@ private fun ExportFormatRow(
         Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
             if (selected) {
                 Icon(
-                    Icons.Outlined.Check,
+                    MilkIcons.Check,
                     contentDescription = "当前格式",
                     tint = cs.primary,
                     modifier = Modifier.size(18.dp),
@@ -608,10 +600,10 @@ private fun ExportFormatRow(
 }
 
 private fun formatIcon(format: ExportFormat): ImageVector = when (format) {
-    ExportFormat.PDF -> Icons.Outlined.PictureAsPdf
-    ExportFormat.JPG -> Icons.Outlined.ImageIcon
-    ExportFormat.PNG -> Icons.Outlined.Photo
-    ExportFormat.ZIP -> Icons.Outlined.Archive
+    ExportFormat.PDF -> MilkIcons.FilePdf
+    ExportFormat.JPG -> MilkIcons.Image
+    ExportFormat.PNG -> MilkIcons.PhotoLibrary
+    ExportFormat.ZIP -> MilkIcons.FileZip
 }
 
 /** 缩略图多选:首行计数/全选/取消全选,下方自适应网格。 */
@@ -716,7 +708,7 @@ private fun PageRangePicker(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
-                                        Icons.Outlined.Check,
+                                        MilkIcons.Check,
                                         contentDescription = "已选择",
                                         tint = Color.White,
                                         modifier = Modifier.size(12.dp),
@@ -754,7 +746,7 @@ private fun ResultLine(msg: String) {
         verticalAlignment = Alignment.Top,
     ) {
         Icon(
-            if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+            if (ok) MilkIcons.CheckCircle else MilkIcons.ErrorCircle,
             contentDescription = if (ok) "成功" else "失败",
             tint = tint,
             modifier = Modifier.size(18.dp),

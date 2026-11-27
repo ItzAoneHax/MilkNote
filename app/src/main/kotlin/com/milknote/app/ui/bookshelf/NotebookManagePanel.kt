@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +22,7 @@ import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkColorDot
 import com.milknote.app.ui.common.MilkDropdownField
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.common.MilkTextField
 import com.milknote.app.ui.common.NotebookAdvancedOptions
@@ -131,8 +129,8 @@ internal fun NotebookManagePanel(
                 labelFor = { it.ifBlank { "未分组" } },
                 onSelect = { folder = it },
                 label = "文件夹",
-                leadingIcon = Icons.Outlined.Folder,
-                optionIcon = { if (it.isBlank()) Icons.Outlined.FolderOff else Icons.Outlined.Folder },
+                leadingIcon = MilkIcons.Folder,
+                optionIcon = { if (it.isBlank()) MilkIcons.FolderOff else MilkIcons.Folder },
                 footerActionLabel = "新建文件夹",
                 onFooterAction = { creatingFolder = true },
             )

@@ -26,14 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -71,7 +63,9 @@ import com.milknote.app.ui.common.MilkExpandableErrorBox
 import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkGroupItemDivider
 import com.milknote.app.ui.common.MilkHairlineDivider
+import com.milknote.app.ui.common.MilkIconBadge
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkInlineAction
 import com.milknote.app.ui.common.MilkInlineStatus
 import com.milknote.app.ui.common.MilkInlineTone
@@ -181,17 +175,15 @@ fun AgentSettingsSection() {
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        Icons.Outlined.Add,
-                        contentDescription = null,
+                    MilkIconBadge(
+                        icon = MilkIcons.Add,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
                     )
-                    Spacer(Modifier.width(MilkSpace.sm))
+                    Spacer(Modifier.width(MilkSpace.md))
                     Text("添加模型服务", style = MilkText.rowTitle, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.weight(1f))
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        MilkIcons.ChevronRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.size(18.dp),
@@ -368,7 +360,7 @@ private fun SummaryModelPickerPanel(
             MilkEmptyState(
                 title = "尚未配置模型",
                 description = "先在「模型服务」添加端点与模型",
-                icon = Icons.Outlined.SmartToy,
+                icon = MilkIcons.Sparkle,
             )
             return@MilkCenterPanel
         }
@@ -379,7 +371,7 @@ private fun SummaryModelPickerPanel(
             placeholder = "搜索模型 id…",
             leading = {
                 Icon(
-                    Icons.Outlined.Search,
+                    MilkIcons.Search,
                     contentDescription = null,
                     tint = cs.onSurfaceVariant,
                     modifier = Modifier.size(17.dp),
@@ -511,7 +503,7 @@ private fun ProviderCard(
                 modifier = Modifier.widthIn(min = 52.dp),
             )
             MilkIconButton(
-                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                imageVector = if (expanded) MilkIcons.ChevronDown else MilkIcons.ChevronRight,
                 contentDescription = if (expanded) "收起 Provider" else "展开 Provider",
                 onClick = onToggleExpand,
             )
@@ -573,7 +565,7 @@ private fun ProviderCard(
                 if (active) {
                     MilkInlineStatus(
                         label = "当前服务",
-                        icon = Icons.Outlined.Check,
+                        icon = MilkIcons.Check,
                         tone = MilkInlineTone.ACCENT,
                         minWidth = 88.dp,
                     )
@@ -778,7 +770,7 @@ private fun ModelCatalogSection(
                         fetchState = fetchState ?: FetchState.Adding
                     }
                 },
-                icon = Icons.Outlined.Add,
+                icon = MilkIcons.Add,
                 minWidth = 66.dp,
             )
         }
@@ -897,7 +889,7 @@ private fun FetchPicker(
                     placeholder = "搜索模型 id…",
                     leading = {
                         Icon(
-                            Icons.Outlined.Search,
+                            MilkIcons.Search,
                             contentDescription = null,
                             tint = cs.onSurfaceVariant,
                             modifier = Modifier.size(17.dp),
@@ -935,7 +927,7 @@ private fun FetchPicker(
                             ) {
                                 if (checked) {
                                     Icon(
-                                        Icons.Outlined.Check,
+                                        MilkIcons.Check,
                                         contentDescription = null,
                                         tint = cs.onPrimary,
                                         modifier = Modifier.size(12.dp),
@@ -1094,7 +1086,7 @@ private fun ModelRow(
                 modifier = Modifier.widthIn(min = 40.dp),
             )
             MilkIconButton(
-                imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                imageVector = if (expanded) MilkIcons.ChevronDown else MilkIcons.ChevronRight,
                 contentDescription = if (expanded) "收起模型设置" else "展开模型设置",
                 onClick = onToggle,
                 touchSize = 40.dp,
@@ -1102,7 +1094,7 @@ private fun ModelRow(
                 iconSize = 17.dp,
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.Close,
+                imageVector = MilkIcons.Close,
                 contentDescription = "删除模型",
                 onClick = onRemove,
                 touchSize = 40.dp,

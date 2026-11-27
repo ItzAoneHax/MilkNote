@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Notes
-import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,8 +38,8 @@ private data class NavItem(val key: String, val label: String, val icon: ImageVe
 @Composable
 fun LibraryBottomNav(selected: String, onNotes: () -> Unit, onCards: () -> Unit) {
     val items = listOf(
-        NavItem("笔记", "笔记", Icons.Outlined.Notes),
-        NavItem("卡片", "卡片", Icons.Outlined.Style),
+        NavItem("笔记", "笔记", MilkIcons.Book),
+        NavItem("卡片", "卡片", MilkIcons.Cards),
     )
     val actions: Map<String, () -> Unit> = mapOf("笔记" to onNotes, "卡片" to onCards)
     Row(

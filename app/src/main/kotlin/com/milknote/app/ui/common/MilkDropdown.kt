@@ -20,10 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -79,7 +75,7 @@ fun <T> MilkDropdownField(
     leadingIcon: ImageVector? = null,
     optionIcon: ((T) -> ImageVector?)? = null,
     footerActionLabel: String? = null,
-    footerActionIcon: ImageVector? = Icons.Outlined.Add,
+    footerActionIcon: ImageVector? = MilkIcons.Add,
     onFooterAction: (() -> Unit)? = null,
     enabled: Boolean = true,
 ) {
@@ -149,7 +145,7 @@ fun <T> MilkDropdownField(
                 )
                 Spacer(Modifier.width(MilkSpace.xs))
                 Icon(
-                    Icons.Outlined.KeyboardArrowDown,
+                    MilkIcons.ChevronDown,
                     contentDescription = null,
                     tint = if (expanded) cs.primary else cs.onSurfaceVariant,
                     modifier = Modifier
@@ -272,7 +268,7 @@ private fun DropdownOptionRow(
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (selected) {
                 Icon(
-                    Icons.Outlined.Check,
+                    MilkIcons.Check,
                     contentDescription = null,
                     tint = cs.primary,
                     modifier = Modifier.size(16.dp),

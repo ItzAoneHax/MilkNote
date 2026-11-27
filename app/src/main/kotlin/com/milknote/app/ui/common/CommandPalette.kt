@@ -18,10 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -118,7 +114,7 @@ fun CommandPalette(
                 .padding(start = 16.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.Search, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            Icon(MilkIcons.Search, contentDescription = null, tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
                 if (query.text.isEmpty()) {
@@ -153,7 +149,7 @@ fun CommandPalette(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Outlined.Close,
+                        MilkIcons.Close,
                         contentDescription = "清除搜索",
                         tint = cs.onSurfaceVariant,
                         modifier = Modifier.size(14.dp),
@@ -168,7 +164,7 @@ fun CommandPalette(
                     .clickable(onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                Icon(MilkIcons.Close, contentDescription = "关闭", tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
         }
         HorizontalDivider(color = cs.outline)
@@ -185,7 +181,7 @@ fun CommandPalette(
                 MilkEmptyState(
                     title = "无匹配结果",
                     description = if (searching) "换一个关键词试试" else "当前没有可用命令",
-                    icon = Icons.Outlined.SearchOff,
+                    icon = MilkIcons.SearchOff,
                 )
             } else {
                 filtered.take(12).forEachIndexed { index, item ->
@@ -218,11 +214,13 @@ fun CommandPalette(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         item.icon?.let {
-                            Icon(
-                                it,
-                                contentDescription = null,
+                            MilkIconBadge(
+                                icon = it,
+                                boxSize = 28.dp,
+                                iconSize = 16.dp,
+                                cornerRadius = MilkRadius.sm,
+                                active = sel,
                                 tint = rowFg,
-                                modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(10.dp))
                         }

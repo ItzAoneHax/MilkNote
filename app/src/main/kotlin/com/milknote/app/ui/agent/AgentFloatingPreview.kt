@@ -39,17 +39,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.BrokenImage
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.Rotate90DegreesCw
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import com.milknote.app.ui.common.MilkIcons
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -398,7 +388,7 @@ private fun PreviewHeader(
     ) {
         if (onBack != null) {
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                imageVector = MilkIcons.ArrowLeft,
                 contentDescription = "返回预览列表",
                 onClick = onBack,
                 touchSize = 40.dp,
@@ -433,7 +423,7 @@ private fun PreviewHeader(
         }
         Spacer(Modifier.width(MilkSpace.sm))
         MilkIconButton(
-            imageVector = Icons.Outlined.Close,
+            imageVector = MilkIcons.Close,
             contentDescription = "关闭预览",
             onClick = onDismiss,
             container = true,
@@ -677,7 +667,7 @@ private fun DocumentPreviewBody(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MilkIconButton(
-                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                    imageVector = MilkIcons.ChevronLeft,
                     contentDescription = "上一页",
                     onClick = { pageIndex = (pageIndex - 1).coerceAtLeast(0) },
                     enabled = pageIndex > 0,
@@ -694,7 +684,7 @@ private fun DocumentPreviewBody(
                     modifier = Modifier.widthIn(min = 88.dp),
                 )
                 MilkIconButton(
-                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    imageVector = MilkIcons.ChevronRight,
                     contentDescription = "下一页",
                     onClick = { pageIndex = (pageIndex + 1).coerceAtMost(pages.lastIndex) },
                     enabled = pageIndex < pages.lastIndex,
@@ -1045,7 +1035,7 @@ private fun ZoomableImage(
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        MilkEmptyState(title = emptyTitle, icon = Icons.Outlined.BrokenImage)
+                        MilkEmptyState(title = emptyTitle, icon = MilkIcons.BrokenImage)
                     }
                 }
             }
@@ -1080,7 +1070,7 @@ private fun ZoomableImage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MilkIconButton(
-                imageVector = Icons.Outlined.Rotate90DegreesCw,
+                imageVector = MilkIcons.RotateRight,
                 contentDescription = "旋转 90°",
                 onClick = { rotation = (rotation + 90) % 360 },
                 container = true,
@@ -1089,7 +1079,7 @@ private fun ZoomableImage(
                 touchSize = 40.dp,
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.RestartAlt,
+                imageVector = MilkIcons.Reset,
                 contentDescription = "重置缩放",
                 onClick = {
                     scale = minScale
@@ -1170,7 +1160,7 @@ fun AgentPreviewHubDialog(
                 busy = loadingFile,
                 leading = {
                     Icon(
-                        Icons.Outlined.Add,
+                        MilkIcons.Add,
                         contentDescription = null,
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1206,7 +1196,7 @@ fun AgentPreviewHubDialog(
             MilkEmptyState(
                 title = if (items.isEmpty()) "暂无可预览内容" else "该分类暂无内容",
                 description = if (items.isEmpty()) "添加附件或让 AI 生成文档后会出现在这里" else null,
-                icon = Icons.Outlined.Description,
+                icon = MilkIcons.Article,
             )
         } else {
             LazyColumn(
@@ -1314,9 +1304,9 @@ private fun PreviewThumb(target: AgentPreviewTarget) {
 }
 
 private fun previewIcon(target: AgentPreviewTarget): ImageVector = when (target) {
-    is AgentPreviewTarget.Image -> Icons.Outlined.Image
-    is AgentPreviewTarget.Document -> Icons.Outlined.Description
-    is AgentPreviewTarget.Markdown -> Icons.Outlined.Description
+    is AgentPreviewTarget.Image -> MilkIcons.Image
+    is AgentPreviewTarget.Document -> MilkIcons.Article
+    is AgentPreviewTarget.Markdown -> MilkIcons.Article
 }
 
 // ==================== 本地文件 → 预览目标 ====================

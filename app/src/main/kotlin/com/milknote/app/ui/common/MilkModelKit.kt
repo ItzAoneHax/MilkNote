@@ -21,10 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -386,7 +382,7 @@ fun MilkExpandableErrorBox(
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Icon(
-                Icons.Outlined.ErrorOutline,
+                MilkIcons.ErrorCircle,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = cs.error,
@@ -442,7 +438,7 @@ fun MilkExpandableErrorBox(
                     )
                     copied = true
                 },
-                icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                icon = if (copied) MilkIcons.Check else MilkIcons.Copy,
                 tone = if (copied) MilkInlineTone.SUCCESS else MilkInlineTone.NEUTRAL,
                 minWidth = 74.dp,
             )

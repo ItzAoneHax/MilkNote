@@ -20,9 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,6 +37,7 @@ import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.MilkCenterPanel
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkFilterChip
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkSpace
@@ -98,8 +96,8 @@ internal fun MaterialLibraryPanel(
         Column(Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()).testTag("writer-panel-scroll")) {
             Spacer(Modifier.height(MilkSpace.md))
             Row(horizontalArrangement = Arrangement.spacedBy(MilkSpace.sm)) {
-                MaterialAction("导入图片", Icons.Outlined.Image, onImportImage)
-                MaterialAction("图案笔", Icons.Outlined.Brush, onDoodle)
+                MaterialAction("导入图片", MilkIcons.Image, onImportImage)
+                MaterialAction("图案笔", MilkIcons.PatternBrush, onDoodle)
             }
             Spacer(Modifier.height(MilkSpace.xl))
             MilkSectionLabel("胶带")

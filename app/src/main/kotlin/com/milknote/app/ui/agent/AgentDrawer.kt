@@ -67,34 +67,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material.icons.outlined.UnfoldMore
-import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -112,6 +84,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import com.milknote.app.ui.common.MilkIconBadge
+import com.milknote.app.ui.common.MilkIcons
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -591,7 +565,7 @@ private fun StudioMarkdownPane(
                         canSaveToNotes = false,
                     )
                 },
-                icon = Icons.Outlined.Description,
+                icon = MilkIcons.Article,
                 enabled = markdown.isNotBlank(),
             )
             Spacer(Modifier.width(MilkSpace.xs))
@@ -682,7 +656,7 @@ private fun StudioLinksPane(
     ) {
         MilkSectionLabel(text = "双开对照", modifier = Modifier.padding(horizontal = MilkSpace.xs))
         if (notebooks.isEmpty()) {
-            MilkEmptyState(title = "暂无其他笔记本", icon = Icons.Outlined.VerticalSplit)
+            MilkEmptyState(title = "暂无其他笔记本", icon = MilkIcons.SplitView)
         } else {
             MilkSurfaceGroup {
                 notebooks.take(5).forEachIndexed { index, nb ->
@@ -717,7 +691,7 @@ private fun StudioLinksPane(
                         }
                         Spacer(Modifier.width(MilkSpace.sm))
                         Icon(
-                            Icons.Outlined.VerticalSplit,
+                            MilkIcons.SplitView,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = cs.onSurfaceVariant.copy(alpha = 0.7f),
@@ -730,7 +704,7 @@ private fun StudioLinksPane(
         Spacer(Modifier.height(MilkSpace.xs))
         MilkSectionLabel(text = "知识卡片", modifier = Modifier.padding(horizontal = MilkSpace.xs))
         if (cards.isEmpty()) {
-            MilkEmptyState(title = "暂无卡片", icon = Icons.Outlined.Style)
+            MilkEmptyState(title = "暂无卡片", icon = MilkIcons.Cards)
         } else {
             MilkSurfaceGroup {
                 cards.take(8).forEachIndexed { index, card ->
@@ -771,7 +745,7 @@ private fun StudioLinksPane(
                         }
                         Spacer(Modifier.width(MilkSpace.sm))
                         Icon(
-                            Icons.Outlined.Add,
+                            MilkIcons.Add,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = cs.primary,
@@ -856,7 +830,7 @@ private fun DrawerHeader(
             )
             Spacer(Modifier.width(MilkSpace.xs))
             MilkIconButton(
-                imageVector = Icons.Outlined.Close,
+                imageVector = MilkIcons.Close,
                 contentDescription = "收起",
                 onClick = { agent.closeDrawer() },
                 visualSize = 32.dp,
@@ -924,7 +898,7 @@ private fun DrawerHeader(
                     }
                     Spacer(Modifier.width(6.dp))
                     Icon(
-                        Icons.Outlined.UnfoldMore,
+                        MilkIcons.UnfoldMore,
                         contentDescription = "切换模型与思考设置",
                         modifier = Modifier.size(16.dp),
                         tint = cs.onSurfaceVariant,
@@ -932,7 +906,7 @@ private fun DrawerHeader(
                 }
                 Spacer(Modifier.width(MilkSpace.xs))
                 MilkIconButton(
-                    imageVector = Icons.Outlined.FolderOpen,
+                    imageVector = MilkIcons.FolderOpen,
                     contentDescription = "文件与文档预览",
                     onClick = { showHub = true },
                     touchSize = 36.dp,
@@ -941,7 +915,7 @@ private fun DrawerHeader(
                     shape = RoundedCornerShape(MilkRadius.sm),
                 )
                 MilkIconButton(
-                    imageVector = Icons.Outlined.History,
+                    imageVector = MilkIcons.History,
                     contentDescription = "历史会话",
                     onClick = { showSessions = !showSessions },
                     selected = showSessions,
@@ -951,7 +925,7 @@ private fun DrawerHeader(
                     shape = RoundedCornerShape(MilkRadius.sm),
                 )
                 MilkIconButton(
-                    imageVector = Icons.Outlined.Add,
+                    imageVector = MilkIcons.Add,
                     contentDescription = "新对话",
                     onClick = { agent.clearSession() },
                     enabled = !streaming,
@@ -1062,10 +1036,10 @@ private fun SetupGuide(onOpenSettings: (page: String) -> Unit, modifier: Modifie
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Outlined.AutoAwesome,
+                MilkIcons.Sparkle,
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
-                tint = cs.onSurfaceVariant,
+                tint = cs.primary,
             )
         }
         Spacer(Modifier.height(14.dp))
@@ -1076,7 +1050,7 @@ private fun SetupGuide(onOpenSettings: (page: String) -> Unit, modifier: Modifie
             onClick = { onOpenSettings("agent") },
             leading = {
                 Icon(
-                    Icons.Outlined.Settings,
+                    MilkIcons.Settings,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = cs.onPrimary,
@@ -1097,20 +1071,20 @@ private fun EmptyPromptActions(
 ) {
     MilkSurfaceGroup(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
         EmptyActionRow(
-            icon = Icons.Outlined.CropFree,
+            icon = MilkIcons.SnipSpark,
             label = "框选题目",
             onClick = onSnip,
         )
-        MilkHairlineDivider(startIndent = 38.dp, endIndent = 10.dp)
+        MilkHairlineDivider(startIndent = 48.dp, endIndent = 10.dp)
         EmptyActionRow(
-            icon = Icons.Outlined.Description,
+            icon = MilkIcons.Article,
             label = "讲解本页",
             trailing = pageLabel,
             onClick = onExplainPage,
         )
-        MilkHairlineDivider(startIndent = 38.dp, endIndent = 10.dp)
+        MilkHairlineDivider(startIndent = 48.dp, endIndent = 10.dp)
         EmptyActionRow(
-            icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
+            icon = MilkIcons.ListBullet,
             label = "归纳本章",
             onClick = onSummarizeChapter,
         )
@@ -1129,11 +1103,16 @@ private fun EmptyActionRow(
         Modifier
             .fillMaxWidth()
             .softClickable(onClick = onClick)
-            .heightIn(min = 46.dp)
+            .heightIn(min = 50.dp)
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = cs.primary)
+        MilkIconBadge(
+            icon = icon,
+            boxSize = 28.dp,
+            iconSize = 16.dp,
+            tint = cs.primary,
+        )
         Spacer(Modifier.width(10.dp))
         Text(label, style = MilkText.rowTitle, color = cs.onSurface, modifier = Modifier.weight(1f))
         if (trailing != null) {
@@ -1141,7 +1120,7 @@ private fun EmptyActionRow(
             Spacer(Modifier.width(MilkSpace.xs))
         }
         Icon(
-            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            MilkIcons.ChevronRight,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = cs.onSurfaceVariant.copy(alpha = 0.6f),
@@ -1270,7 +1249,7 @@ private fun Messages(
                 .padding(bottom = 6.dp),
         ) {
             MilkIconButton(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
+                imageVector = MilkIcons.ChevronDown,
                 contentDescription = "回到底部",
                 onClick = {
                     autoFollow = true
@@ -1343,7 +1322,7 @@ private fun ReasoningBlock(msg: UiMessage, onExpandChanged: (Boolean) -> Unit = 
                 Text("思考中", style = MilkText.monoMeta, color = cs.onSurfaceVariant)
             } else {
                 Icon(
-                    Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    MilkIcons.ChevronRight,
                     contentDescription = null,
                     modifier = Modifier
                         .size(14.dp)
@@ -1555,7 +1534,7 @@ private fun AttachmentThumbnail(bitmap: ImageBitmap?, size: Dp, shape: RoundedCo
             )
         } else {
             Icon(
-                Icons.Outlined.Image,
+                MilkIcons.Image,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = cs.primary,
@@ -1657,11 +1636,11 @@ private fun AssistantMessage(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MilkInlineStatus("失败", icon = Icons.Outlined.ErrorOutline, tone = MilkInlineTone.DANGER)
+                    MilkInlineStatus("失败", icon = MilkIcons.ErrorCircle, tone = MilkInlineTone.DANGER)
                     MilkInlineAction(
                         label = "重试",
                         onClick = { agent.retry() },
-                        icon = Icons.Outlined.Refresh,
+                        icon = MilkIcons.Refresh,
                         tone = MilkInlineTone.ACCENT,
                     )
                 }
@@ -1677,7 +1656,7 @@ private fun AssistantMessage(
                     MilkInlineAction(
                         label = "重试",
                         onClick = { agent.retry() },
-                        icon = Icons.Outlined.Refresh,
+                        icon = MilkIcons.Refresh,
                         tone = MilkInlineTone.ACCENT,
                     )
                 }
@@ -1694,7 +1673,7 @@ private fun AssistantMessage(
                         MilkInlineAction(
                             label = "贴回纸面",
                             onClick = { agent.insertAnnotation(msg.id) },
-                            icon = Icons.Outlined.PushPin,
+                            icon = MilkIcons.Pin,
                             tone = MilkInlineTone.ACCENT,
                             minWidth = 86.dp,
                         )
@@ -1702,7 +1681,7 @@ private fun AssistantMessage(
                         // 已贴回是状态不是操作:同一几何的无点击状态胶囊
                         MilkInlineStatus(
                             label = "已贴回",
-                            icon = Icons.Outlined.Check,
+                            icon = MilkIcons.Check,
                             tone = MilkInlineTone.SUCCESS,
                             minWidth = 86.dp,
                         )
@@ -1718,13 +1697,13 @@ private fun AssistantMessage(
                                 ),
                             )
                         },
-                        icon = Icons.Outlined.Description,
+                        icon = MilkIcons.Article,
                         enabled = msg.text.isNotBlank(),
                     )
                     MilkInlineAction(
                         label = "存卡片",
                         onClick = { onSaveCard(msg.text) },
-                        icon = Icons.Outlined.BookmarkBorder,
+                        icon = MilkIcons.Bookmark,
                         enabled = msg.text.isNotBlank(),
                     )
                     MilkInlineAction(
@@ -1734,7 +1713,7 @@ private fun AssistantMessage(
                             clipboard.setPrimaryClip(ClipData.newPlainText("agent", msg.text))
                             copied = true
                         },
-                        icon = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        icon = if (copied) MilkIcons.Check else MilkIcons.Copy,
                         tone = if (copied) MilkInlineTone.SUCCESS else MilkInlineTone.NEUTRAL,
                         minWidth = 74.dp,
                     )
@@ -1990,7 +1969,7 @@ private fun Composer(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                if (target is AgentPreviewTarget.Image) Icons.Outlined.Image else Icons.Outlined.Description,
+                                if (target is AgentPreviewTarget.Image) MilkIcons.Image else MilkIcons.Article,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
                                 tint = cs.onSurfaceVariant,
@@ -2082,7 +2061,7 @@ private fun Composer(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = MilkSpace.sm),
                 leading = {
                     MilkIconButton(
-                        imageVector = Icons.Outlined.AttachFile,
+                        imageVector = MilkIcons.AttachClip,
                         contentDescription = if (attachOpen) "收起附件菜单" else "添加附件",
                         onClick = { attachOpen = !attachOpen },
                         selected = attachOpen || state.draftAttachments.isNotEmpty(),
@@ -2099,7 +2078,7 @@ private fun Composer(
                 trailing = {
                     if (streaming) {
                         MilkIconButton(
-                            imageVector = Icons.Outlined.Stop,
+                            imageVector = MilkIcons.StopSquare,
                             contentDescription = "停止",
                             onClick = { agent.stop() },
                             tint = cs.error,
@@ -2109,7 +2088,7 @@ private fun Composer(
                         )
                     } else {
                         MilkIconButton(
-                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            imageVector = MilkIcons.Send,
                             contentDescription = "发送",
                             onClick = { agent.send() },
                             enabled = canSend,
@@ -2154,7 +2133,7 @@ private fun Composer(
                     "分析以题目/笔记的正确性为主要依据;如需判断对错,请先附加相关页面、题目或笔记截图。",
                 confirmLabel = "申请并发送",
                 destructive = false,
-                icon = Icons.Outlined.Schedule,
+                icon = MilkIcons.Clock,
                 onDismiss = { proficiencyDialog = false },
                 onConfirm = {
                     proficiencyDialog = false
@@ -2270,7 +2249,7 @@ private fun DraftAttachmentCard(
             )
         }
         MilkIconButton(
-            imageVector = Icons.Outlined.Close,
+            imageVector = MilkIcons.Close,
             contentDescription = "移除附件",
             onClick = onRemove,
             touchSize = 36.dp,
@@ -2324,7 +2303,7 @@ private fun ModelSheet(
                 placeholder = "搜索模型或服务…",
                 leading = {
                     Icon(
-                        Icons.Outlined.Search,
+                        MilkIcons.Search,
                         contentDescription = null,
                         tint = cs.onSurfaceVariant,
                         modifier = Modifier.size(17.dp),
@@ -2423,10 +2402,10 @@ private fun ModelSheet(
                 .padding(horizontal = MilkSpace.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.Outlined.Settings,
-                contentDescription = null,
-                modifier = Modifier.size(17.dp),
+            MilkIconBadge(
+                icon = MilkIcons.Settings,
+                boxSize = 28.dp,
+                iconSize = 16.dp,
                 tint = cs.primary,
             )
             Spacer(Modifier.width(MilkSpace.sm + 2.dp))
@@ -2437,7 +2416,7 @@ private fun ModelSheet(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                MilkIcons.ChevronRight,
                 contentDescription = null,
                 modifier = Modifier.size(17.dp),
                 tint = cs.onSurfaceVariant,

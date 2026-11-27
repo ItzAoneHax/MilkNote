@@ -50,31 +50,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.Sort
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileOpen
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.RestoreFromTrash
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.StarOutline
-import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material.icons.outlined.VerticalSplit
-import androidx.compose.material.icons.outlined.ViewSidebar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -113,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.milknote.app.R
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.cards.CardEditorPanel
 import com.milknote.app.ui.cards.CardFilterRow
 import com.milknote.app.ui.cards.CardsViewModel
@@ -282,20 +258,20 @@ fun BookshelfScreen(
     val bookActions: (NotebookMeta) -> List<MilkPanelAction> = { target ->
         if (target.trashed) {
             listOf(
-                MilkPanelAction(label = "恢复", icon = Icons.Outlined.RestoreFromTrash, onClick = { actionMenuTarget = null; vm.restoreFromTrash(target.id) }),
-                MilkPanelAction(label = "彻底删除", icon = Icons.Outlined.Delete, destructive = true, onClick = { actionMenuTarget = null; deleteTarget = target }),
+                MilkPanelAction(label = "恢复", icon = MilkIcons.RestoreTrash, onClick = { actionMenuTarget = null; vm.restoreFromTrash(target.id) }),
+                MilkPanelAction(label = "彻底删除", icon = MilkIcons.Trash, destructive = true, onClick = { actionMenuTarget = null; deleteTarget = target }),
             )
         } else {
             listOf(
-                MilkPanelAction(label = "双开分屏", icon = Icons.Outlined.VerticalSplit, onClick = { actionMenuTarget = null; onOpenNotebookSplit(target.id) }),
+                MilkPanelAction(label = "双开分屏", icon = MilkIcons.SplitView, onClick = { actionMenuTarget = null; onOpenNotebookSplit(target.id) }),
                 MilkPanelAction(
                     label = if (target.pinned) "取消星标" else "星标",
-                    icon = if (target.pinned) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                    icon = MilkIcons.Star,
                     onClick = { actionMenuTarget = null; vm.togglePin(target.id) },
                 ),
-                MilkPanelAction(label = "重命名与文件夹", icon = Icons.Outlined.Edit, onClick = { actionMenuTarget = null; manageTarget = target }),
-                MilkPanelAction(label = "导出", icon = Icons.Outlined.FileDownload, onClick = { actionMenuTarget = null; onExportNotebook(target.id) }),
-                MilkPanelAction(label = "移入回收站", icon = Icons.Outlined.DeleteOutline, destructive = true, onClick = { actionMenuTarget = null; vm.moveToTrash(target.id) }),
+                MilkPanelAction(label = "重命名与文件夹", icon = MilkIcons.Edit, onClick = { actionMenuTarget = null; manageTarget = target }),
+                MilkPanelAction(label = "导出", icon = MilkIcons.Export, onClick = { actionMenuTarget = null; onExportNotebook(target.id) }),
+                MilkPanelAction(label = "移入回收站", icon = MilkIcons.Trash, destructive = true, onClick = { actionMenuTarget = null; vm.moveToTrash(target.id) }),
             )
         }
     }
@@ -303,15 +279,15 @@ fun BookshelfScreen(
     // 文件夹操作:打开 / 重命名 / 删除(删除只移除位置,笔记本退回未分组)
     val folderActions: (String) -> List<MilkPanelAction> = { folderName ->
         listOf(
-            MilkPanelAction(label = "打开文件夹", icon = Icons.Outlined.FolderOpen, onClick = {
+            MilkPanelAction(label = "打开文件夹", icon = MilkIcons.FolderOpen, onClick = {
                 folderMenuTarget = null
                 vm.setNav(BookshelfNav.Folder(folderName))
             }),
-            MilkPanelAction(label = "重命名文件夹", icon = Icons.Outlined.Edit, onClick = {
+            MilkPanelAction(label = "重命名文件夹", icon = MilkIcons.Edit, onClick = {
                 folderMenuTarget = null
                 renameFolderTarget = folderName
             }),
-            MilkPanelAction(label = "删除文件夹", icon = Icons.Outlined.Delete, destructive = true, onClick = {
+            MilkPanelAction(label = "删除文件夹", icon = MilkIcons.Trash, destructive = true, onClick = {
                 folderMenuTarget = null
                 deleteFolderTarget = folderName
             }),
@@ -458,17 +434,17 @@ fun BookshelfScreen(
                                     is BookshelfNav.Trash -> MilkEmptyState(
                                         title = "回收站为空",
                                         description = "移入回收站的笔记本会先停在这里，可随时恢复",
-                                        icon = Icons.Outlined.DeleteOutline,
+                                        icon = MilkIcons.Trash,
                                     )
                                     is BookshelfNav.Pinned -> MilkEmptyState(
                                         title = "还没有星标笔记",
                                         description = "在笔记本「…」菜单里加星标，常用的会置顶",
-                                        icon = Icons.Outlined.StarOutline,
+                                        icon = MilkIcons.Star,
                                     )
                                     is BookshelfNav.Folder -> MilkEmptyState(
                                         title = "「${current.name}」还是空的",
                                         description = "新建的笔记本会自动归入这个文件夹",
-                                        icon = Icons.Outlined.Folder,
+                                        icon = MilkIcons.Folder,
                                         actionLabel = "新建笔记本",
                                         onAction = { showCreate = true },
                                     )
@@ -526,7 +502,7 @@ fun BookshelfScreen(
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
-                                                Icons.Outlined.Add,
+                                                MilkIcons.Add,
                                                 contentDescription = "新建笔记本",
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(22.dp),
@@ -619,20 +595,20 @@ fun BookshelfScreen(
             title = "创建与导入",
             subtitle = "零账号本地存储（.milk 目录）",
             actions = listOf(
-                MilkPanelAction("新建笔记本", icon = Icons.Outlined.Add, onClick = {
+                MilkPanelAction("新建笔记本", icon = MilkIcons.Add, onClick = {
                     showCreateActions = false; showCreate = true
                 }),
-                MilkPanelAction("新建文件夹", icon = Icons.Outlined.Folder, onClick = {
+                MilkPanelAction("新建文件夹", icon = MilkIcons.Folder, onClick = {
                     showCreateActions = false; showNewFolderDialog = true
                 }),
-                MilkPanelAction("导入 PDF / .milk.zip 备份", icon = Icons.Outlined.FileOpen, onClick = {
+                MilkPanelAction("导入 PDF / .milk.zip 备份", icon = MilkIcons.ImportDoc, onClick = {
                     showCreateActions = false
                     importLauncher.launch(arrayOf("application/pdf", "application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*"))
                 }),
-                MilkPanelAction("从图片创建笔记", icon = Icons.Outlined.Image, onClick = {
+                MilkPanelAction("从图片创建笔记", icon = MilkIcons.Image, onClick = {
                     showCreateActions = false; imageLauncher.launch("image/*")
                 }),
-                MilkPanelAction("拍照创建笔记", icon = Icons.Outlined.CameraAlt, onClick = {
+                MilkPanelAction("拍照创建笔记", icon = MilkIcons.Camera, onClick = {
                     showCreateActions = false
                     val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
                     val file = java.io.File(dir, "capture-${System.currentTimeMillis()}.jpg")
@@ -889,7 +865,7 @@ private fun BookshelfSideRail(
                     modifier = Modifier.weight(1f),
                 )
                 MilkIconButton(
-                    imageVector = Icons.Outlined.ViewSidebar,
+                    imageVector = MilkIcons.Sidebar,
                     contentDescription = "收起侧栏",
                     onClick = onCollapseRail,
                     iconSize = 18.dp,
@@ -905,28 +881,28 @@ private fun BookshelfSideRail(
             ) {
                 SideNavRow(
                     label = "全部",
-                    icon = Icons.AutoMirrored.Outlined.MenuBook,
+                    icon = MilkIcons.Book,
                     count = allCount,
                     selected = nav is BookshelfNav.All,
                     onClick = { onSelectNav(BookshelfNav.All) },
                 )
                 SideNavRow(
                     label = "星标",
-                    icon = Icons.Outlined.StarOutline,
+                    icon = MilkIcons.Star,
                     count = pinnedCount,
                     selected = nav is BookshelfNav.Pinned,
                     onClick = { onSelectNav(BookshelfNav.Pinned) },
                 )
                 SideNavRow(
                     label = "卡片",
-                    icon = Icons.Outlined.Style,
+                    icon = MilkIcons.Cards,
                     count = cardsCount,
                     selected = nav is BookshelfNav.Cards,
                     onClick = { onSelectNav(BookshelfNav.Cards) },
                 )
                 SideNavRow(
                     label = "回收站",
-                    icon = Icons.Outlined.DeleteOutline,
+                    icon = MilkIcons.Trash,
                     count = trashCount,
                     selected = nav is BookshelfNav.Trash,
                     onClick = { onSelectNav(BookshelfNav.Trash) },
@@ -945,7 +921,7 @@ private fun BookshelfSideRail(
                         modifier = Modifier.weight(1f),
                     )
                     MilkIconButton(
-                        imageVector = Icons.Outlined.Add,
+                        imageVector = MilkIcons.Add,
                         contentDescription = "新建文件夹",
                         onClick = onAddFolder,
                         iconSize = 16.dp,
@@ -956,7 +932,7 @@ private fun BookshelfSideRail(
                 folders.forEach { folder ->
                     SideNavRow(
                         label = folder,
-                        icon = Icons.Outlined.Folder,
+                        icon = MilkIcons.Folder,
                         count = folderCount(folder),
                         selected = (nav as? BookshelfNav.Folder)?.name == folder,
                         onClick = { onSelectNav(BookshelfNav.Folder(folder)) },
@@ -997,7 +973,7 @@ private fun BookshelfSideRail(
                     )
                 }
                 MilkIconButton(
-                    imageVector = Icons.Outlined.Settings,
+                    imageVector = MilkIcons.Settings,
                     contentDescription = "设置",
                     onClick = onOpenSettings,
                     iconSize = 18.dp,
@@ -1108,7 +1084,7 @@ internal fun BookshelfHeaderBar(
         ) {
             if (railCollapsed) {
                 MilkIconButton(
-                    imageVector = Icons.Outlined.ViewSidebar,
+                    imageVector = MilkIcons.Sidebar,
                     contentDescription = "展开侧栏",
                     onClick = onExpandRail,
                     iconSize = 18.dp,
@@ -1119,7 +1095,7 @@ internal fun BookshelfHeaderBar(
             // 文件夹内的返回位:固定槽位(不参与折叠动画),标题因此不会左右跳动
             if (showBack) {
                 MilkIconButton(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    imageVector = MilkIcons.ArrowLeft,
                     contentDescription = "返回全部",
                     onClick = onBack,
                     iconSize = 18.dp,
@@ -1140,7 +1116,7 @@ internal fun BookshelfHeaderBar(
             // ---- 次级操作:搜索 → 视图切换 → 排序 → 导入 ----
             if (compact) {
                 MilkIconButton(
-                    imageVector = Icons.Outlined.Search,
+                    imageVector = MilkIcons.Search,
                     contentDescription = "搜索",
                     onClick = onSearch,
                     iconSize = 18.dp,
@@ -1152,7 +1128,7 @@ internal fun BookshelfHeaderBar(
 
             if (!isCards) {
                 MilkIconButton(
-                    imageVector = if (listView) Icons.Outlined.GridView else Icons.AutoMirrored.Outlined.FormatListBulleted,
+                    imageVector = if (listView) MilkIcons.GridView else MilkIcons.ListBullet,
                     contentDescription = "切换列表视图",
                     onClick = onToggleListView,
                     selected = listView,
@@ -1160,7 +1136,7 @@ internal fun BookshelfHeaderBar(
                 )
                 Box {
                     MilkIconButton(
-                        imageVector = Icons.AutoMirrored.Outlined.Sort,
+                        imageVector = MilkIcons.Sort,
                         contentDescription = "排序",
                         onClick = onSortToggle,
                         selected = sortExpanded,
@@ -1179,7 +1155,7 @@ internal fun BookshelfHeaderBar(
             // 导入只属于「可用书架」:卡片页与回收站页都不该出现(回收站没有可导入的目标)
             if (!isCards && !isTrash) {
                 MilkIconButton(
-                    imageVector = Icons.Outlined.FileOpen,
+                    imageVector = MilkIcons.ImportDoc,
                     contentDescription = "导入 PDF 或备份",
                     onClick = onPrimaryMoreCreate,
                     iconSize = 18.dp,
@@ -1204,7 +1180,7 @@ internal fun BookshelfHeaderBar(
                     onClick = onPrimaryNew,
                     leading = {
                         Icon(
-                            Icons.Outlined.Add,
+                            MilkIcons.Add,
                             contentDescription = null,
                             tint = cs.onPrimary,
                             modifier = Modifier.size(16.dp),
@@ -1231,7 +1207,7 @@ internal fun SearchCommandPill(onClick: () -> Unit) {
             .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(15.dp))
+        Icon(MilkIcons.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(MilkSpace.sm))
         Text(
             "搜索",
@@ -1306,7 +1282,7 @@ private fun PortraitBookItem(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            Icons.Outlined.MoreHoriz,
+                            MilkIcons.MoreDots,
                             contentDescription = "更多操作",
                             tint = Color(0xFF18191B),
                             modifier = Modifier.size(16.dp),
@@ -1360,7 +1336,7 @@ private fun PortraitNewBookSlot(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            Icons.Outlined.Add,
+            MilkIcons.Add,
             contentDescription = "新建笔记本",
             tint = cs.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.size(26.dp),
@@ -1425,7 +1401,7 @@ private fun PortraitBookListRow(
         )
         if (meta.pinned) {
             Icon(
-                Icons.Outlined.Star,
+                MilkIcons.Star,
                 contentDescription = "星标",
                 tint = RedPen,
                 modifier = Modifier.size(16.dp),
@@ -1435,7 +1411,7 @@ private fun PortraitBookListRow(
         MonoText("${pageCount} 页 · ${formatRelative(meta.updatedAt)}${if (meta.folder.isBlank()) "" else " · ${meta.folder}"}")
         Box {
             MilkIconButton(
-                imageVector = Icons.Outlined.MoreHoriz,
+                imageVector = MilkIcons.MoreDots,
                 contentDescription = "更多操作",
                 onClick = onMore,
                 iconSize = 18.dp,
@@ -1515,7 +1491,7 @@ private fun MilkFolderGridTile(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Outlined.MoreHoriz,
+                        MilkIcons.MoreDots,
                         contentDescription = "更多操作",
                         tint = Color(0xFF18191B),
                         modifier = Modifier.size(16.dp),
@@ -1555,7 +1531,7 @@ private fun FolderCardBody(books: List<NotebookMeta>) {
         val tabHeight = 14.dp
         if (books.isEmpty()) {
             Icon(
-                Icons.Outlined.Folder,
+                MilkIcons.Folder,
                 contentDescription = null,
                 tint = cs.onSurfaceVariant.copy(alpha = 0.45f),
                 modifier = Modifier
@@ -1656,7 +1632,7 @@ private fun MilkFolderListRow(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Outlined.Folder,
+                MilkIcons.Folder,
                 contentDescription = null,
                 tint = cs.primary,
                 modifier = Modifier.size(18.dp),
@@ -1674,7 +1650,7 @@ private fun MilkFolderListRow(
         MonoText("$count 本")
         Box {
             MilkIconButton(
-                imageVector = Icons.Outlined.MoreHoriz,
+                imageVector = MilkIcons.MoreDots,
                 contentDescription = "更多操作",
                 onClick = onMore,
                 iconSize = 18.dp,
@@ -1797,7 +1773,7 @@ private fun BookshelfCardsContent(
                     MilkEmptyState(
                         title = "没有匹配的卡片",
                         description = "换一个关键词，或清除标签与颜色筛选",
-                        icon = Icons.Outlined.Search,
+                        icon = MilkIcons.Search,
                         actionLabel = "清除筛选",
                         onAction = {
                             vm.search("")
@@ -1809,7 +1785,7 @@ private fun BookshelfCardsContent(
                     MilkEmptyState(
                         title = "暂无卡片",
                         description = "新建一张，或在书写页把摘取保存为卡片",
-                        icon = Icons.Outlined.Style,
+                        icon = MilkIcons.Cards,
                         actionLabel = "新建卡片",
                         onAction = onNewCard,
                     )
@@ -1854,7 +1830,7 @@ private fun CardSearchField(
         onClear = { onQueryChange("") },
         leading = {
             Icon(
-                Icons.Outlined.Search,
+                MilkIcons.Search,
                 contentDescription = null,
                 tint = cs.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),

@@ -27,8 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -85,7 +83,7 @@ fun PenBatteryCapsule(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.Outlined.Edit,
+            MilkIcons.Stylus,
             contentDescription = null,
             modifier = Modifier.size(14.dp),
             tint = color,

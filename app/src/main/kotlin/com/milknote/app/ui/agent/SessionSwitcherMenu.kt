@@ -16,12 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,6 +42,7 @@ import com.milknote.app.ui.common.MilkActionChip
 import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkHairlineDivider
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkIconButton
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.MilkStatusBadge
@@ -143,7 +138,7 @@ fun SessionSwitcherMenu(
                     small = true,
                     leading = {
                         Icon(
-                            Icons.Outlined.Add,
+                            MilkIcons.Add,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.primary,
@@ -152,7 +147,7 @@ fun SessionSwitcherMenu(
                 )
                 Spacer(Modifier.width(MilkSpace.xxs))
                 MilkIconButton(
-                    imageVector = Icons.Outlined.Close,
+                    imageVector = MilkIcons.Close,
                     contentDescription = "关闭历史会话",
                     onClick = onDismiss,
                     touchSize = 36.dp,
@@ -179,7 +174,7 @@ fun SessionSwitcherMenu(
                     placeholder = "搜索总结、对话或模型…",
                     leading = {
                         Icon(
-                            Icons.Outlined.Search,
+                            MilkIcons.Search,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(17.dp),
@@ -317,7 +312,7 @@ private fun SessionCard(
                 modifier = Modifier.weight(1f),
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.AutoAwesome,
+                imageVector = MilkIcons.Sparkle,
                 contentDescription = "生成总结",
                 onClick = onRegenerate,
                 enabled = !item.summaryGenerating && item.metrics.messageCount >= 2,
@@ -326,7 +321,7 @@ private fun SessionCard(
                 touchSize = 32.dp,
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.DeleteOutline,
+                imageVector = MilkIcons.Trash,
                 contentDescription = "删除会话",
                 onClick = onDelete,
                 iconSize = 15.dp,

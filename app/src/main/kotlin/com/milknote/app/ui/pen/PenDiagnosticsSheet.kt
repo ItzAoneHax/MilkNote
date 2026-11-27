@@ -22,10 +22,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DeleteSweep
-import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,6 +39,7 @@ import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonSize
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkSectionLabel
 import com.milknote.app.ui.settings.TextAction
 import com.milknote.app.ui.theme.ConsoleAccent
@@ -144,7 +141,7 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
                     size = MilkButtonSize.SMALL,
                     leading = {
                         Icon(
-                            Icons.Outlined.ContentCopy,
+                            MilkIcons.Copy,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp),
@@ -158,7 +155,7 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
                     size = MilkButtonSize.SMALL,
                     leading = {
                         Icon(
-                            Icons.Outlined.IosShare,
+                            MilkIcons.Export,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp),
@@ -172,7 +169,7 @@ fun PenDiagnosticsSheet(onDismiss: () -> Unit) {
                     size = MilkButtonSize.SMALL,
                     leading = {
                         Icon(
-                            Icons.Outlined.DeleteSweep,
+                            MilkIcons.ClearSweep,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp),

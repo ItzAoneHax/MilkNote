@@ -28,11 +28,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,6 +48,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.app.di.ServiceLocator
 import com.milknote.app.ui.common.LibraryBottomNav
+import com.milknote.app.ui.common.MilkIconBadge
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkButton
 import com.milknote.app.ui.common.MilkButtonVariant
 import com.milknote.app.ui.common.MilkCenterPanel
@@ -120,7 +117,7 @@ fun CardsScreen(
                 onClear = { vm.search("") },
                 leading = {
                     Icon(
-                        Icons.Outlined.Search, null,
+                        MilkIcons.Search, null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
                     )
@@ -132,7 +129,7 @@ fun CardsScreen(
                 onClick = { creating = true },
                 leading = {
                     Icon(
-                        Icons.Outlined.Add, null,
+                        MilkIcons.Add, null,
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(16.dp),
                     )
@@ -152,7 +149,7 @@ fun CardsScreen(
                     MilkEmptyState(
                         title = "没有匹配的卡片",
                         description = "换一个关键词，或清除标签与颜色筛选",
-                        icon = Icons.Outlined.Search,
+                        icon = MilkIcons.Search,
                         actionLabel = "清除筛选",
                         onAction = {
                             vm.search("")
@@ -164,7 +161,7 @@ fun CardsScreen(
                     MilkEmptyState(
                         title = "暂无卡片",
                         description = "新建一张，或在书写页把摘取保存为卡片",
-                        icon = Icons.Outlined.Style,
+                        icon = MilkIcons.Cards,
                         actionLabel = "新建卡片",
                         onAction = { creating = true },
                     )
@@ -290,7 +287,7 @@ internal fun MilkNoteCard(
                 modifier = Modifier.weight(1f),
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.Add,
+                imageVector = MilkIcons.Add,
                 contentDescription = "插入到笔记",
                 onClick = onInsert,
                 tint = cs.primary,
@@ -298,7 +295,7 @@ internal fun MilkNoteCard(
                 visualSize = 32.dp,
             )
             MilkIconButton(
-                imageVector = Icons.Outlined.DeleteOutline,
+                imageVector = MilkIcons.Trash,
                 contentDescription = "删除卡片",
                 onClick = onDelete,
                 iconSize = 17.dp,
@@ -425,15 +422,13 @@ internal fun InsertCardPanel(card: NoteCard, onDismiss: () -> Unit, onInsert: (S
         onDismiss = onDismiss,
         maxWidth = 480.dp,
         icon = {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(MilkRadius.md))
-                    .background(cardColor(card.color).copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.Style, null, tint = cardColor(card.color), modifier = Modifier.size(22.dp))
-            }
+            MilkIconBadge(
+                icon = MilkIcons.Cards,
+                boxSize = 34.dp,
+                iconSize = 18.dp,
+                tint = cardColor(card.color),
+                containerColor = cardColor(card.color).copy(alpha = 0.14f),
+            )
         },
         footer = {
             Spacer(Modifier.weight(1f))

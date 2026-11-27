@@ -24,12 +24,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -69,6 +63,7 @@ import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkConfirmDialog
 import com.milknote.app.ui.common.MilkEmptyState
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.coverColorName
 import com.milknote.app.ui.common.softShadow
 import com.milknote.app.ui.theme.MilkRadius
@@ -186,7 +181,7 @@ internal fun WriterSnippetRail(
                 .testTag("writer-snippet-search"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.Search, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(MilkIcons.Search, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(MilkSpace.xs))
             BasicTextField(
                 value = query,
@@ -210,7 +205,7 @@ internal fun WriterSnippetRail(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Outlined.Close,
+                        MilkIcons.Close,
                         contentDescription = null,
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -500,21 +495,21 @@ private fun SnippetCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SnippetCardAction(
-                    icon = Icons.Outlined.Add,
+                    icon = MilkIcons.Add,
                     description = "回插到当前页",
                     testTag = "writer-snippet-insert-${card.id}",
                     tint = MaterialTheme.colorScheme.primary,
                     onClick = onInsert,
                 )
                 SnippetCardAction(
-                    icon = Icons.Outlined.Edit,
+                    icon = MilkIcons.Edit,
                     description = "编辑卡片",
                     testTag = "writer-snippet-edit-${card.id}",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     onClick = onEdit,
                 )
                 SnippetCardAction(
-                    icon = Icons.Outlined.Delete,
+                    icon = MilkIcons.Trash,
                     description = "删除卡片",
                     testTag = "writer-snippet-delete-${card.id}",
                     tint = MaterialTheme.colorScheme.error,

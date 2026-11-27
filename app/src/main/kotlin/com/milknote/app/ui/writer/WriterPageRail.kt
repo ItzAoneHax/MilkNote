@@ -24,15 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.GridOn
-import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -60,6 +51,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.common.MilkActionPanel
 import com.milknote.app.ui.common.MilkEmptyState
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.MilkSegmented
 import com.milknote.app.ui.common.dashedBorder
@@ -241,7 +233,7 @@ internal fun WriterPageRail(
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Icon(
-                                            Icons.Outlined.MoreHoriz,
+                                            MilkIcons.MoreDots,
                                             "第 ${index + 1} 页操作",
                                             modifier = Modifier.size(18.dp),
                                             tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -274,7 +266,7 @@ internal fun WriterPageRail(
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(MilkIcons.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "新建页面",
@@ -322,10 +314,10 @@ internal fun WriterPageRail(
             title = "页面 $pageId",
             subtitle = "页面操作",
             actions = listOf(
-                MilkPanelAction("添加页面", { menuPageId = null; onNewPage(pageId) }, Icons.Outlined.Add),
-                MilkPanelAction("复制页面", { menuPageId = null; onDuplicatePage(pageId) }, Icons.Outlined.ContentCopy),
-                MilkPanelAction("清除页面", { menuPageId = null; clearTarget = pageId }, Icons.Outlined.Clear, destructive = true),
-                MilkPanelAction("删除页面", { menuPageId = null; deleteTarget = pageId }, Icons.Outlined.Delete, destructive = true),
+                MilkPanelAction("添加页面", { menuPageId = null; onNewPage(pageId) }, MilkIcons.Add),
+                MilkPanelAction("复制页面", { menuPageId = null; onDuplicatePage(pageId) }, MilkIcons.Copy),
+                MilkPanelAction("清除页面", { menuPageId = null; clearTarget = pageId }, MilkIcons.ClearSweep, destructive = true),
+                MilkPanelAction("删除页面", { menuPageId = null; deleteTarget = pageId }, MilkIcons.Trash, destructive = true),
             ),
             onDismiss = { menuPageId = null },
         )
@@ -372,7 +364,7 @@ internal fun WriterPagePill(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "上一页", Modifier.size(20.dp)) },
+            icon = { Icon(MilkIcons.ChevronLeft, "上一页", Modifier.size(20.dp)) },
             enabled = state.canPreviousPage,
             onClick = onPrevious,
             modifier = Modifier.testTag("writer-previous-page"),
@@ -385,7 +377,7 @@ internal fun WriterPagePill(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         IconToggleButton(
-            icon = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "下一页", Modifier.size(20.dp)) },
+            icon = { Icon(MilkIcons.ChevronRight, "下一页", Modifier.size(20.dp)) },
             enabled = state.canNextPage,
             onClick = onNext,
             modifier = Modifier.testTag("writer-next-page"),

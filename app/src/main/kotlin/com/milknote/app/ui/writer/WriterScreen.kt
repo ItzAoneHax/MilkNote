@@ -40,35 +40,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Category
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.DragIndicator
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.MyLocation
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Title
-import androidx.compose.material.icons.outlined.VerticalSplit
-import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material.icons.outlined.ViewSidebar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -98,6 +69,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import com.milknote.app.ui.common.MilkIcons
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.style.TextAlign
@@ -453,7 +425,7 @@ fun WriterScreen(
                                         )
                                     }
                                     SplitPageStep(
-                                        icon = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                                        icon = MilkIcons.ChevronLeft,
                                         label = "上一页",
                                         enabled = state.splitPageIndex > 0,
                                         onClick = { vm.stepSplitPage(-1) },
@@ -465,7 +437,7 @@ fun WriterScreen(
                                         modifier = Modifier.padding(horizontal = 2.dp),
                                     )
                                     SplitPageStep(
-                                        icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        icon = MilkIcons.ChevronRight,
                                         label = "下一页",
                                         enabled = state.splitPageIndex >= 0 &&
                                             state.splitPageIndex < state.splitPages.lastIndex,
@@ -751,20 +723,20 @@ fun WriterScreen(
                     }
                 }
                 com.milknote.app.ui.common.MilkMenuDivider()
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "素材", icon = Icons.Outlined.Category, onClick = { moreExpanded = false; setCentralPanel(WriterPanel.MATERIAL, true) }))
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "学习视频", icon = Icons.Outlined.Videocam, onClick = { moreExpanded = false; openVideo() }))
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "新建页面", icon = Icons.Outlined.Add, onClick = { moreExpanded = false; openNewPage(state.currentPageId) }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "素材", icon = MilkIcons.Shapes, onClick = { moreExpanded = false; setCentralPanel(WriterPanel.MATERIAL, true) }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "学习视频", icon = MilkIcons.Video, onClick = { moreExpanded = false; openVideo() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "新建页面", icon = MilkIcons.PageAdd, onClick = { moreExpanded = false; openNewPage(state.currentPageId) }))
                 com.milknote.app.ui.common.MilkMenuRow(
                     com.milknote.app.ui.common.MilkPanelAction(
                         label = if (state.splitEnabled) "关闭双开分屏" else "双开分屏",
-                        icon = Icons.Outlined.VerticalSplit,
+                        icon = MilkIcons.SplitView,
                         onClick = { moreExpanded = false; vm.toggleSplit() },
                     ),
                 )
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "清空本页手绘", icon = Icons.Outlined.Clear, onClick = { moreExpanded = false; vm.clearPage(state.currentPageId) }))
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "导出", icon = Icons.Outlined.FileDownload, onClick = { moreExpanded = false; onOpenExport() }))
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "命令面板", icon = Icons.Outlined.Search, onClick = { moreExpanded = false; onOpenPalette() }))
-                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "笔诊断", icon = Icons.Outlined.Edit, onClick = { moreExpanded = false; onOpenDiagnostics() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "清空本页手绘", icon = MilkIcons.ClearSweep, onClick = { moreExpanded = false; vm.clearPage(state.currentPageId) }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "导出", icon = MilkIcons.Export, onClick = { moreExpanded = false; onOpenExport() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "命令面板", icon = MilkIcons.Search, onClick = { moreExpanded = false; onOpenPalette() }))
+                com.milknote.app.ui.common.MilkMenuRow(com.milknote.app.ui.common.MilkPanelAction(label = "笔诊断", icon = MilkIcons.PulseDiag, onClick = { moreExpanded = false; onOpenDiagnostics() }))
             }
             WriterMajorToolbar(
                 state = state,
@@ -844,7 +816,7 @@ fun WriterScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Outlined.DragIndicator,
+                        MilkIcons.GripDots,
                         "停靠预览",
                         Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -874,7 +846,7 @@ fun WriterScreen(
                                 .testTag("writer-restore-minor"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Outlined.DragIndicator, "展开笔匣", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Icon(MilkIcons.PenDock, "展开笔匣", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                     }
                     if (showPagePill) {
@@ -1092,45 +1064,46 @@ private fun SelectionBar(
         ) {
             val tint = OverlayText
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.KeyboardArrowUp, "上移一层", tint = tint) },
+                icon = { Icon(MilkIcons.ChevronUp, "上移一层", tint = tint, modifier = Modifier.size(18.dp)) },
                 enabled = canMoveUp, onClick = onMoveUp,
             )
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.KeyboardArrowDown, "下移一层", tint = tint) },
+                icon = { Icon(MilkIcons.ChevronDown, "下移一层", tint = tint, modifier = Modifier.size(18.dp)) },
                 enabled = canMoveDown, onClick = onMoveDown,
             )
             IconToggleButton(
                 icon = {
                     Icon(
-                        Icons.Outlined.MyLocation,
+                        MilkIcons.MagnetSnap,
                         if (snapEnabled) "关闭吸附" else "开启吸附",
                         tint = if (snapEnabled) AccentBlueDark else OverlayMuted,
+                        modifier = Modifier.size(18.dp),
                     )
                 },
                 enabled = true, active = snapEnabled, onClick = onToggleSnap,
             )
             if (onEdit != null) {
                 IconToggleButton(
-                    icon = { Icon(Icons.Outlined.Edit, "编辑文字", tint = tint) },
+                    icon = { Icon(MilkIcons.Edit, "编辑文字", tint = tint, modifier = Modifier.size(18.dp)) },
                     enabled = true, onClick = onEdit,
                 )
             }
             if (onPlay != null) {
                 IconToggleButton(
-                    icon = { Icon(Icons.Outlined.PlayArrow, "播放媒体", tint = AccentBlueDark) },
+                    icon = { Icon(MilkIcons.Play, "播放媒体", tint = AccentBlueDark, modifier = Modifier.size(18.dp)) },
                     enabled = true, onClick = onPlay,
                 )
             }
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.AutoAwesome, "发送给 Agent", tint = AccentBlueDark) },
+                icon = { Icon(MilkIcons.Sparkle, "发送给 Agent", tint = AccentBlueDark, modifier = Modifier.size(18.dp)) },
                 enabled = true, onClick = onSend,
             )
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.Delete, "删除选中元素", tint = MaterialTheme.colorScheme.error) },
+                icon = { Icon(MilkIcons.Trash, "删除选中元素", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) },
                 enabled = true, onClick = onDelete,
             )
             IconToggleButton(
-                icon = { Icon(Icons.Outlined.Close, "取消选择", tint = tint) },
+                icon = { Icon(MilkIcons.Close, "取消选择", tint = tint, modifier = Modifier.size(18.dp)) },
                 enabled = true, onClick = onClear,
             )
         }
@@ -1192,21 +1165,21 @@ private fun NewPagePanel(
         actions = listOf(
             MilkPanelAction(
                 label = "页面之前",
-                icon = Icons.Outlined.KeyboardArrowUp,
+                icon = MilkIcons.ChevronUp,
                 trailingText = anchorPageId,
                 enabled = anchorPageId != null,
                 onClick = { onInsert(PageInsertPosition.BEFORE) },
             ),
             MilkPanelAction(
                 label = "页面之后",
-                icon = Icons.Outlined.KeyboardArrowDown,
+                icon = MilkIcons.ChevronDown,
                 trailingText = anchorPageId,
                 enabled = anchorPageId != null,
                 onClick = { onInsert(PageInsertPosition.AFTER) },
             ),
             MilkPanelAction(
                 label = "最后一页",
-                icon = Icons.Outlined.Add,
+                icon = MilkIcons.Add,
                 onClick = { onInsert(PageInsertPosition.END) },
             ),
         ),

@@ -34,21 +34,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SmartToy
-import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +56,7 @@ import com.milknote.app.ui.common.MilkChip
 import com.milknote.app.ui.common.MilkChoicePanel
 import com.milknote.app.ui.common.MilkFilterChip
 import com.milknote.app.ui.common.MilkIconButton
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkKeyCap
 import com.milknote.app.ui.common.MilkRadioRow
 import com.milknote.app.ui.common.MilkTextField
@@ -101,19 +87,19 @@ internal data class SettingsNavItem(val key: String, val label: String, val icon
 /** 设置页导航项(key 对应 SettingsScreen 的 page 路由) */
 internal val SETTINGS_NAV_GROUPS: List<Pair<String, List<SettingsNavItem>>> = listOf(
     "常规" to listOf(
-        SettingsNavItem("appearance", "外观", Icons.Outlined.Palette),
-        SettingsNavItem("writing", "书写", Icons.Outlined.Draw),
+        SettingsNavItem("appearance", "外观", MilkIcons.Palette),
+        SettingsNavItem("writing", "书写", MilkIcons.FountainPen),
     ),
     "设备" to listOf(
-        SettingsNavItem("pen", "触控笔", Icons.Outlined.Gesture),
-        SettingsNavItem("shortcuts", "手势与快捷键", Icons.Outlined.Keyboard),
+        SettingsNavItem("pen", "触控笔", MilkIcons.Stylus),
+        SettingsNavItem("shortcuts", "手势与快捷键", MilkIcons.Keyboard),
     ),
     "AI 教师" to listOf(
-        SettingsNavItem("agent", "模型与隐私", Icons.Outlined.SmartToy),
-        SettingsNavItem("skills_tools", "技能与工具", Icons.Outlined.Extension),
+        SettingsNavItem("agent", "模型与隐私", MilkIcons.Sparkle),
+        SettingsNavItem("skills_tools", "技能与工具", MilkIcons.Blocks),
     ),
     "数据" to listOf(
-        SettingsNavItem("storage", "存储与更新", Icons.Outlined.SystemUpdate),
+        SettingsNavItem("storage", "存储与更新", MilkIcons.StorageUpdate),
     ),
 )
 
@@ -156,7 +142,7 @@ internal fun SettingsNavRail(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                imageVector = MilkIcons.ArrowLeft,
                 contentDescription = "返回",
                 onClick = onBack,
             )
@@ -290,7 +276,7 @@ internal fun SettingsCompactBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MilkIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                imageVector = MilkIcons.ArrowLeft,
                 contentDescription = "返回",
                 onClick = onBack,
             )
@@ -300,7 +286,7 @@ internal fun SettingsCompactBar(
             GroupBadge(settingsGroupOf(selected))
             Spacer(Modifier.weight(1f))
             MilkIconButton(
-                imageVector = Icons.Outlined.Search,
+                imageVector = MilkIcons.Search,
                 contentDescription = "搜索设置",
                 onClick = { searchOpen = !searchOpen },
                 selected = showSearch,
@@ -390,7 +376,7 @@ private fun SettingsSearchField(
             placeholder = "搜索设置…",
             leading = {
                 Icon(
-                    Icons.Outlined.Search,
+                    MilkIcons.Search,
                     contentDescription = null,
                     tint = cs.onSurfaceVariant,
                     modifier = Modifier.size(17.dp),
@@ -537,7 +523,7 @@ internal fun RowScope.RowValue(value: String, mono: Boolean = false) {
     )
     Spacer(Modifier.width(2.dp))
     Icon(
-        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+        MilkIcons.ChevronRight,
         contentDescription = null,
         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         modifier = Modifier.size(18.dp),
@@ -665,10 +651,10 @@ internal fun StatusLine(
         if (tone != StatusTone.NEUTRAL) {
             Icon(
                 when (tone) {
-                    StatusTone.OK -> Icons.Outlined.CheckCircle
-                    StatusTone.WARN -> Icons.Outlined.Warning
-                    StatusTone.ERROR -> Icons.Outlined.ErrorOutline
-                    StatusTone.NEUTRAL -> Icons.Outlined.Info
+                    StatusTone.OK -> MilkIcons.CheckCircle
+                    StatusTone.WARN -> MilkIcons.WarningTriangle
+                    StatusTone.ERROR -> MilkIcons.ErrorCircle
+                    StatusTone.NEUTRAL -> MilkIcons.InfoCircle
                 },
                 contentDescription = when (tone) {
                     StatusTone.OK -> "正常"

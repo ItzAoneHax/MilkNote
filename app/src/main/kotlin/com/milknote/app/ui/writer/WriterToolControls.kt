@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -25,19 +23,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.milknote.app.R
+import com.milknote.app.ui.common.MilkIcons
+import com.milknote.app.ui.theme.LocalMilkDark
 import com.milknote.app.ui.theme.LocalMilkMotion
 import com.milknote.app.ui.theme.MilkMotion
 import com.milknote.ink.model.InkTool
@@ -115,7 +110,7 @@ internal fun InkColorDot(
         ) {
             if (active) {
                 Icon(
-                    Icons.Outlined.Check,
+                    MilkIcons.Check,
                     contentDescription = null,
                     tint = checkTint,
                     modifier = Modifier.size(14.dp),
@@ -125,7 +120,7 @@ internal fun InkColorDot(
     }
 }
 
-/** 小米笔记原始分层资源:笔杆保留原始光影,独立笔头随当前墨色着色。 */
+/** 统一双层线性矢量笔图标：笔身随主题前景色，笔尖/笔头随当前墨色着色（暗色下自动提亮深墨）。 */
 @Composable
 internal fun RealPenIcon(
     tool: InkTool,
@@ -133,34 +128,45 @@ internal fun RealPenIcon(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val body = when (tool) {
-        InkTool.PEN -> R.drawable.ic_pen_fountain_body
-        InkTool.BALL -> R.drawable.ic_pen_ballpoint_body
-        InkTool.HIGHLIGHTER -> R.drawable.ic_pen_highlighter_body
-        InkTool.ERASER -> R.drawable.ic_eraser_body
-        else -> R.drawable.ic_pen_fountain_body   // 形状工具(RECT/OVAL/LINE)暂复用钢笔身
+    val cs = MaterialTheme.colorScheme
+    val dark = LocalMilkDark.current
+    val baseIcon = when (tool) {
+        InkTool.PEN -> MilkIcons.FountainPen
+        InkTool.BALL -> MilkIcons.BallpointPen
+        InkTool.HIGHLIGHTER -> MilkIcons.Highlighter
+        InkTool.ERASER -> MilkIcons.Eraser
+        InkTool.DOODLE -> MilkIcons.PatternBrush
+        InkTool.LASER -> MilkIcons.LaserPointer
+        else -> MilkIcons.FountainPen
     }
-    val head = when (tool) {
-        InkTool.PEN -> R.drawable.ic_pen_fountain_head
-        InkTool.BALL -> R.drawable.ic_pen_ballpoint_head
-        InkTool.HIGHLIGHTER -> R.drawable.ic_pen_highlighter_head
-        InkTool.ERASER -> null
-        else -> null                              // 形状工具暂无笔头
+    val accentIcon = when (tool) {
+        InkTool.PEN -> MilkIcons.FountainPenNibAccent
+        InkTool.BALL -> MilkIcons.BallpointPenTipAccent
+        InkTool.HIGHLIGHTER -> MilkIcons.HighlighterTipAccent
+        InkTool.DOODLE -> MilkIcons.PatternBrushAccent
+        InkTool.LASER -> MilkIcons.LaserTipAccent
+        else -> null
     }
+    val rawColor = Color(color.toInt())
+    val accentTint = when {
+        dark && rawColor.luminance() < 0.08f -> cs.primary
+        !dark && rawColor.luminance() > 0.88f -> cs.primary
+        else -> rawColor
+    }
+    val alpha = if (enabled) 1f else 0.45f
     Box(modifier, contentAlignment = Alignment.Center) {
-        Image(
-            painter = painterResource(body),
+        Icon(
+            imageVector = baseIcon,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (enabled) 1f else 0.45f },
-            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
+            tint = cs.onSurface,
         )
-        head?.let {
-            Image(
-                painter = painterResource(it),
+        accentIcon?.let {
+            Icon(
+                imageVector = it,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (enabled) 1f else 0.45f },
-                contentScale = ContentScale.Fit,
-                colorFilter = ColorFilter.tint(Color(color.toInt()), BlendMode.SrcIn),
+                modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
+                tint = accentTint,
             )
         }
     }

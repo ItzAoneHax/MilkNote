@@ -20,15 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ViewSidebar
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.app.ui.common.MilkAnchoredMenu
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.theme.MilkMotion
 import com.milknote.app.ui.theme.MilkRadius
 import com.milknote.app.ui.theme.MilkText
@@ -94,9 +86,9 @@ internal fun WriterMajorToolbar(
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BarIcon(Icons.AutoMirrored.Outlined.ArrowBack, "返回书架", false, onBack, "writer-back")
+            BarIcon(MilkIcons.ArrowLeft, "返回书架", false, onBack, "writer-back")
             BarIcon(
-                Icons.AutoMirrored.Outlined.ViewSidebar,
+                MilkIcons.Sidebar,
                 if (railMode != null) "收起侧栏" else "展开侧栏",
                 railMode != null,
                 onToggleRail,
@@ -153,7 +145,7 @@ internal fun WriterMajorToolbar(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
-                                    Icons.Outlined.Close,
+                                    MilkIcons.Close,
                                     contentDescription = "关闭标签",
                                     tint = cs.onSurfaceVariant,
                                     modifier = Modifier.size(12.dp),
@@ -165,7 +157,7 @@ internal fun WriterMajorToolbar(
             }
 
             BarIcon(
-                Icons.Outlined.VerticalSplit,
+                MilkIcons.SplitView,
                 if (state.splitEnabled) "关闭双开分屏" else "双开分屏",
                 state.splitEnabled,
                 onToggleSplit,
@@ -184,7 +176,7 @@ internal fun WriterMajorToolbar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Outlined.Mic,
+                    MilkIcons.Mic,
                     contentDescription = null,
                     tint = if (recording) cs.error else cs.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
@@ -194,9 +186,9 @@ internal fun WriterMajorToolbar(
                     Text("录音中", style = MilkText.micro, color = cs.error)
                 }
             }
-            BarIcon(Icons.Outlined.CropFree, "专注模式", false, onEnterFocus, "writer-focus")
+            BarIcon(MilkIcons.FocusExpand, "专注模式", false, onEnterFocus, "writer-focus")
             BarIcon(
-                Icons.Outlined.AutoAwesome,
+                MilkIcons.Sparkle,
                 if (agentOpen) "收起右侧面板" else "AI 与伴随笔记",
                 agentOpen,
                 onAgent,
@@ -204,7 +196,7 @@ internal fun WriterMajorToolbar(
                 badge = agentBusy,
             )
             Box {
-                BarIcon(Icons.Outlined.MoreHoriz, "更多", moreExpanded, onMoreToggle, "writer-more")
+                BarIcon(MilkIcons.MoreDots, "更多", moreExpanded, onMoreToggle, "writer-more")
                 MilkAnchoredMenu(expanded = moreExpanded, onDismiss = onMoreDismiss, anchorHeight = WriterMajorToolbarHeight, minWidth = 224.dp) {
                     moreContent()
                 }

@@ -27,43 +27,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Redo
-import androidx.compose.material.icons.automirrored.outlined.Undo
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Backup
-import androidx.compose.material.icons.outlined.Backspace
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Category
-import androidx.compose.material.icons.outlined.ChangeHistory
-import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.CropSquare
-import androidx.compose.material.icons.outlined.DragIndicator
-import androidx.compose.material.icons.outlined.FlashOn
-import androidx.compose.material.icons.outlined.FormatAlignCenter
-import androidx.compose.material.icons.outlined.FormatAlignLeft
-import androidx.compose.material.icons.outlined.FormatAlignRight
-import androidx.compose.material.icons.outlined.FormatBold
-import androidx.compose.material.icons.outlined.FormatItalic
-import androidx.compose.material.icons.outlined.FormatUnderlined
-import androidx.compose.material.icons.outlined.Gesture
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.InvertColors
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.PanTool
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
-import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.ShowChart
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.outlined.StrikethroughS
-import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material.icons.outlined.Title
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -91,7 +54,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.border
 import com.milknote.app.ui.common.MilkAnchoredMenu
+import com.milknote.app.ui.common.MilkIcons
 import com.milknote.app.ui.common.MilkMenuRow
 import com.milknote.app.ui.common.MilkPanelAction
 import com.milknote.app.ui.common.milkGlassRim
@@ -329,7 +294,7 @@ internal fun WriterMinorToolbar(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Outlined.DragIndicator,
+                MilkIcons.GripDots,
                 "拖动停靠笔匣",
                 Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -349,8 +314,8 @@ internal fun WriterMinorToolbar(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             handle()
-            DockIcon(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
-            DockIcon(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
+            DockIcon(MilkIcons.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
+            DockIcon(MilkIcons.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
             DockDivider(vertical = true)
             DockTools(vertical = true, state = state, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
             DockDivider(vertical = true)
@@ -363,9 +328,9 @@ internal fun WriterMinorToolbar(
                     .semantics { contentDescription = "笔匣内容,可纵向滚动" },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) { minorToolItems(items, enabled, spec) }
-            DockIcon(Icons.Outlined.Tune, "笔盒与参数", true, false, onTune, "writer-tune")
-            DockIcon(Icons.Outlined.CropFree, "框选提问", enabled, false, onSnip, "writer-snip", accent = true)
-            DockIcon(Icons.Outlined.KeyboardArrowUp, "收起笔匣", true, false, onCollapse, "writer-collapse-minor")
+            DockIcon(MilkIcons.Sliders, "笔盒与参数", true, false, onTune, "writer-tune")
+            DockIcon(MilkIcons.SnipSpark, "框选提问", enabled, false, onSnip, "writer-snip", accent = true)
+            DockIcon(MilkIcons.ChevronUp, "收起笔匣", true, false, onCollapse, "writer-collapse-minor")
         }
     } else {
         Row(
@@ -379,8 +344,8 @@ internal fun WriterMinorToolbar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             handle()
-            DockIcon(Icons.AutoMirrored.Outlined.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
-            DockIcon(Icons.AutoMirrored.Outlined.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
+            DockIcon(MilkIcons.Undo, "撤销", state.canUndo && enabled, false, onUndo, "writer-undo")
+            DockIcon(MilkIcons.Redo, "重做", state.canRedo && enabled, false, onRedo, "writer-redo")
             DockDivider(vertical = false)
             DockTools(vertical = false, state = state, selectedTool = selectedTool, enabled = enabled, onTool = onTool)
             DockDivider(vertical = false)
@@ -394,9 +359,9 @@ internal fun WriterMinorToolbar(
                 horizontalArrangement = if (listState.canScrollForward || listState.canScrollBackward) Arrangement.Start else Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) { minorToolItems(items, enabled, spec) }
-            DockIcon(Icons.Outlined.Tune, "笔盒与参数", true, false, onTune, "writer-tune")
-            DockIcon(Icons.Outlined.CropFree, "框选提问", enabled, false, onSnip, "writer-snip", accent = true)
-            DockIcon(Icons.Outlined.KeyboardArrowUp, "收起笔匣", true, false, onCollapse, "writer-collapse-minor")
+            DockIcon(MilkIcons.Sliders, "笔盒与参数", true, false, onTune, "writer-tune")
+            DockIcon(MilkIcons.SnipSpark, "框选提问", enabled, false, onSnip, "writer-snip", accent = true)
+            DockIcon(MilkIcons.ChevronUp, "收起笔匣", true, false, onCollapse, "writer-collapse-minor")
         }
     }
 }
@@ -411,11 +376,12 @@ private fun DockTools(
     onTool: (WriterMajorTool) -> Unit,
 ) {
     var overflowOpen by remember { mutableStateOf(false) }
+    val currentInkTool = state.toolSettings.currentTool
     val content: @Composable () -> Unit = {
         dockCoreTools.forEach { tool ->
             val active = isMajorToolActive(tool, selectedTool, state)
             DockIcon(
-                dockToolIcon(tool),
+                dockToolIcon(tool, currentInkTool),
                 if (active) "${tool.label}，当前工具" else tool.label,
                 enabled,
                 active,
@@ -426,7 +392,7 @@ private fun DockTools(
         Box {
             val overflowActive = selectedTool in dockOverflowTools
             DockIcon(
-                Icons.Outlined.MoreHoriz,
+                MilkIcons.MoreDots,
                 if (overflowActive) "更多工具，当前为${selectedTool.label}" else "更多工具",
                 enabled,
                 overflowActive,
@@ -438,7 +404,7 @@ private fun DockTools(
                     MilkMenuRow(
                         MilkPanelAction(
                             label = tool.label,
-                            icon = dockToolIcon(tool),
+                            icon = dockToolIcon(tool, currentInkTool),
                             trailingText = if (selectedTool == tool) "当前" else null,
                             onClick = {
                                 overflowOpen = false
@@ -453,19 +419,19 @@ private fun DockTools(
     if (vertical) Column(horizontalAlignment = Alignment.CenterHorizontally) { content() } else Row(verticalAlignment = Alignment.CenterVertically) { content() }
 }
 
-private fun dockToolIcon(tool: WriterMajorTool): ImageVector = when (tool) {
-    BRUSH -> Icons.Outlined.Edit
-    HIGHLIGHTER -> Icons.Outlined.Brush
-    ERASER -> Icons.Outlined.Backspace
-    SHAPE -> Icons.Outlined.Category
-    LASER -> Icons.Outlined.FlashOn
-    READING -> Icons.Outlined.PanTool
-    WriterMajorTool.LASSO -> Icons.Outlined.Gesture
-    WriterMajorTool.IMAGE -> Icons.Outlined.Image
-    WriterMajorTool.TEXT -> Icons.Outlined.Title
-    WriterMajorTool.DOODLE -> Icons.Outlined.InvertColors
-    WriterMajorTool.SNIP -> Icons.Outlined.ContentCopy
-    WriterMajorTool.TAPE -> Icons.Outlined.CropSquare
+private fun dockToolIcon(tool: WriterMajorTool, currentInkTool: InkTool = InkTool.PEN): ImageVector = when (tool) {
+    BRUSH -> if (currentInkTool == InkTool.BALL) MilkIcons.BallpointPen else MilkIcons.FountainPen
+    HIGHLIGHTER -> MilkIcons.Highlighter
+    ERASER -> MilkIcons.Eraser
+    SHAPE -> MilkIcons.Shapes
+    LASER -> MilkIcons.LaserPointer
+    READING -> MilkIcons.HandPan
+    WriterMajorTool.LASSO -> MilkIcons.Lasso
+    WriterMajorTool.IMAGE -> MilkIcons.Image
+    WriterMajorTool.TEXT -> MilkIcons.TextBox
+    WriterMajorTool.DOODLE -> MilkIcons.PatternBrush
+    WriterMajorTool.SNIP -> MilkIcons.SnipExtract
+    WriterMajorTool.TAPE -> MilkIcons.WashiTape
 }
 
 @Composable
@@ -583,11 +549,11 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
         }
         WriterMinorKind.LASSO -> {
             item(key = "lasso-free") {
-                DockIcon(Icons.Outlined.Gesture, "自由套索", enabled, state.lassoMode == LassoMode.FREEHAND,
+                DockIcon(MilkIcons.Lasso, "自由套索", enabled, state.lassoMode == LassoMode.FREEHAND,
                     { items.onLassoMode(LassoMode.FREEHAND) }, "writer-lasso-free")
             }
             item(key = "lasso-rect") {
-                DockIcon(Icons.Outlined.CropFree, "矩形套索", enabled, state.lassoMode == LassoMode.RECTANGLE,
+                DockIcon(MilkIcons.LassoRect, "矩形套索", enabled, state.lassoMode == LassoMode.RECTANGLE,
                     { items.onLassoMode(LassoMode.RECTANGLE) }, "writer-lasso-rect")
             }
             LassoContent.entries.forEach { filter ->
@@ -603,7 +569,7 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                 }
             }
             item(key = "lasso-settings") {
-                DockIcon(Icons.Outlined.MoreHoriz, "套索筛选说明", enabled, false, items.onLassoSettings, "writer-lasso-filter")
+                DockIcon(MilkIcons.MoreDots, "套索筛选说明", enabled, false, items.onLassoSettings, "writer-lasso-filter")
             }
         }
         WriterMinorKind.IMAGE -> {
@@ -611,12 +577,12 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                 MinorTextAction("选择图片", false, enabled, items.onImage, "writer-choose-image")
             }
             item(key = "recent-image") {
-                DockIcon(Icons.Outlined.Image, "最近图片", enabled, false, items.onImage, "writer-recent-images")
+                DockIcon(MilkIcons.Image, "最近图片", enabled, false, items.onImage, "writer-recent-images")
             }
         }
         WriterMinorKind.TEXT -> {
             item(key = "text-input") {
-                DockIcon(Icons.Outlined.TextFields, "输入文字", enabled, false, items.onTextEditor, "writer-text-input")
+                DockIcon(MilkIcons.TextBox, "输入文字", enabled, false, items.onTextEditor, "writer-text-input")
             }
             items(5, key = { "text-color-$it" }) { index ->
                 val color = listOf(0xFF18191B, 0xFFE53935, 0xFFFFB300, 0xFF2563EB, 0xFF48B66A)[index]
@@ -635,7 +601,7 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                     { items.onTextStyle(items.textStyle.copy(fontSizePx = size)) }, "writer-text-size-$index")
             }
             val aligns = listOf(CardTextAlign.START, CardTextAlign.CENTER, CardTextAlign.END)
-            val alignIcons = listOf(Icons.Outlined.FormatAlignLeft, Icons.Outlined.FormatAlignCenter, Icons.Outlined.FormatAlignRight)
+            val alignIcons = listOf(MilkIcons.AlignLeft, MilkIcons.AlignCenter, MilkIcons.AlignRight)
             aligns.forEachIndexed { index, align ->
                 item(key = "align-$index") {
                     DockIcon(alignIcons[index], listOf("左对齐", "居中", "右对齐")[index], enabled,
@@ -643,19 +609,19 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                 }
             }
             item(key = "bold") {
-                DockIcon(Icons.Outlined.FormatBold, "粗体", enabled, items.textStyle.bold,
+                DockIcon(MilkIcons.FormatBold, "粗体", enabled, items.textStyle.bold,
                     { items.onTextStyle(items.textStyle.copy(bold = !items.textStyle.bold)) }, "writer-text-bold")
             }
             item(key = "italic") {
-                DockIcon(Icons.Outlined.FormatItalic, "斜体", enabled, items.textStyle.italic,
+                DockIcon(MilkIcons.FormatItalic, "斜体", enabled, items.textStyle.italic,
                     { items.onTextStyle(items.textStyle.copy(italic = !items.textStyle.italic)) }, "writer-text-italic")
             }
             item(key = "underline") {
-                DockIcon(Icons.Outlined.FormatUnderlined, "下划线", enabled, items.textStyle.underline,
+                DockIcon(MilkIcons.FormatUnderline, "下划线", enabled, items.textStyle.underline,
                     { items.onTextStyle(items.textStyle.copy(underline = !items.textStyle.underline)) }, "writer-text-underline")
             }
             item(key = "strike") {
-                DockIcon(Icons.Outlined.StrikethroughS, "删除线", enabled, items.textStyle.strikethrough,
+                DockIcon(MilkIcons.FormatStrikethrough, "删除线", enabled, items.textStyle.strikethrough,
                     { items.onTextStyle(items.textStyle.copy(strikethrough = !items.textStyle.strikethrough)) }, "writer-text-strike")
             }
         }
@@ -690,7 +656,7 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
                 TapeSwatch(index, enabled, { items.onTape(index) }, "writer-tape-$index")
             }
             item(key = "tape-library") {
-                DockIcon(Icons.Outlined.Add, "胶带素材库", enabled, false, items.onMaterials, "writer-tape-library")
+                DockIcon(MilkIcons.Add, "胶带素材库", enabled, false, items.onMaterials, "writer-tape-library")
             }
         }
         WriterMinorKind.READING -> Unit
@@ -698,25 +664,25 @@ private fun LazyListScope.minorToolItems(items: MinorItems, enabled: Boolean, sp
 }
 
 private fun lassoFilterIcon(filter: LassoContent): ImageVector = when (filter) {
-    LassoContent.INK -> Icons.Outlined.Gesture
-    LassoContent.SHAPE -> Icons.Outlined.Category
-    LassoContent.IMAGE -> Icons.Outlined.Image
-    LassoContent.TEXT -> Icons.Outlined.TextFields
-    LassoContent.DOODLE -> Icons.Outlined.StarBorder
-    LassoContent.TAPE -> Icons.Outlined.CropSquare
-    LassoContent.STICKER -> Icons.Outlined.CheckBoxOutlineBlank
-    LassoContent.MEDIA -> Icons.Outlined.SelectAll
+    LassoContent.INK -> MilkIcons.InkStroke
+    LassoContent.SHAPE -> MilkIcons.Shapes
+    LassoContent.IMAGE -> MilkIcons.Image
+    LassoContent.TEXT -> MilkIcons.TextBox
+    LassoContent.DOODLE -> MilkIcons.PatternBrush
+    LassoContent.TAPE -> MilkIcons.WashiTape
+    LassoContent.STICKER -> MilkIcons.Sticker
+    LassoContent.MEDIA -> MilkIcons.MediaPlay
 }
 
 private fun shapeIcon(tool: InkTool): ImageVector = when (tool) {
-    InkTool.LINE -> Icons.Outlined.ShowChart
-    InkTool.DASHED_LINE -> Icons.Outlined.MoreHoriz
-    InkTool.ARROW -> Icons.Outlined.ArrowUpward
-    InkTool.RECT -> Icons.Outlined.CropSquare
-    InkTool.OVAL -> Icons.Outlined.RadioButtonUnchecked
-    InkTool.TRIANGLE -> Icons.Outlined.ChangeHistory
-    InkTool.STAR -> Icons.Outlined.StarBorder
-    else -> Icons.Outlined.Category
+    InkTool.LINE -> MilkIcons.ShapeLine
+    InkTool.DASHED_LINE -> MilkIcons.ShapeDashedLine
+    InkTool.ARROW -> MilkIcons.ShapeArrow
+    InkTool.RECT -> MilkIcons.ShapeRect
+    InkTool.OVAL -> MilkIcons.ShapeOval
+    InkTool.TRIANGLE -> MilkIcons.ShapeTriangle
+    InkTool.STAR -> MilkIcons.ShapeStar
+    else -> MilkIcons.ShapeHexagon
 }
 
 @Composable
@@ -811,21 +777,31 @@ private fun MinorWidthDot(
 @Composable
 private fun TapeSwatch(index: Int, enabled: Boolean, onClick: () -> Unit, tag: String) {
     val colors = listOf(0xFFD9C7A7, 0xFFA8D8EA, 0xFFF2B8C6, 0xFFC7B9E8)
+    val shape = RoundedCornerShape(MilkRadius.xs)
     Box(
-        Modifier.size(40.dp, 36.dp).clickable(enabled = enabled, onClick = onClick).testTag(tag)
+        Modifier
+            .size(40.dp, 36.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .testTag(tag)
             .semantics { contentDescription = "胶带样式 ${index + 1}" },
         contentAlignment = Alignment.Center,
     ) {
-        androidx.compose.foundation.Canvas(Modifier.width(30.dp).height(20.dp)) {
+        androidx.compose.foundation.Canvas(
+            Modifier
+                .width(28.dp)
+                .height(18.dp)
+                .clip(shape)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), shape),
+        ) {
             drawRect(Color(colors[index]))
-            val step = 8.dp.toPx()
+            val step = 7.dp.toPx()
             var x = -size.height
             while (x < size.width) {
                 drawLine(
                     Color.White.copy(alpha = 0.65f),
                     Offset(x, size.height),
                     Offset(x + size.height, 0f),
-                    strokeWidth = 2.dp.toPx(),
+                    strokeWidth = 1.5.dp.toPx(),
                 )
                 x += step
             }
