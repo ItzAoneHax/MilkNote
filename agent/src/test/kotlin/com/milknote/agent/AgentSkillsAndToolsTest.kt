@@ -712,11 +712,11 @@ class BuiltinToolsTest {
     private val registry = BuiltinTools.createDefaultRegistry()
 
     @Test
-    fun `注册十个工具与确认默认值`() {
+    fun `注册十一个工具与确认默认值`() {
         assertEquals(
             listOf(
                 "web_search", "calculate", "add_page", "delete_page", "insert_markdown",
-                "list_page_elements", "modify_page_element", "get_element_timestamps",
+                "insert_function_graph", "list_page_elements", "modify_page_element", "get_element_timestamps",
                 "read_skill", "create_skill",
             ),
             registry.allSpecs().map { it.id },
@@ -725,7 +725,9 @@ class BuiltinToolsTest {
         assertTrue(registry.get("modify_page_element")!!.spec.defaultRequireConfirmation)
         assertFalse(registry.get("calculate")!!.spec.defaultRequireConfirmation)
         assertFalse(registry.get("web_search")!!.spec.defaultRequireConfirmation)
-        assertTrue(registry.get(BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID)!!.spec.requiresUserGrant)
+        assertFalse(registry.get(BuiltinTools.INSERT_FUNCTION_GRAPH_TOOL_ID)!!.spec.defaultRequireConfirmation)
+        assertTrue(registry.get(BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID)!!.spec.defaultRequireConfirmation)
+        assertTrue(registry.effectiveWireTools(emptyMap()).any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
         assertTrue(registry.allSpecs().all { it.builtin })
     }
 
@@ -1201,7 +1203,7 @@ class AgentControllerToolLoopTest {
         val controller = rig.controller
 
         assertEquals(3, controller.state.value.skills.size)
-        assertEquals(10, controller.state.value.toolSpecs.size)
+        assertEquals(11, controller.state.value.toolSpecs.size)
 
         // 内置:关闭/改名/改正文/删除一律无效
         controller.toggleSkill("cornell_notes", false)

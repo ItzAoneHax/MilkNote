@@ -35,6 +35,8 @@ data class ToolParameter(
     val description: String,
     val required: Boolean = false,
     val enumValues: List<String> = emptyList(),
+    /** type="array" 时每项的 JSON 类型(生成合法的 items schema) */
+    val itemType: String? = null,
 )
 
 /** 工具设置项:声明即可在设置页生成通用键值控件 */
@@ -60,11 +62,6 @@ data class ToolSpec(
      * 危险工具的默认确认不可被关闭。自定义工具置 false 后仍由设置页通用键值驱动。
      */
     val builtin: Boolean = true,
-    /**
-     * 仅当用户就当前页显式申请「熟练度分析」时才对模型可见;
-     * 实际执行还需 [ToolContext.elementTimestampsPage] 匹配(缺授权直接拒绝)。
-     */
-    val requiresUserGrant: Boolean = false,
     /** 是否把工具原始输出写入 [ToolTrace](时序类数据只进本次调用链,不落盘) */
     val recordOutputInTrace: Boolean = true,
 )
@@ -109,13 +106,17 @@ data class ToolTrace(
     enum class Status { PENDING_CONFIRM, RUNNING, DONE, DENIED, ERROR }
 }
 
-/** 待用户确认的高危工具调用 */
+/** 待用户确认的工具调用(高危操作或需显式授权的数据读取) */
 data class PendingToolConfirmation(
     val callId: String,
     val toolId: String,
     val displayName: String,
     val actionSummary: String,
     val argumentsJson: String,
+    /** 授权类确认的数据范围说明(空 = 沿用 [actionSummary]) */
+    val detail: String = "",
+    val confirmLabel: String = "确认",
+    val cancelLabel: String = "取消",
 )
 
 /** 工具执行上下文(装配层注入端口;每次调用按当前配置构造) */
@@ -126,8 +127,8 @@ data class ToolContext(
     val skillStore: SkillManagerPort,
     val webSearch: WebSearchPort,
     /**
-     * 本次请求的熟练度分析授权页(null = 未申请)。
-     * 只由用户显式「申请熟练度分析」产生,绑定发起时的页面,不落盘、不跨 turn。
+     * 本次工具调用读取时序的授权页(null = 未授权)。
+     * 只在该次调用经用户同意后由控制器注入,绑定调用发起页;不落盘、不跨调用。
      */
     val elementTimestampsPage: PageRef? = null,
 )
@@ -182,22 +183,18 @@ class ToolRegistry {
     fun requiresConfirmation(spec: ToolSpec, config: ToolConfig?): Boolean =
         config?.requireConfirmation ?: spec.defaultRequireConfirmation
 
-    /** 工具对当前请求是否可用:已启用 + (授权类工具必须在本 turn 的授权集合内) */
-    fun isVisible(spec: ToolSpec, config: ToolConfig, authorizedToolIds: Set<String>): Boolean =
-        config.enabled && (!spec.requiresUserGrant || spec.id in authorizedToolIds)
+    /** 工具对当前请求是否可用:用户开关启用即可;敏感工具靠确认门禁,不靠隐藏 */
+    fun isVisible(spec: ToolSpec, config: ToolConfig): Boolean = config.enabled
 
     /**
      * 已启用工具 → 模型可见声明(按注册顺序,保证提示词与 wire 稳定)。
-     * [authorizedToolIds] 只由用户显式申请产生,未授权时授权类工具不出现在 wire 中。
+     * 需要授权的工具同样出现在声明中,由执行前的确认 UI 逐次取得用户同意。
      */
-    fun effectiveWireTools(
-        configs: Map<String, ToolConfig>,
-        authorizedToolIds: Set<String> = emptySet(),
-    ): List<WireToolDef> =
+    fun effectiveWireTools(configs: Map<String, ToolConfig>): List<WireToolDef> =
         tools.values.mapNotNull { tool ->
             val spec = tool.spec
             val config = effectiveConfig(spec, configs)
-            if (!isVisible(spec, config, authorizedToolIds)) return@mapNotNull null
+            if (!isVisible(spec, config)) return@mapNotNull null
             WireToolDef(
                 name = spec.id,
                 description = config.customDescription?.takeIf { it.isNotBlank() } ?: spec.defaultDescription,
@@ -214,6 +211,9 @@ internal fun toolParameterSchema(parameters: List<ToolParameter>): JsonObject = 
             put(p.name, buildJsonObject {
                 put("type", p.type)
                 put("description", p.description)
+                if (p.type == "array" && p.itemType != null) {
+                    put("items", buildJsonObject { put("type", p.itemType) })
+                }
                 if (p.enumValues.isNotEmpty()) {
                     put("enum", buildJsonArray {
                         p.enumValues.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
@@ -237,6 +237,87 @@ internal object ToolArgs {
             ?.takeIf { it !is kotlinx.serialization.json.JsonNull }
             ?.content
             ?.takeIf { it.isNotBlank() }
+
+    /** 数组参数容错读取:真数组、单个字符串(按换行/分号拆分)、JSON 数组字符串都接受 */
+    fun stringList(obj: JsonObject, name: String): List<String> {
+        val element = obj[name] ?: return emptyList()
+        val array = when (element) {
+            is kotlinx.serialization.json.JsonArray -> element
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                if (element is kotlinx.serialization.json.JsonNull) {
+                    null
+                } else {
+                    val text = element.content.trim()
+                    if (text.startsWith("[") && text.endsWith("]")) {
+                        runCatching {
+                            BaseHttpProvider.json.parseToJsonElement(text)
+                                as? kotlinx.serialization.json.JsonArray
+                        }.getOrNull()
+                    } else {
+                        null
+                    }
+                }
+            }
+            else -> null
+        }
+        if (array != null) {
+            // 真数组/JSON 数组字符串:每个元素就是一条函数,保留元素内的分号与换行
+            return array.mapNotNull { item ->
+                (item as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.takeIf { p -> p !is kotlinx.serialization.json.JsonNull }
+                    ?.content
+                    ?.trim()
+            }.filter { it.isNotEmpty() }
+        }
+        val single = (element as? kotlinx.serialization.json.JsonPrimitive)
+            ?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+            ?.content
+            ?: return emptyList()
+        // 只有单个普通字符串 fallback 才按换行/分号拆成多条
+        return single.split(Regex("[\\n;]+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    /** 颜色数组容错:保留 null 以维持与表达式的下标对齐(缺失项用调色板) */
+    fun colorList(obj: JsonObject, name: String): List<Long?> {
+        val element = obj[name] ?: return emptyList()
+        val raw = when (element) {
+            is kotlinx.serialization.json.JsonArray -> element.map {
+                (it as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.takeIf { p -> p !is kotlinx.serialization.json.JsonNull }
+                    ?.content
+            }
+            is kotlinx.serialization.json.JsonPrimitive ->
+                if (element is kotlinx.serialization.json.JsonNull) emptyList() else listOf(element.content)
+            else -> emptyList()
+        }
+        return raw.flatMap { value ->
+            value?.split(',', '\n', ';') ?: listOf<String?>(null)
+        }.map { parseColor(it) }
+    }
+
+    private fun parseColor(raw: String?): Long? {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        val hex = when {
+            text.startsWith("#") -> text.removePrefix("#")
+            text.startsWith("0x", ignoreCase = true) -> text.substring(2)
+            else -> null
+        }
+        if (hex != null) {
+            return when (hex.length) {
+                6 -> ("FF$hex").toLongOrNull(16)
+                8 -> hex.toLongOrNull(16)
+                else -> null
+            }
+        }
+        val numeric = text.toDoubleOrNull()?.takeIf { it.isFinite() }?.toLong()
+            ?: text.toLongOrNull()
+            ?: return null
+        val argb = numeric and 0xFFFFFFFFL
+        return if (argb ushr 24 == 0L) argb or 0xFF000000L else argb
+    }
 
     fun number(obj: JsonObject, name: String): Double? = string(obj, name)?.toDoubleOrNull()
 

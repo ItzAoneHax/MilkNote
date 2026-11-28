@@ -124,3 +124,32 @@ internal fun replaceTrailingMention(text: String, mentionName: String): String {
 
 internal fun errorDetailOrNull(title: String, detail: String): String? =
     detail.trim().takeIf { it.isNotEmpty() && it != title.trim() }
+
+/** 消息操作菜单的角色:AI 回复与用户消息可用项不同 */
+internal enum class MessageMenuTarget { AI, USER }
+
+/** 单个消息菜单项;启用状态由调用方按“是否在生成/等待确认”计算 */
+internal data class MessageMenuAction(
+    val id: String,
+    val label: String,
+    val enabled: Boolean = true,
+    val destructive: Boolean = false,
+)
+
+/**
+ * 消息右键/长按菜单项。复制与查看源文本始终可用;
+ * 修改/撤回会改变当前回合,生成中或等待工具确认时禁用,避免覆盖在途内容。
+ */
+internal fun messageMenuActions(target: MessageMenuTarget, busy: Boolean): List<MessageMenuAction> =
+    when (target) {
+        MessageMenuTarget.AI -> listOf(
+            MessageMenuAction(id = "copy", label = "复制"),
+            MessageMenuAction(id = "source", label = "查看源文本"),
+        )
+
+        MessageMenuTarget.USER -> listOf(
+            MessageMenuAction(id = "copy", label = "复制"),
+            MessageMenuAction(id = "edit", label = "修改", enabled = !busy),
+            MessageMenuAction(id = "retract", label = "撤回", enabled = !busy, destructive = true),
+        )
+    }

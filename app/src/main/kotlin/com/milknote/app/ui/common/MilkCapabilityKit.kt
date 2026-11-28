@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.milknote.agent.BuiltinTools
 import com.milknote.agent.PendingToolConfirmation
 import com.milknote.agent.ToolSettingOption
 import com.milknote.agent.ToolTrace
@@ -515,7 +516,14 @@ fun MilkToolConfirmBar(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(MilkSpace.sm))
-                MilkStatusBadge(text = "需确认", tone = MilkStatusTone.WARNING)
+                MilkStatusBadge(
+                    text = if (confirmation.toolId == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID) {
+                        "需授权"
+                    } else {
+                        "需确认"
+                    },
+                    tone = MilkStatusTone.WARNING,
+                )
             }
             Spacer(Modifier.height(MilkSpace.xxs))
             Text(
@@ -525,6 +533,16 @@ fun MilkToolConfirmBar(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (confirmation.detail.isNotBlank()) {
+                Spacer(Modifier.height(MilkSpace.xxs))
+                Text(
+                    text = confirmation.detail,
+                    style = MilkText.caption,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(MilkSpace.xs))
             Row(
                 Modifier.fillMaxWidth(),
@@ -532,13 +550,13 @@ fun MilkToolConfirmBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MilkInlineAction(
-                    label = "取消",
+                    label = confirmation.cancelLabel,
                     onClick = onReject,
                     minWidth = 72.dp,
                 )
                 Spacer(Modifier.width(MilkSpace.xxs))
                 MilkInlineAction(
-                    label = "确认",
+                    label = confirmation.confirmLabel,
                     onClick = onApprove,
                     tone = MilkInlineTone.ACCENT,
                     minWidth = 72.dp,

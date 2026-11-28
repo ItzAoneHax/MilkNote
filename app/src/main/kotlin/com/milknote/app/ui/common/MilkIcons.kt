@@ -962,6 +962,13 @@ object MilkIcons {
 
     // ==================== AI 抽屉、会话、图片编辑与预览（Lucide） ====================
 
+    val FunctionGraph: ImageVector by lazy {
+        icon("FunctionGraph") {
+            svgStroke("M3 3v18h18")
+            svgStroke("M6 15c2.8 0 4.2-9 7-9s3.4 6 5.5 6")
+        }
+    }
+
     val Sparkle: ImageVector by lazy {
         icon("Sparkle") {
             svgStroke("M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4")

@@ -11,7 +11,7 @@ fun resolveToolTap(currentlyActive: Boolean, settingsOpen: Boolean = false): Too
 
 /** 任一时刻只有一个调整面板；选区条、Toast、翻页控件不属于此状态。 */
 enum class WriterPanel {
-    TOOL, TEXT, SHAPE, IMAGE, LASSO, MATERIAL, RECORD, VIDEO, PLAYBACK, MORE, NEW_PAGE,
+    TOOL, TEXT, SHAPE, IMAGE, LASSO, MATERIAL, RECORD, VIDEO, PLAYBACK, MORE, NEW_PAGE, FUNCTION_GRAPH,
 }
 
 data class WriterPanelState(val open: WriterPanel? = null) {

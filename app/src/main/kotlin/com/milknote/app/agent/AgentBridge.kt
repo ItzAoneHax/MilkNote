@@ -2,6 +2,7 @@ package com.milknote.app.agent
 
 import android.graphics.Bitmap
 import com.milknote.agent.AnnotationSink
+import com.milknote.agent.FunctionGraphSpec
 import com.milknote.agent.ImageBudget
 import com.milknote.agent.NotebookWorkspacePort
 import com.milknote.agent.PageDimensions
@@ -12,6 +13,8 @@ import com.milknote.agent.Rect4
 import com.milknote.agent.SnipResult
 import com.milknote.agent.SnipSource
 import com.milknote.app.di.ServiceLocator
+import com.milknote.app.graph.FunctionGraphAsset
+import com.milknote.app.graph.FunctionGraphRenderer
 import com.milknote.ink.input.InkController
 import com.milknote.ink.model.AnnotationCard
 import com.milknote.ink.model.ElementGeom
@@ -25,6 +28,7 @@ import com.milknote.ink.render.AnnotationCardRenderer
 import com.milknote.notes.storage.NotebookRepository
 import com.milknote.notes.storage.PageInsertPosition
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -142,6 +146,48 @@ class AppNotebookWorkspacePort : NotebookWorkspacePort {
         )
         val inserted = editOffscreen(page) { it.addAnnotationCard(card) } != null
         return if (inserted) card.id else null
+    }
+
+    override suspend fun insertFunctionGraph(
+        page: PageRef,
+        spec: FunctionGraphSpec,
+        xPx: Float,
+        yPx: Float,
+        widthPx: Float,
+    ): String? {
+        handler?.let { return it.insertFunctionGraph(page, spec, xPx, yPx, widthPx) }
+        val repo = repository ?: return null
+        val pages = withContext(Dispatchers.IO) { repo.listPages(page.notebookId) }
+        if (pages.none { it.pageId == page.pageId }) return null
+        val dims = pageDimensions(page) ?: return null
+        val bitmap = withContext(Dispatchers.Default) {
+            FunctionGraphRenderer.render(spec, 1200, 800)
+        }
+        val png = FunctionGraphRenderer.pngBytes(bitmap)
+        val imgW = bitmap.width.coerceAtLeast(1)
+        val imgH = bitmap.height.coerceAtLeast(1)
+        bitmap.recycle()
+        val rel = withContext(Dispatchers.IO) {
+            FunctionGraphAsset.savePng(File(repo.notebookDir(page.notebookId), "images"), png)
+        }
+        val width = widthPx.coerceIn(40f, dims.widthPx)
+        val height = (width * imgH / imgW).coerceAtLeast(1f)
+        val x = xPx.coerceIn(0f, (dims.widthPx - width).coerceAtLeast(0f))
+        val y = yPx.coerceIn(0f, (dims.heightPx - height).coerceAtLeast(0f))
+        val image = ImageElement(
+            id = UUID.randomUUID().toString().substring(0, 12),
+            src = rel,
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+            createdAt = System.currentTimeMillis(),
+        )
+        val inserted = editOffscreen(page) {
+            it.addImageElement(image)
+            true
+        } ?: false
+        return if (inserted) image.id else null
     }
 
     override suspend fun listElements(page: PageRef): List<PageElementSummary> {

@@ -100,6 +100,18 @@ interface NotebookWorkspacePort {
         widthPx: Float,
     ): String?
 
+    /**
+     * 插入函数图像(一次一张,含全部曲线);返回 ImageElement id(null = 失败)。
+     * 默认 null 保持旧测试 Fake 源码兼容;装配层必须实现真正的渲染/资产/元素插入。
+     */
+    suspend fun insertFunctionGraph(
+        page: PageRef,
+        spec: FunctionGraphSpec,
+        xPx: Float,
+        yPx: Float,
+        widthPx: Float,
+    ): String? = null
+
     suspend fun listElements(page: PageRef): List<PageElementSummary>
 
     /** x/y 为绝对目标坐标(px);dx/dy 为相对偏移(px);均为 null 表示不移动 */

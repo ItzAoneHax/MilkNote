@@ -107,6 +107,7 @@ class SettingsRefinementTest {
             "新增页面",
             "删除页面",
             "插入 Markdown 卡片",
+            "插入函数图像",
             "查看页面元素",
             "移动或删除页面元素",
             "读取页面元素时序",
@@ -116,11 +117,11 @@ class SettingsRefinementTest {
             rule.onNodeWithText(name).performScrollTo().assertIsDisplayed()
         }
 
-        // 删除页面 / 移动或删除页面元素默认需要执行前确认;时序工具仅在用户申请后可用
+        // 删除页面 / 移动或删除页面元素 / 读取页面元素时序都是内置强制确认;旧“需申请”入口已下线。
         val confirmBadges = rule.onAllNodesWithText("需确认").fetchSemanticsNodes()
-        assertEquals("默认应有 2 个需确认徽标，实际 ${confirmBadges.size}", 2, confirmBadges.size)
+        assertEquals("三个内置强制确认工具应各有一个需确认徽标，实际 ${confirmBadges.size}", 3, confirmBadges.size)
         val applyBadges = rule.onAllNodesWithText("需申请").fetchSemanticsNodes()
-        assertEquals("读取页面元素时序应有 1 个需申请徽标，实际 ${applyBadges.size}", 1, applyBadges.size)
+        assertEquals("旧“需申请”授权入口已下线，实际 ${applyBadges.size}", 0, applyBadges.size)
     }
 
     @Test

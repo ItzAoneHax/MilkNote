@@ -61,6 +61,8 @@ internal fun WriterMajorToolbar(
     onAgent: () -> Unit,
     agentOpen: Boolean,
     agentBusy: Boolean,
+    onFunctionGraph: () -> Unit,
+    functionGraphOpen: Boolean,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
     onToggleSplit: () -> Unit,
@@ -194,6 +196,13 @@ internal fun WriterMajorToolbar(
                 onAgent,
                 "writer-ai",
                 badge = agentBusy,
+            )
+            BarIcon(
+                MilkIcons.FunctionGraph,
+                if (functionGraphOpen) "收起函数图像" else "函数图像",
+                functionGraphOpen,
+                onFunctionGraph,
+                "writer-function-graph",
             )
             Box {
                 BarIcon(MilkIcons.MoreDots, "更多", moreExpanded, onMoreToggle, "writer-more")

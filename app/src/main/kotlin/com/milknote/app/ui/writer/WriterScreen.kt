@@ -823,6 +823,13 @@ fun WriterScreen(
                 },
                 agentOpen = agentDrawerOpen,
                 agentBusy = agentBusy,
+                onFunctionGraph = {
+                    setCentralPanel(
+                        WriterPanel.FUNCTION_GRAPH,
+                        centralPanelState.open != WriterPanel.FUNCTION_GRAPH,
+                    )
+                },
+                functionGraphOpen = centralPanelState.open == WriterPanel.FUNCTION_GRAPH,
                 onSelectTab = { vm.open(it) },
                 onCloseTab = vm::closeTab,
                 onToggleSplit = { vm.toggleSplit() },
@@ -1035,6 +1042,10 @@ fun WriterScreen(
                 videoLauncher.launch("video/*")
             },
             onDismiss = ::closeCentralPanel,
+        )
+        WriterPanel.FUNCTION_GRAPH -> FunctionGraphPanel(
+            onDismiss = ::closeCentralPanel,
+            onInsert = { spec, crop, onDone -> vm.insertFunctionGraph(spec, crop, onDone) },
         )
         WriterPanel.PLAYBACK -> {
             val element = playbackElement

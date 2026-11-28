@@ -4,6 +4,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -150,8 +151,14 @@ class ImageBudgetTest {
 class PromptEngineTest {
 
     @Test
-    fun `七意图齐备且各有契约`() {
-        assertEquals(7, Intents.all.size)
+    fun `六意图齐备且各有契约`() {
+        assertEquals(6, Intents.all.size)
+        assertFalse("旧熟练度意图不再作为可见入口", Intents.all.any { it.id == Intents.Id.PROFICIENCY })
+        assertEquals(
+            "旧会话的熟练度意图安全降级为讲解",
+            Intents.Id.EXPLAIN,
+            Intents.byId(Intents.Id.PROFICIENCY).id,
+        )
         Intents.all.forEach { s ->
             assertTrue(PromptEngine.systemPrompt(s).contains(Intents.BASE_SYSTEM))
             assertTrue(PromptEngine.systemPrompt(s).contains(s.systemContract))

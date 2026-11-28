@@ -33,6 +33,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.gestures.draggable
@@ -64,7 +65,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -95,16 +99,17 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -117,6 +122,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.AgentError
 import com.milknote.agent.AgentMessage
@@ -565,7 +571,7 @@ private fun AgentDrawer(
                                     .padding(bottom = MilkSpace.xs),
                             )
                         }
-                        Composer(state, pageIds, pageLabel, onSnipToAttachment)
+                        Composer(state, pageIds, onSnipToAttachment)
                     }
                 }
             }
@@ -1193,8 +1199,19 @@ private fun Messages(
     val scope = rememberCoroutineScope()
     val reduced = LocalMilkMotion.current
     val notebookId = state.boundPage?.notebookId
+    val context = LocalContext.current
+    val agent = ServiceLocator.agentController
     var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    var editingMessage by remember { mutableStateOf<UiMessage?>(null) }
+    var editingText by remember { mutableStateOf("") }
+    var retractingMessage by remember { mutableStateOf<UiMessage?>(null) }
+    var sourceMessage by remember { mutableStateOf<UiMessage?>(null) }
+    val messageBusy = state.isAgentStreaming() || state.pendingConfirmation != null
+    val copyMessage: (String) -> Unit = { text ->
+        copyToClipboard(context, text)
+        toast = "已复制"
+    }
 
     // 「真的在底部」= 一像素都滚不动了;列表项自己变高变矮不再被误判成「离开底部」
     val isAtBottom by remember { derivedStateOf { !listState.canScrollForward } }
@@ -1275,7 +1292,14 @@ private fun Messages(
                         msg = msg,
                         notebookId = notebookId,
                         pageIds = pageIds,
+                        busy = messageBusy,
                         onPreview = { preview = it },
+                        onEdit = {
+                            editingText = it.text
+                            editingMessage = it
+                        },
+                        onRetract = { retractingMessage = it },
+                        onCopy = copyMessage,
                     )
 
                     AgentMessage.Role.ASSISTANT -> AssistantMessage(
@@ -1285,6 +1309,8 @@ private fun Messages(
                         onWriteToNotes = onWriteToNotes,
                         onPreview = { preview = it },
                         onToast = { toast = it },
+                        onViewSource = { sourceMessage = it },
+                        onCopy = copyMessage,
                         onToggleReasoning = { expanded -> if (expanded) autoFollow = false },
                     )
                 }
@@ -1347,6 +1373,92 @@ private fun Messages(
             onSaveCard = { markdown -> onSaveCard(markdown.content) },
             onToast = { toast = it },
         )
+    }
+
+    editingMessage?.let { msg ->
+        MilkCenterPanel(
+            title = "修改消息",
+            subtitle = "保存后会从这条消息起重新发送",
+            onDismiss = { editingMessage = null },
+            maxWidth = 560.dp,
+            footer = {
+                Spacer(Modifier.weight(1f))
+                MilkButton(
+                    label = "取消",
+                    onClick = { editingMessage = null },
+                    variant = MilkButtonVariant.SECONDARY,
+                )
+                Spacer(Modifier.width(MilkSpace.sm))
+                MilkButton(
+                    label = "保存并重新发送",
+                    enabled = editingText.isNotBlank(),
+                    onClick = {
+                        if (agent.editUserMessage(msg.id, editingText)) {
+                            editingMessage = null
+                        } else {
+                            toast = "无法修改:请先停止生成或清空草稿"
+                        }
+                    },
+                )
+            },
+        ) {
+            MilkTextField(
+                value = editingText,
+                onValueChange = { editingText = it },
+                placeholder = "消息内容",
+                singleLine = false,
+                minLines = 4,
+                maxLines = 12,
+                modifier = Modifier.testTag("message-edit-field"),
+            )
+        }
+    }
+
+    retractingMessage?.let { msg ->
+        MilkConfirmDialog(
+            title = "撤回这条消息？",
+            body = "该消息及其后的回复会一并移除,且无法恢复。",
+            confirmLabel = "撤回",
+            destructive = true,
+            icon = MilkIcons.Trash,
+            onDismiss = { retractingMessage = null },
+            onConfirm = {
+                if (agent.retractUserMessage(msg.id)) {
+                    retractingMessage = null
+                } else {
+                    toast = "无法撤回:请先停止生成或处理待确认操作"
+                }
+            },
+        )
+    }
+
+    sourceMessage?.let { msg ->
+        MilkCenterPanel(
+            title = "源文本",
+            subtitle = "原始 Markdown / LaTeX,未渲染",
+            onDismiss = { sourceMessage = null },
+            maxWidth = 680.dp,
+            footer = {
+                Spacer(Modifier.weight(1f))
+                MilkButton(
+                    label = "复制",
+                    onClick = { copyMessage(msg.text) },
+                    variant = MilkButtonVariant.SECONDARY,
+                )
+            },
+        ) {
+            SelectionContainer {
+                Text(
+                    text = msg.text,
+                    style = MilkText.monoBody,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 460.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+        }
     }
 }
 
@@ -1433,10 +1545,17 @@ private fun UserMessage(
     msg: UiMessage,
     notebookId: String?,
     pageIds: List<String>,
+    busy: Boolean,
     onPreview: (AgentPreviewTarget) -> Unit,
+    onEdit: (UiMessage) -> Unit,
+    onRetract: (UiMessage) -> Unit,
+    onCopy: (String) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val dark = LocalMilkDark.current
+    val density = LocalDensity.current
+    var menuOpen by remember(msg.id) { mutableStateOf(false) }
+    var menuOffset by remember(msg.id) { mutableStateOf(DpOffset.Zero) }
     val bubble = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         if (msg.attachments.isNotEmpty()) {
@@ -1466,6 +1585,13 @@ private fun UserMessage(
                         cs.primary.copy(alpha = if (dark) 0.28f else 0.16f),
                         bubble,
                     )
+                    .messageContextMenuTrigger { position ->
+                        menuOffset = with(density) {
+                            DpOffset(position.x.toDp(), position.y.toDp())
+                        }
+                        menuOpen = true
+                    }
+                    .testTag("agent-user-message-${msg.id}")
                     .padding(horizontal = 12.dp, vertical = 9.dp),
             ) {
                 val annotated = remember(msg.text, cs.primary) {
@@ -1490,9 +1616,103 @@ private fun UserMessage(
                 } else {
                     Text(msg.text, style = MilkText.body, color = cs.onSurface)
                 }
+                MessageActionMenu(
+                    expanded = menuOpen,
+                    offset = menuOffset,
+                    actions = messageMenuActions(MessageMenuTarget.USER, busy),
+                    onDismiss = { menuOpen = false },
+                    onAction = { id ->
+                        when (id) {
+                            "copy" -> onCopy(msg.text)
+                            "edit" -> onEdit(msg)
+                            "retract" -> onRetract(msg)
+                        }
+                    },
+                )
             }
         }
     }
+}
+
+/**
+ * 正文区域统一手势:鼠标/触控板 secondary click 与触屏/笔长按都打开同一个菜单。
+ * secondary click 在 Initial pass 消费,避免子级(公式/链接/@提及)把它当成一次普通点击。
+ */
+private fun Modifier.messageContextMenuTrigger(onOpen: (Offset) -> Unit): Modifier =
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(
+                requireUnconsumed = false,
+                pass = PointerEventPass.Initial,
+            )
+            if (currentEvent.buttons.isSecondaryPressed) {
+                down.consume()
+                onOpen(down.position)
+                consumeUntilUp()
+                return@awaitEachGesture
+            }
+            val longPress = awaitLongPressOrCancellation(down.id)
+            if (longPress != null) {
+                longPress.consume()
+                onOpen(longPress.position)
+                consumeUntilUp()
+            }
+        }
+    }
+
+/** 吃掉本次手势的剩余事件,避免抬手被公式/链接/@提及当成一次普通点击 */
+private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.consumeUntilUp() {
+    do {
+        val event = awaitPointerEvent(PointerEventPass.Initial)
+        event.changes.forEach { it.consume() }
+    } while (event.changes.any { it.pressed })
+}
+
+/** 消息菜单:锚定在右键/长按位置;禁用项保留位置,只变灰不消失 */
+@Composable
+private fun MessageActionMenu(
+    expanded: Boolean,
+    offset: DpOffset,
+    actions: List<MessageMenuAction>,
+    onDismiss: () -> Unit,
+    onAction: (String) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        offset = offset,
+        modifier = Modifier.testTag("message-action-menu"),
+    ) {
+        actions.forEach { action ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = action.label,
+                        style = MilkText.body,
+                        color = when {
+                            !action.enabled -> cs.onSurfaceVariant.copy(alpha = 0.45f)
+                            action.destructive -> cs.error
+                            else -> cs.onSurface
+                        },
+                    )
+                },
+                onClick = {
+                    if (action.enabled) {
+                        onDismiss()
+                        onAction(action.id)
+                    }
+                },
+                enabled = action.enabled,
+                modifier = Modifier.testTag("message-action-${action.id}"),
+            )
+        }
+    }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("agent", text))
 }
 
 private val mentionPattern = Regex("@[^\\s@]+")
@@ -1626,13 +1846,18 @@ private fun AssistantMessage(
     onWriteToNotes: (String) -> Unit,
     onPreview: (AgentPreviewTarget) -> Unit,
     onToast: (String) -> Unit,
+    onViewSource: (UiMessage) -> Unit,
+    onCopy: (String) -> Unit,
     onToggleReasoning: (Boolean) -> Unit = {},
 ) {
     val agent = ServiceLocator.agentController
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
+    val density = LocalDensity.current
     var copied by remember(msg.id) { mutableStateOf(false) }
+    var menuOpen by remember(msg.id) { mutableStateOf(false) }
+    var menuOffset by remember(msg.id) { mutableStateOf(DpOffset.Zero) }
     LaunchedEffect(copied) {
         if (copied) {
             delay(1500)
@@ -1655,30 +1880,58 @@ private fun AssistantMessage(
                 ThinkingDots()
             else -> {
                 if (msg.text.isNotBlank()) {
-                    MilkMarkdownView(
-                        text = msg.text,
-                        streaming = msg.streaming,
-                        onFormulaClick = { latex ->
-                            onPreview(
-                                AgentPreviewTarget.Markdown(
-                                    title = "公式预览",
-                                    content = latex,
-                                    docType = MarkdownLite.GeneratedDocType.LATEX,
-                                    canSaveToNotes = false,
-                                    canSaveCard = true,
-                                ),
-                            )
-                        },
-                        onPreviewDocument = { document -> onPreview(document.toPreviewTarget()) },
-                        onSaveDocumentToNotes = { document -> onWriteToNotes(document.content) },
-                        onSaveDocumentCard = { document -> onSaveCard(document.content) },
-                        onExportDocument = { document ->
-                            scope.launch {
-                                val ok = exportGeneratedDocument(context, document)
-                                if (!ok) onToast("导出失败")
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .messageContextMenuTrigger { position ->
+                                menuOffset = with(density) {
+                                    DpOffset(position.x.toDp(), position.y.toDp())
+                                }
+                                menuOpen = true
                             }
-                        },
-                    )
+                            .testTag("agent-assistant-message-${msg.id}"),
+                    ) {
+                        MilkMarkdownView(
+                            text = msg.text,
+                            streaming = msg.streaming,
+                            onFormulaClick = { latex ->
+                                onPreview(
+                                    AgentPreviewTarget.Markdown(
+                                        title = "公式预览",
+                                        content = latex,
+                                        docType = MarkdownLite.GeneratedDocType.LATEX,
+                                        canSaveToNotes = false,
+                                        canSaveCard = true,
+                                    ),
+                                )
+                            },
+                            onPreviewDocument = { document -> onPreview(document.toPreviewTarget()) },
+                            onSaveDocumentToNotes = { document -> onWriteToNotes(document.content) },
+                            onSaveDocumentCard = { document -> onSaveCard(document.content) },
+                            onExportDocument = { document ->
+                                scope.launch {
+                                    val ok = exportGeneratedDocument(context, document)
+                                    if (!ok) onToast("导出失败")
+                                }
+                            },
+                        )
+                        MessageActionMenu(
+                            expanded = menuOpen,
+                            offset = menuOffset,
+                            actions = messageMenuActions(MessageMenuTarget.AI, busy = false),
+                            onDismiss = { menuOpen = false },
+                            onAction = { id ->
+                                when (id) {
+                                    "copy" -> {
+                                        onCopy(msg.text)
+                                        copied = true
+                                    }
+
+                                    "source" -> onViewSource(msg)
+                                }
+                            },
+                        )
+                    }
                 }
                 if (msg.streaming && msg.text.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
@@ -1895,7 +2148,6 @@ private fun errorTitle(e: AgentError): String = when (e) {
 private fun Composer(
     state: AgentUiState,
     pageIds: List<String>,
-    pageLabel: String,
     onSnipToAttachment: () -> Unit,
 ) {
     val agent = ServiceLocator.agentController
@@ -1903,7 +2155,6 @@ private fun Composer(
     val cs = MaterialTheme.colorScheme
     val text = state.draftText
     var attachOpen by remember { mutableStateOf(false) }
-    var proficiencyDialog by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<AgentPreviewTarget?>(null) }
     var editingDraft by remember { mutableStateOf<DraftAttachment?>(null) }
     var editingBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -1924,12 +2175,7 @@ private fun Composer(
                     add(
                         "/${spec.label}" to {
                             agent.setDraftText("")
-                            // 熟练度分析必须先经过说明弹层(授权只能由用户显式发起)
-                            if (spec.id == Intents.Id.PROFICIENCY) {
-                                proficiencyDialog = true
-                            } else {
-                                agent.sendWithIntent(spec.id)
-                            }
+                            agent.sendWithIntent(spec.id)
                         },
                     )
                 }
@@ -2085,28 +2331,6 @@ private fun Composer(
                 )
             }
 
-            // 熟练度分析:用户显式申请入口(授权只覆盖本次请求与本页)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MilkChip(
-                    label = "申请熟练度分析",
-                    selected = false,
-                    onClick = { proficiencyDialog = true },
-                    small = true,
-                    role = Role.Button,
-                )
-                Spacer(Modifier.width(MilkSpace.sm))
-                Text(
-                    "仅本次 · $pageLabel",
-                    style = MilkText.monoMicro,
-                    color = cs.onSurfaceVariant,
-                )
-            }
-
             MilkComposerField(
                 value = text,
                 onValueChange = {
@@ -2183,24 +2407,6 @@ private fun Composer(
             text = toast.orEmpty(),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = MilkSpace.sm),
         )
-
-        if (proficiencyDialog) {
-            MilkConfirmDialog(
-                title = "申请熟练度分析？",
-                body = "本次会读取并发送${pageLabel}的元素时间信息" +
-                    "(笔迹创建时间、书写时长与是否已擦除;不含笔记原文与资产路径)。" +
-                    "授权只作用于本次请求和这一页,不会带入普通对话、重试、切页或新会话。\n\n" +
-                    "分析以题目/笔记的正确性为主要依据;如需判断对错,请先附加相关页面、题目或笔记截图。",
-                confirmLabel = "申请并发送",
-                destructive = false,
-                icon = MilkIcons.Clock,
-                onDismiss = { proficiencyDialog = false },
-                onConfirm = {
-                    proficiencyDialog = false
-                    agent.requestProficiencyAnalysis(text)
-                },
-            )
-        }
     }
 
     preview?.let { target ->

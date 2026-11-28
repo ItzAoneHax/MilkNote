@@ -1,11 +1,5 @@
 package com.milknote.agent
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -219,256 +213,6 @@ class BuiltinCapabilityReadOnlyTest {
     }
 }
 
-/** 授权:仅本次请求、仅发起时绑定页;不进入普通 turn / 重试 / 切页 / 新会话 / 摘要 */
-class ProficiencyGrantWiringTest {
-
-    @get:Rule
-    val tmp = TemporaryFolder()
-
-    private val page1 = PageRef("nb1", "p0001")
-    private val page2 = PageRef("nb1", "p0002")
-
-    private fun rig(
-        scope: CoroutineScope,
-        ws: TimestampWorkspace,
-        provider: AgentProvider,
-    ): ProfRig {
-        val files = File(tmp.newFolder(), "files").apply { mkdirs() }
-        val notebooks = File(tmp.newFolder(), "notebooks").apply { mkdirs() }
-        val store = AgentStore(files, notebooks)
-        val controller = AgentController(
-            scope = scope,
-            store = store,
-            snipSource = null,
-            annotationSink = null,
-            keyFor = { "sk-test" },
-            providerFactory = { _, _, _ -> provider },
-            workspace = ws,
-        )
-        controller.addProfile("glm", "", "", "sk-test")
-        controller.setSummaryConfig(SummaryConfig(enabled = false))
-        controller.openDrawer(page1)
-        return ProfRig(controller, store, ws)
-    }
-
-    @Test
-    fun `未申请时工具不可见-伪造调用被硬拒绝`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(3))
-        val provider = ScriptedProvider { _, i ->
-            if (i == 0) {
-                listOf(
-                    ChatEvent.ToolCallReady(
-                        ToolCall("t1", BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID, """{"x1":10,"y1":20}"""),
-                    ),
-                    ChatEvent.Done(null),
-                )
-            } else {
-                listOf(ChatEvent.Delta("没申请,不能分析"), ChatEvent.Done(null))
-            }
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.setDraftText("看看这页")
-        controller.send()
-        advanceUntilIdle()
-
-        val first = provider.requests.first()
-        assertFalse("未授权不得暴露工具", first.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-        assertFalse(first.system.contains("本轮已获授权"))
-        assertTrue("基础提示词始终带未申请边界", first.system.contains("不得推断"))
-
-        val toolMsg = provider.requests[1].continuationMessages.last { it.role == "tool" }
-        assertTrue(toolMsg.content, toolMsg.content.contains("申请") || toolMsg.content.contains("授权"))
-        assertTrue("伪造调用不得触达页面", ws.timestampCalls.isEmpty())
-        assertEquals(
-            ToolTrace.Status.ERROR,
-            controller.state.value.messages.last().toolTraces.single().status,
-        )
-
-        // 只选分析意图、不经过申请入口:不得发起请求,也不产生授权
-        val before = provider.requests.size
-        controller.sendWithIntent(Intents.Id.PROFICIENCY)
-        advanceUntilIdle()
-        assertEquals(before, provider.requests.size)
-        assertNotNull(controller.state.value.toast)
-    }
-
-    @Test
-    fun `申请入口只在本turn暴露工具并绑定发起页`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(2))
-        val provider = ScriptedProvider { _, i ->
-            if (i == 0) {
-                listOf(
-                    ChatEvent.ToolCallReady(
-                        ToolCall(
-                            "t1",
-                            BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID,
-                            """{"x1":10,"y1":20,"x2":300,"y2":400,"page_id":"p0002"}""",
-                        ),
-                    ),
-                    ChatEvent.Done(null),
-                )
-            } else {
-                listOf(ChatEvent.Delta("分析完成"), ChatEvent.Done(null))
-            }
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis("这是今天的练习")
-        advanceUntilIdle()
-
-        assertEquals(2, provider.requests.size)
-        assertTrue(provider.requests.all { r -> r.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID } })
-        assertTrue(provider.requests[0].system.contains("本轮已获授权"))
-        assertTrue(provider.requests[0].system.contains(page1.pageId))
-        assertTrue(provider.requests[0].system.contains("弱证据"))
-        assertTrue(provider.requests[0].system.contains("正确性"))
-        assertEquals(Intents.Id.PROFICIENCY, controller.state.value.messages.first().intent)
-
-        assertEquals(1, ws.timestampCalls.size)
-        assertEquals("参数里的 page_id 不能改授权页", page1, ws.timestampCalls[0].first)
-        assertEquals(Rect4(10f, 20f, 300f, 400f), ws.timestampCalls[0].second)
-        assertFalse("默认不含已擦除", ws.timestampCalls[0].third)
-
-        val toolMsg = provider.requests[1].continuationMessages.last { it.role == "tool" }
-        assertTrue(toolMsg.content.contains("kind=stroke"))
-        assertFalse("不得回传笔记原文", toolMsg.content.contains("secret note"))
-
-        // 轨迹不落原始时序,只留计数
-        val trace = controller.state.value.messages.last().toolTraces.single()
-        assertEquals(ToolTrace.Status.DONE, trace.status)
-        assertTrue(trace.resultSummary.contains("元素时序"))
-        assertEquals("", trace.output)
-    }
-
-    @Test
-    fun `申请后普通追问不再继承授权与工具`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(2))
-        val provider = ScriptedProvider { _, _ ->
-            listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-        assertTrue(provider.requests.last().system.contains("本轮已获授权"))
-
-        controller.setDraftText("那第二题呢")
-        controller.send()
-        advanceUntilIdle()
-
-        val followUp = provider.requests.last()
-        assertFalse("普通 turn 不得继承授权", followUp.system.contains("本轮已获授权"))
-        assertFalse(followUp.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-        assertTrue(followUp.history.none { it.content.contains("1700000000000") })
-    }
-
-    @Test
-    fun `重试不继承授权`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(2))
-        val provider = ScriptedProvider { _, i ->
-            if (i == 0) {
-                listOf(ChatEvent.Error(AgentError.Other("boom")))
-            } else {
-                listOf(ChatEvent.Delta("重试后的回答"), ChatEvent.Done(null))
-            }
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-        assertEquals(AgentMessage.Phase.FAILED, controller.state.value.messages.last().phase)
-
-        controller.retry()
-        advanceUntilIdle()
-
-        val retried = provider.requests.last()
-        assertFalse(retried.system.contains("本轮已获授权"))
-        assertFalse(retried.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-        assertFalse("重试文本不得声称已授权", retried.newUserText.contains("已授权"))
-    }
-
-    @Test
-    fun `切页与新会话不继承授权`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(2))
-        val provider = ScriptedProvider { _, _ ->
-            listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-
-        controller.bindPage(page2)
-        controller.setDraftText("换页后")
-        controller.send()
-        advanceUntilIdle()
-        val afterSwitch = provider.requests.last()
-        assertFalse(afterSwitch.system.contains("本轮已获授权"))
-        assertFalse(afterSwitch.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-
-        controller.clearSession()
-        controller.setDraftText("新会话")
-        controller.send()
-        advanceUntilIdle()
-        val afterClear = provider.requests.last()
-        assertFalse(afterClear.system.contains("本轮已获授权"))
-        assertFalse(afterClear.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-    }
-
-    @Test
-    fun `流式中切页即撤销授权且不再读旧页`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(1))
-        val gate = CompletableDeferred<Unit>()
-        val provider = GatedToolProvider(gate)
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-        assertEquals(1, provider.requests.size)
-        assertNull(ws.timestampCalls.firstOrNull())
-
-        controller.bindPage(page2)
-        gate.complete(Unit)
-        advanceUntilIdle()
-
-        assertTrue("换页后授权即撤销,旧页时序不得再被读取", ws.timestampCalls.isEmpty())
-        assertEquals("撤销后不再发下一轮", 1, provider.requests.size)
-        assertTrue("分析结果不得写进新页会话", controller.state.value.messages.isEmpty())
-    }
-
-    @Test
-    fun `摘要请求不带工具与时序提示`() = runTest {
-        val ws = TimestampWorkspace(sampleElements(1))
-        val provider = ScriptedProvider { req, _ ->
-            if (req.system == SUMMARY_SYSTEM_PROMPT) {
-                listOf(ChatEvent.Delta("标题"), ChatEvent.Done(null))
-            } else {
-                listOf(ChatEvent.Delta("答"), ChatEvent.Done(null))
-            }
-        }
-        val rig = rig(CoroutineScope(StandardTestDispatcher(testScheduler)), ws, provider)
-        val controller = rig.controller
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-        val sessionId = controller.state.value.currentSessionId!!
-        controller.regenerateSummary(sessionId)
-        advanceUntilIdle()
-
-        val summary = provider.requests.last()
-        assertEquals(SUMMARY_SYSTEM_PROMPT, summary.system)
-        assertTrue(summary.tools.isEmpty())
-        assertTrue(summary.continuationMessages.isEmpty())
-    }
-}
-
 /** 工具参数/范围/分页与输出字段 */
 class ElementTimestampsToolTest {
 
@@ -477,15 +221,15 @@ class ElementTimestampsToolTest {
     private val page = PageRef("nb1", "p0001")
 
     @Test
-    fun `注册表包含新工具且默认仅授权可见`() {
+    fun `注册表包含新工具且默认可见但强制确认`() {
         assertNotNull(registry.get(BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID))
         val spec = tool.spec
-        assertTrue(spec.requiresUserGrant)
+        assertTrue("内置确认不可被用户关闭", spec.defaultRequireConfirmation)
         assertTrue(spec.builtin)
         assertFalse(spec.recordOutputInTrace)
-        assertFalse(registry.effectiveWireTools(emptyMap()).any { it.name == spec.id })
         assertTrue(
-            registry.effectiveWireTools(emptyMap(), setOf(spec.id)).any { it.name == spec.id },
+            "普通请求也必须能看到工具,由执行前确认取得授权",
+            registry.effectiveWireTools(emptyMap()).any { it.name == spec.id },
         )
     }
 
@@ -497,7 +241,7 @@ class ElementTimestampsToolTest {
             tsCtx(ws, grant = null),
         )
         assertFalse(result.ok)
-        assertTrue(result.output, result.output.contains("申请"))
+        assertTrue(result.output, result.output.contains("授权"))
         assertTrue(ws.timestampCalls.isEmpty())
     }
 
@@ -768,136 +512,10 @@ class ElementTimestampsToolTest {
     }
 }
 
-/** 全流程:同一授权 turn 内多轮/多次调用可遍历,轨迹与历史不落原始时间 */
-class ProficiencyEndToEndTest {
-
-    @get:Rule
-    val tmp = TemporaryFolder()
-
-    @Test
-    fun `同一turn多次调用可遍历且历史不重发原始时间`() = runTest {
-        val elements = (1..45).map { i ->
-            ElementTimestamp("e%02d".format(i), "stroke", 1700000000000L + i, 90L, false)
-        }
-        val ws = TimestampWorkspace(elements)
-        val files = File(tmp.newFolder(), "files").apply { mkdirs() }
-        val notebooks = File(tmp.newFolder(), "notebooks").apply { mkdirs() }
-        val store = AgentStore(files, notebooks)
-        val provider = ScriptedProvider { _, i ->
-            when (i) {
-                0 -> listOf(
-                    ChatEvent.ToolCallReady(
-                        ToolCall("t1", BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID, """{"x1":0,"y1":0,"limit":30}"""),
-                    ),
-                    ChatEvent.Done(null),
-                )
-                1 -> listOf(
-                    ChatEvent.ToolCallReady(
-                        ToolCall("t2", BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID, """{"x1":0,"y1":0,"limit":30,"offset":30}"""),
-                    ),
-                    ChatEvent.Done(null),
-                )
-                else -> listOf(ChatEvent.Delta("整体连贯,建议补充验算"), ChatEvent.Done(null))
-            }
-        }
-        val controller = AgentController(
-            scope = CoroutineScope(StandardTestDispatcher(testScheduler)),
-            store = store,
-            snipSource = null,
-            annotationSink = null,
-            keyFor = { "sk-test" },
-            providerFactory = { _, _, _ -> provider },
-            workspace = ws,
-        )
-        controller.addProfile("glm", "", "", "sk-test")
-        controller.setSummaryConfig(SummaryConfig(enabled = false))
-        controller.openDrawer(PageRef("nb1", "p0001"))
-
-        controller.requestProficiencyAnalysis()
-        advanceUntilIdle()
-
-        assertEquals(3, provider.requests.size)
-        assertEquals(2, ws.timestampCalls.size)
-
-        val outputs = provider.requests
-            .flatMap { it.continuationMessages }
-            .filter { it.role == "tool" }
-            .map { it.content }
-        assertTrue(outputs.first().contains("e01"))
-        assertTrue(outputs.last().contains("e31"))
-        assertTrue(outputs.last().contains("e45"))
-        assertFalse(outputs.last().contains("nextOffset="))
-
-        val traces = controller.state.value.messages.last().toolTraces
-        assertEquals(2, traces.size)
-        assertTrue(traces.all { it.status == ToolTrace.Status.DONE && it.output.isEmpty() })
-        assertTrue(traces.all { it.resultSummary.contains("元素时序") })
-
-        val sessionId = controller.state.value.currentSessionId!!
-        val persisted = store.loadSession("nb1", sessionId)!!
-        val json = File(notebooks, "nb1.milk/agent/sessions/$sessionId.json").readText()
-        assertFalse("落盘不得含原始时间戳", json.contains("17000000000"))
-        assertTrue(persisted.messages.last().toolTraces.all { it.output.isEmpty() })
-
-        controller.setDraftText("继续")
-        controller.send()
-        advanceUntilIdle()
-        val followUp = provider.requests.last()
-        assertFalse(followUp.tools.any { it.name == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID })
-        assertTrue(followUp.history.none { it.content.contains("17000000000") })
-        assertFalse(followUp.system.contains("本轮已获授权"))
-    }
-}
-
 // ==================== 测试替身 ====================
-
-private class ProfRig(
-    val controller: AgentController,
-    val store: AgentStore,
-    val workspace: TimestampWorkspace,
-)
 
 private fun sampleElements(n: Int): List<ElementTimestamp> = (1..n).map { i ->
     ElementTimestamp("e$i", if (i % 2 == 0) "card" else "stroke", 1700000000000L + i, 100L + i, false)
-}
-
-private class ScriptedProvider(
-    private val script: (ChatRequest, Int) -> List<ChatEvent>,
-) : AgentProvider {
-    override val profileId = "scripted"
-    val requests = ArrayList<ChatRequest>()
-
-    override fun chat(req: ChatRequest) = flow {
-        requests.add(req)
-        script(req, requests.size - 1).forEach { emit(it) }
-    }
-
-    override suspend fun fetchModels(): Result<List<ModelInfo>> = Result.success(emptyList())
-    override suspend fun testConnection(): Result<Long> = Result.success(1L)
-}
-
-private class GatedToolProvider(private val gate: CompletableDeferred<Unit>) : AgentProvider {
-    override val profileId = "gated-tool"
-    val requests = ArrayList<ChatRequest>()
-
-    override fun chat(req: ChatRequest) = flow {
-        requests.add(req)
-        if (requests.size == 1) {
-            gate.await()
-            emit(
-                ChatEvent.ToolCallReady(
-                    ToolCall("t1", BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID, """{"x1":5,"y1":6}"""),
-                ),
-            )
-            emit(ChatEvent.Done(null))
-        } else {
-            emit(ChatEvent.Delta("ok"))
-            emit(ChatEvent.Done(null))
-        }
-    }
-
-    override suspend fun fetchModels(): Result<List<ModelInfo>> = Result.success(emptyList())
-    override suspend fun testConnection(): Result<Long> = Result.success(1L)
 }
 
 private class TimestampWorkspace(

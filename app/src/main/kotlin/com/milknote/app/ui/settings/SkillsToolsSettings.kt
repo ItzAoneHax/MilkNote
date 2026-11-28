@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.OpenWith
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,6 +51,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.milknote.agent.AgentSkill
+import com.milknote.agent.BuiltinTools
 import com.milknote.agent.ToolCategory
 import com.milknote.agent.ToolConfig
 import com.milknote.agent.ToolSpec
@@ -148,7 +150,6 @@ internal fun SkillsAndToolsPage() {
                 if (index > 0) Hairline()
                 val badges = buildList {
                     if (spec.defaultRequireConfirmation) add("需确认" to MilkStatusTone.WARNING)
-                    if (spec.requiresUserGrant) add("需申请" to MilkStatusTone.ACCENT)
                     add("只读" to MilkStatusTone.NEUTRAL)
                 }
                 ReadOnlyCapabilityRow(
@@ -237,6 +238,7 @@ private fun toolIconFor(id: String, category: ToolCategory): ImageVector = when 
     "add_page" -> Icons.AutoMirrored.Outlined.NoteAdd
     "delete_page" -> Icons.Outlined.DeleteOutline
     "insert_markdown" -> Icons.AutoMirrored.Outlined.Article
+    "insert_function_graph" -> Icons.Outlined.ShowChart
     "list_page_elements" -> Icons.Outlined.Layers
     "modify_page_element" -> Icons.Outlined.OpenWith
     "get_element_timestamps" -> Icons.Outlined.Schedule
@@ -397,14 +399,15 @@ private fun BuiltinToolViewer(spec: ToolSpec, onDismiss: () -> Unit) {
             Text(spec.defaultDescription, style = MilkText.body, color = cs.onSurface)
             if (spec.defaultRequireConfirmation) {
                 Text(
-                    "高危操作:执行前必须由用户确认,该策略不可关闭。",
+                    "执行前必须由用户确认,该策略不可关闭。",
                     style = MilkText.caption,
                     color = cs.onSurfaceVariant,
                 )
             }
-            if (spec.requiresUserGrant) {
+            if (spec.id == BuiltinTools.ELEMENT_TIMESTAMPS_TOOL_ID) {
                 Text(
-                    "仅在用户主动「申请熟练度分析」时对模型可见;执行时还要求授权页与发起页一致。",
+                    "模型在判改卷子、学习诊断等确有需要时可以调用;每次调用都会先请你授权," +
+                        "只读取本次页面元素的时间信息,不含笔记原文与资产路径。",
                     style = MilkText.caption,
                     color = cs.onSurfaceVariant,
                 )

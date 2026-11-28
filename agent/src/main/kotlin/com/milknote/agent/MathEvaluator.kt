@@ -31,6 +31,34 @@ object MathEvaluator {
         return Parser(expression, precision.coerceIn(0, 15)).parseProgram()
     }
 
+    /** 以给定变量值求值(函数图像采样用;避免拼接 "x = ..." 产生额外语句) */
+    fun evaluateAt(
+        expression: String,
+        variable: String = "x",
+        value: Double,
+        precision: Int = 10,
+    ): MathEvalResult {
+        if (expression.isBlank()) throw EvaluationException("表达式为空")
+        if (!variable.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
+            throw EvaluationException("变量名不合法:$variable")
+        }
+        if (!value.isFinite()) throw EvaluationException("变量 $variable 必须是有限数值")
+        return Parser(
+            expression,
+            precision.coerceIn(0, 15),
+            mapOf(variable to value),
+        ).parseProgram()
+    }
+
+    /** 表达式中的标识符(函数/常量/变量);tokenize 失败会抛 EvaluationException */
+    internal fun identifiers(expression: String): List<String> =
+        tokenize(expression).filter { it.kind == Kind.IDENT }.map { it.text }
+
+    internal fun isKnownIdentifier(name: String): Boolean {
+        val key = name.lowercase()
+        return key in CONSTANTS || key in FUNCTIONS
+    }
+
     // ---- tokenizer ----
 
     private enum class Kind { NUMBER, IDENT, OP, SEP, END }
@@ -92,10 +120,14 @@ object MathEvaluator {
 
     // ---- parser ----
 
-    private class Parser(private val src: String, private val precision: Int) {
+    private class Parser(
+        private val src: String,
+        private val precision: Int,
+        initialVars: Map<String, Double> = emptyMap(),
+    ) {
         private val tokens = tokenize(src)
         private var pos = 0
-        private val vars = LinkedHashMap<String, Double>()
+        private val vars = LinkedHashMap<String, Double>().apply { putAll(initialVars) }
 
         fun parseProgram(): MathEvalResult {
             var result: MathEvalResult? = null

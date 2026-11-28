@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.milknote.agent.FunctionGraphSpec
+import com.milknote.agent.GraphCrop
 import com.milknote.agent.Intents
 import com.milknote.agent.NotebookWorkspacePort
 import com.milknote.agent.PageDimensions
@@ -17,6 +19,8 @@ import com.milknote.agent.PageRef
 import com.milknote.agent.Rect4
 import com.milknote.app.agent.AgentBridge
 import com.milknote.app.agent.PageRenderer
+import com.milknote.app.graph.FunctionGraphAsset
+import com.milknote.app.graph.FunctionGraphRenderer
 import com.milknote.app.agent.WorkspaceElementSummaries
 import com.milknote.app.agent.WorkspaceElementTimestamps
 import com.milknote.app.di.ServiceLocator
@@ -381,6 +385,19 @@ class WriterViewModel : ViewModel() {
             return card.id
         }
 
+        override suspend fun insertFunctionGraph(
+            page: PageRef,
+            spec: FunctionGraphSpec,
+            xPx: Float,
+            yPx: Float,
+            widthPx: Float,
+        ): String? = insertFunctionGraphInternal(
+            page = page,
+            spec = spec,
+            crop = null,
+            placement = GraphPlacement(xPx, yPx, widthPx),
+        )
+
         override suspend fun listElements(page: PageRef): List<PageElementSummary> {
             val dims = pageDimensions(page) ?: return emptyList()
             val snapshot = capturePageSnapshot(page) ?: return emptyList()
@@ -502,6 +519,95 @@ class WriterViewModel : ViewModel() {
             }
             block(journal)
         }
+
+    private data class GraphPlacement(val xPx: Float, val yPx: Float, val widthPx: Float)
+
+    /**
+     * 函数图像插入共用链路:渲染(可裁剪)→ 内容 hash PNG → images/ → ImageElement → 当前/分屏/离屏。
+     * 用户入口走居中默认尺寸,AI 工具走明确 x/y/width;两条路径共用同一份资产与元素语义。
+     */
+    private suspend fun insertFunctionGraphInternal(
+        page: PageRef,
+        spec: FunctionGraphSpec,
+        crop: GraphCrop?,
+        placement: GraphPlacement?,
+    ): String? {
+        if (crop != null && runCatching { com.milknote.agent.FunctionGraph.validateCrop(crop) }.isFailure) {
+            return null
+        }
+        val nb = withContext(Dispatchers.IO) { repo.getNotebook(page.notebookId) } ?: return null
+        val pages = withContext(Dispatchers.IO) { repo.listPages(page.notebookId) }
+        if (pages.none { it.pageId == page.pageId }) return null
+        val (pageW, pageH) = nb.pageMm(page.pageId, PageRenderer.MM_TO_PX)
+        val bitmap = withContext(Dispatchers.Default) {
+            FunctionGraphRenderer.render(spec, 1200, 800, crop)
+        }
+        val png = FunctionGraphRenderer.pngBytes(bitmap)
+        val imgW = bitmap.width.coerceAtLeast(1)
+        val imgH = bitmap.height.coerceAtLeast(1)
+        bitmap.recycle()
+        val rel = withContext(Dispatchers.IO) {
+            FunctionGraphAsset.savePng(File(repo.notebookDir(page.notebookId), "images"), png)
+        }
+
+        var width: Float
+        var height: Float
+        val x: Float
+        val y: Float
+        if (placement != null) {
+            width = placement.widthPx.coerceIn(40f, pageW)
+            height = width * imgH / imgW
+            if (height > pageH) {
+                width *= pageH / height
+                height = pageH
+            }
+            x = placement.xPx.coerceIn(0f, (pageW - width).coerceAtLeast(0f))
+            y = placement.yPx.coerceIn(0f, (pageH - height).coerceAtLeast(0f))
+        } else {
+            val scale = minOf(
+                pageW * 0.82f / imgW,
+                pageH * 0.55f / imgH,
+                1f,
+            )
+            width = (imgW * scale).coerceAtLeast(minOf(40f, pageW))
+            height = (imgH * scale).coerceAtLeast(1f)
+            x = (pageW - width) / 2f
+            y = (pageH - height) / 2f
+        }
+
+        val image = ImageElement(
+            id = UUID.randomUUID().toString().substring(0, 12),
+            src = rel,
+            x = x,
+            y = y,
+            width = width,
+            height = height,
+            createdAt = System.currentTimeMillis(),
+        )
+        val inserted = insertImageElementToPage(page, image)
+        if (!inserted) return null
+        return image.id
+    }
+
+    /** 当前/分屏走对应控制器(撤销栈),其余页走离屏 Journal;成功后刷新缩略图 */
+    private suspend fun insertImageElementToPage(page: PageRef, image: ImageElement): Boolean {
+        val inserted = when {
+            isCurrentPageOpen(page) -> withContext(Dispatchers.Main) {
+                controller.addImageElement(image)
+                true
+            }
+            isSplitPageOpen(page) -> withContext(Dispatchers.Main) {
+                splitController.addImageElement(image)
+                true
+            }
+            else -> editOffscreenPage(page) {
+                it.addImageElement(image)
+                true
+            } ?: false
+        }
+        if (inserted) refreshThumbAfterPageEdit(page)
+        return inserted
+    }
 
     private suspend fun refreshThumbAfterPageEdit(page: PageRef) {
         if (page.notebookId != notebookId) return
@@ -687,6 +793,29 @@ class WriterViewModel : ViewModel() {
                 controller.addImageElement(image)
                 refreshThumbOf(pageId)
                 toast("已插入图片")
+            }
+        }
+    }
+
+    /**
+     * 用户函数图像面板入口:整图或有框选时插入选区,与 AI 工具共用渲染/资产/ImageElement 链路。
+     * [onResult] 在主线程回调;成功后面板据此关闭。
+     */
+    fun insertFunctionGraph(
+        spec: FunctionGraphSpec,
+        crop: GraphCrop? = null,
+        onResult: (Boolean) -> Unit = {},
+    ) {
+        val page = PageRef(notebookId, _state.value.currentPageId)
+        if (page.notebookId.isEmpty() || page.pageId.isEmpty()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val id = insertFunctionGraphInternal(page, spec, crop, placement = null)
+            withContext(Dispatchers.Main) {
+                if (id != null) toast("已将函数图像加入笔记") else toast("插入函数图像失败")
+                onResult(id != null)
             }
         }
     }

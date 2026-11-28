@@ -5,20 +5,23 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * 10 个内置工具(定义只读,用户不能改开关/确认/名称/说明/设置):
+ * 11 个内置工具(定义只读,用户不能改开关/确认/名称/说明/设置):
  * - SEARCH  web_search
  * - COMPUTE calculate
  * - PAGE    add_page / delete_page(确认)
- * - CANVAS  insert_markdown / list_page_elements / modify_page_element(确认)
- * - TIME    get_element_timestamps(仅用户显式申请熟练度分析时可见/可执行)
+ * - CANVAS  insert_markdown / insert_function_graph / list_page_elements / modify_page_element(确认)
+ * - TIME    get_element_timestamps(内置强制确认;用户同意后只读本次调用页)
  * - SKILL   read_skill / create_skill(内置技能不可覆盖)
  *
  * 只依赖 Ports.kt 的纯 Kotlin 端口,装配在 app 层。
  */
 object BuiltinTools {
 
-    /** 仅在熟练度分析授权内可用的时序工具 id(工具层与控制器共用) */
+    /** 仅在用户逐次确认授权后读取页面时序的工具 id(工具层与控制器共用) */
     const val ELEMENT_TIMESTAMPS_TOOL_ID = "get_element_timestamps"
+
+    /** 一次插入一张多曲线函数图像 */
+    const val INSERT_FUNCTION_GRAPH_TOOL_ID = "insert_function_graph"
 
     private const val TIMESTAMP_PAGE_DEFAULT = 20
     private const val TIMESTAMP_PAGE_MAX = 30
@@ -32,6 +35,7 @@ object BuiltinTools {
         register(AddPageTool())
         register(DeletePageTool())
         register(InsertMarkdownTool())
+        register(InsertFunctionGraphTool())
         register(ListPageElementsTool())
         register(ModifyPageElementTool())
         register(GetElementTimestampsTool())
@@ -406,6 +410,95 @@ object BuiltinTools {
         private fun round(v: Float): String = MathEvaluator.formatNumber(v.toDouble(), 1)
     }
 
+    private class InsertFunctionGraphTool : AgentTool {
+        override val spec = ToolSpec(
+            id = INSERT_FUNCTION_GRAPH_TOOL_ID,
+            defaultDisplayName = "插入函数图像",
+            defaultDescription = "在当前页插入一张函数图像,一次包含全部 1-6 条函数曲线。" +
+                "expressions 填一个或多个函数式(普通式或常用 LaTeX,如 x^2、sin(x)、\\frac{1}{x});" +
+                "colors 可选,与曲线一一对应。x/y/width 与 insert_markdown 相同;只在用户要求画图或直观图像明显有帮助时使用。",
+            category = ToolCategory.CANVAS,
+            defaultEnabled = true,
+            defaultRequireConfirmation = false,
+            parameters = listOf(
+                ToolParameter(
+                    "expressions", "array", "1-6 个函数表达式;每个元素一个函数", required = true,
+                    itemType = "string",
+                ),
+                ToolParameter(
+                    "colors", "array", "可选,每曲线一个 #RRGGBB 颜色;缺省使用内置 6 色调色板",
+                    itemType = "string",
+                ),
+                ToolParameter("x_min", "number", "x 轴最小值,默认 -10"),
+                ToolParameter("x_max", "number", "x 轴最大值,默认 10"),
+                ToolParameter("y_min", "number", "y 轴最小值,默认 -7"),
+                ToolParameter("y_max", "number", "y 轴最大值,默认 7"),
+                ToolParameter("x", "number", "水平位置:0..1 比例或 >1 像素,默认 0.08"),
+                ToolParameter("y", "number", "垂直位置:0..1 比例或 >1 像素,默认 0.12"),
+                ToolParameter("width", "number", "图像宽度:0.15..0.95 比例或 >1 像素,默认 0.55"),
+                ToolParameter("page_id", "string", "目标页 id,默认当前页"),
+            ),
+        )
+
+        override fun describeAction(args: JsonObject, ctx: ToolContext): String {
+            val count = ToolArgs.stringList(args, "expressions").size
+            val page = ToolArgs.string(args, "page_id") ?: ctx.boundPage?.pageId
+            val suffix = if (count > 0) "($count 条曲线)" else ""
+            return if (page != null) "在第 $page 页插入函数图像$suffix" else "插入函数图像$suffix"
+        }
+
+        override suspend fun execute(args: JsonObject, ctx: ToolContext): ToolExecResult {
+            val expressions = ToolArgs.stringList(args, "expressions")
+            if (expressions.isEmpty()) return ToolExecResult(false, "缺少 expressions 参数(1-6 个函数表达式)")
+            val colors = ToolArgs.colorList(args, "colors")
+            val defaults = GraphViewport()
+            val viewport = GraphViewport(
+                xMin = ToolArgs.number(args, "x_min") ?: defaults.xMin,
+                xMax = ToolArgs.number(args, "x_max") ?: defaults.xMax,
+                yMin = ToolArgs.number(args, "y_min") ?: defaults.yMin,
+                yMax = ToolArgs.number(args, "y_max") ?: defaults.yMax,
+            )
+            val spec = try {
+                FunctionGraph.build(expressions, colors, viewport)
+            } catch (e: FunctionGraphException) {
+                return ToolExecResult(false, e.message ?: "函数表达式不合法")
+            }
+            val workspace = ctx.workspace
+                ?: return ToolExecResult(false, "当前未接入笔记本工作区")
+            val page = targetPage(args, ctx)
+                ?: return ToolExecResult(false, "未绑定页面,无法插入函数图像")
+            val dims = workspace.pageDimensions(page)
+                ?: return ToolExecResult(false, "无法读取页面尺寸")
+            val pageW = dims.widthPx.coerceAtLeast(1f)
+            val pageH = dims.heightPx.coerceAtLeast(1f)
+
+            val widthPx = resolveLength(ToolArgs.number(args, "width") ?: 0.55, pageW)
+                .coerceIn(0f, (pageW * 0.95f).coerceAtLeast(minOf(40f, pageW)))
+            val xPx = resolveCoordinate(ToolArgs.number(args, "x") ?: 0.08, pageW)
+                .coerceIn(0f, (pageW - widthPx).coerceAtLeast(0f))
+            val yPx = resolveCoordinate(ToolArgs.number(args, "y") ?: 0.12, pageH)
+                .coerceIn(0f, (pageH - 40f).coerceAtLeast(0f))
+
+            val id = workspace.insertFunctionGraph(page, spec, xPx, yPx, widthPx)
+                ?: return ToolExecResult(false, "插入函数图像失败(页面不可达或渲染失败)")
+            val vp = spec.viewport
+            val summary = "x[${fmt(vp.xMin)}, ${fmt(vp.xMax)}] y[${fmt(vp.yMin)}, ${fmt(vp.yMax)}]"
+            return ToolExecResult(
+                true,
+                "已插入函数图像(id=$id);${spec.curves.size} 条曲线;视口 $summary",
+                "已插入函数图像",
+            )
+        }
+
+        private fun resolveCoordinate(value: Double, dimension: Float): Float =
+            if (value > 1.0) value.toFloat() else (value * dimension).toFloat()
+
+        private fun resolveLength(value: Double, dimension: Float): Float =
+            if (value > 1.0) value.toFloat() else (value * dimension).toFloat()
+
+        private fun fmt(v: Double): String = MathEvaluator.formatNumber(v, 2)
+    }
+
     private class ListPageElementsTool : AgentTool {
         override val spec = ToolSpec(
             id = "list_page_elements",
@@ -559,19 +652,19 @@ object BuiltinTools {
         private fun numText(v: Double): String = MathEvaluator.formatNumber(v, 2)
     }
 
-    // ==================== TIMESTAMP(仅熟练度分析授权) ====================
+    // ==================== TIMESTAMP(逐次确认授权) ====================
 
     private class GetElementTimestampsTool : AgentTool {
         override val spec = ToolSpec(
             id = ELEMENT_TIMESTAMPS_TOOL_ID,
             defaultDisplayName = "读取页面元素时序",
-            defaultDescription = "读取授权页面指定区域内的元素时间信息(仅在用户就本页显式申请熟练度分析时可用)。" +
+            defaultDescription = "读取当前页指定区域内的元素时间信息。调用前会先向用户申请授权,只有用户同意后才执行。" +
                 "坐标为页面原始像素:x1/y1 必填,x2/y2 需同时提供(都不给表示点选),两顶点顺序任意。" +
                 "返回按顶层到最底层的 id、类型、创建时间、笔迹时长与是否已擦除,不含笔记原文与资产路径。" +
                 "时间只是弱证据,不得据此推断思考耗时、熟练度或心理状态;叠层多时用 offset/limit 分页遍历。",
             category = ToolCategory.CANVAS,
             builtin = true,
-            requiresUserGrant = true,
+            defaultRequireConfirmation = true,
             recordOutputInTrace = false,
             parameters = listOf(
                 ToolParameter("x1", "number", "矩形一角 X(页面原始像素)", required = true),
@@ -585,14 +678,14 @@ object BuiltinTools {
         )
 
         override fun describeAction(args: JsonObject, ctx: ToolContext): String =
-            "读取页面 ${ctx.elementTimestampsPage?.pageId ?: "?"} 的元素时序"
+            "读取页面 ${ctx.boundPage?.pageId ?: "?"} 的元素时序"
 
         override suspend fun execute(args: JsonObject, ctx: ToolContext): ToolExecResult {
             val page = ctx.elementTimestampsPage
                 ?: return ToolExecResult(
                     false,
-                    "未获得用户本次熟练度分析申请,拒绝读取页面时间数据。" +
-                        "请提示用户点击「申请熟练度分析」后再试。",
+                    "未获得用户本次读取授权,拒绝读取页面时间数据。" +
+                        "不要重复调用;请基于已有内容回答,或说明需要用户同意后才能读取时序。",
                 )
             val workspace = ctx.workspace
                 ?: return ToolExecResult(false, "当前未接入笔记本工作区")
